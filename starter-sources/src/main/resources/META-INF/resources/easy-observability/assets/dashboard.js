@@ -137,8 +137,16 @@ function openEntryDetails(item) {
   byId('entry-dialog').showModal()
 }
 
+function traceEntryName(trace) {
+  const name = (trace.name || '').trim()
+  const detail = (trace.method || '').trim()
+  if (!name) return detail
+  if (!detail || name.includes(detail)) return name
+  return `${detail} ${name}`
+}
+
 async function openTrace(trace) {
-  byId('dialog-title').textContent = `${labels[trace.sourceType] || trace.sourceType || 'Trace'} · ${trace.method || ''} ${trace.name || ''}`.trim()
+  byId('dialog-title').textContent = `${labels[trace.sourceType] || trace.sourceType || 'Trace'} · ${traceEntryName(trace)}`.trim()
   byId('trace-facts').replaceChildren()
   const facts = [
     `状态 ${trace.status ?? '—'}`, `耗时 ${formatNumber(trace.durationMs, ' ms')}`,
@@ -233,7 +241,7 @@ function orderOperations(operations) {
 function traceRow(trace, target) {
   const row = document.createElement('tr')
   makeClickable(row, `查看 Trace ${trace.traceId}`, () => openTrace(trace))
-  td(row, `${labels[trace.sourceType] || trace.sourceType || '入口'} · ${trace.method || ''} ${trace.name || ''}`.trim())
+  td(row, `${labels[trace.sourceType] || trace.sourceType || '入口'} · ${traceEntryName(trace)}`.trim())
   if (target === 'slow') {
     td(row, formatNumber(trace.durationMs, ' ms'), 'number')
     td(row, formatNumber(trace.cpuTimeMs, ' ms'), 'number')
@@ -272,7 +280,7 @@ function renderIncidentTables() {
     const row = document.createElement('tr')
     makeClickable(row, `查看 Trace ${trace.traceId}`, () => openTrace(trace))
     const result = td(row, trace.error ? '错误' : trace.slow ? '慢' : '正常', `status ${trace.error ? 'error' : trace.slow ? 'slow' : 'ok'}`)
-    td(row, `${labels[trace.sourceType] || trace.sourceType || '入口'} · ${trace.method || ''} ${trace.name || ''}`.trim())
+    td(row, `${labels[trace.sourceType] || trace.sourceType || '入口'} · ${traceEntryName(trace)}`.trim())
     td(row, formatNumber(trace.status), 'number'); td(row, formatNumber(trace.durationMs, ' ms'), 'number')
     td(row, trace.traceId, 'mono'); td(row, formatTime(trace.finishedAt)); rows.append(row)
   }
