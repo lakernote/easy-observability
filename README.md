@@ -44,7 +44,7 @@ mvn -pl examples/easy-observability-example-boot4 -am package
 java -jar examples/easy-observability-example-boot4/target/easy-observability-example-boot4-0.1.0-alpha.0.jar
 ```
 
-分别访问 `http://localhost:8083/` 或 `http://localhost:8084/`，触发正常、慢、错误和嵌套 Trace 请求，再打开页面查看趋势与下钻详情。
+分别访问 `http://localhost:8083/` 或 `http://localhost:8084/`，可触发正常、慢、高 CPU、高内存分配、错误和嵌套 Trace 请求，再打开页面查看趋势与下钻详情。CPU 示例最多运行 3 秒；内存示例最多分配 32 MiB，并会等待片刻以进入慢请求列表。它们用于本机体验，不建议在生产环境或共享实例上触发。
 
 ## 配置
 
