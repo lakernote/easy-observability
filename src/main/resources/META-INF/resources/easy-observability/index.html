@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="theme-color" content="#f4f7fb">
+  <title>Easy Observability · 应用运行诊断</title>
+  <link rel="stylesheet" href="/easy-observability/assets/dashboard.css?v=20261018.1">
+  <link rel="stylesheet" href="/easy-observability/assets/dashboard-controls.css?v=20261018.1">
+</head>
+<body>
+  <a class="skip-link" href="#main-content">跳到主要内容</a>
+  <header class="masthead">
+    <div class="masthead-inner">
+      <a class="brand" href="#overview" aria-label="Easy Observability 首页">
+        <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M5 17h5l3-8 5 15 3-9h6"/><circle cx="5" cy="17" r="1.5"/><circle cx="27" cy="15" r="1.5"/></svg></span>
+        <span class="brand-copy"><strong>Easy Observability</strong><small>应用运行诊断</small></span>
+      </a>
+      <nav class="primary-nav" aria-label="页面导航">
+        <a class="active" href="#overview">概览</a>
+        <a href="#metrics-section">Metrics</a>
+        <a href="#entry-section">入口统计</a>
+        <a href="#incidents-section">慢与错误</a>
+        <a href="#traces-section">Trace</a>
+      </nav>
+      <div class="toolbar">
+        <span id="instance" class="instance-pill"><i aria-hidden="true"></i>连接中</span>
+        <label class="period-control"><span>时间范围</span><select id="period" aria-label="趋势和事件时间范围"><option value="1">近 1 小时</option><option value="6">近 6 小时</option><option value="24" selected>近 24 小时</option><option value="168">近 7 天</option><option value="720">近 30 天</option></select></label>
+        <button id="refresh" class="refresh-button" type="button" aria-label="刷新数据"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16.2 8A6.5 6.5 0 0 0 4.8 5.5L3 7.3M3 4v3.5h3.5M3.8 12a6.5 6.5 0 0 0 11.4 2.5l1.8-1.8M17 16v-3.5h-3.5"/></svg><span>刷新</span></button>
+      </div>
+    </div>
+  </header>
+
+  <main id="main-content" class="report">
+    <div id="notice" class="notice" role="alert" hidden></div>
+    <section id="overview" class="overview-section" aria-labelledby="page-title">
+      <div class="page-heading">
+        <div><p class="eyebrow">APPLICATION OBSERVABILITY</p><h1 id="page-title">运行概览</h1><p class="page-description">从运行趋势到单次调用，快速定位应用中的慢与错误。</p></div>
+        <div class="updated-pill"><span id="status-dot" class="live-dot" aria-hidden="true"></span><span id="updated">等待数据</span></div>
+      </div>
+      <div class="summary-grid" aria-label="运行摘要">
+        <article class="summary-card summary-primary"><div class="summary-label"><span class="summary-icon icon-requests" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4V5Z"/><path d="M8 9h8M8 12h5"/></svg></span><span>入口调用</span></div><strong id="total-count">—</strong><small>进程启动以来累计</small></article>
+        <article class="summary-card"><div class="summary-label"><span class="summary-icon icon-duration" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3 2"/></svg></span><span>平均耗时</span></div><strong id="mean-duration">—</strong><small>按当前入口筛选</small></article>
+        <article class="summary-card"><div class="summary-label"><span class="summary-icon icon-slow" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3 2.8 19h18.4L12 3Z"/><path d="M12 9v4m0 3h.01"/></svg></span><span>慢请求</span></div><strong id="slow-count">—</strong><small>当前时间范围</small></article>
+        <article class="summary-card"><div class="summary-label"><span class="summary-icon icon-error" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="m9 9 6 6m0-6-6 6"/></svg></span><span>错误请求</span></div><strong id="failure-count">—</strong><small>当前时间范围</small></article>
+        <article class="summary-card"><div class="summary-label"><span class="summary-icon icon-rate" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 17 9 12l3 3 8-9"/><path d="M15 6h5v5"/></svg></span><span>错误率</span></div><strong id="error-rate">—</strong><small>按当前入口筛选</small></article>
+      </div>
+    </section>
+
+    <section id="metrics-section" class="report-section" aria-labelledby="metrics-title">
+      <div class="section-heading"><div><p class="eyebrow">METRICS</p><h2 id="metrics-title">系统与应用趋势</h2><p>Micrometer 指标按分钟写入本地 RRD4J，可对比查看最多 4 条曲线。</p></div><span id="metric-storage-status" class="source-badge" role="status">本地历史 · 1 分钟采样</span></div>
+      <details class="series-picker">
+        <summary><span class="picker-leading"><span class="picker-icon" aria-hidden="true">＋</span><span><strong>选择趋势指标</strong><small id="trend-selection-note" role="status">最多选择 4 项</small></span></span><span class="picker-chevron" aria-hidden="true">⌄</span></summary>
+        <div class="picker-content"><label class="sr-only" for="trend-search">搜索指标</label><input id="trend-search" type="search" placeholder="搜索指标名称或标签" autocomplete="off"><div id="trend-options" class="trend-options" role="group" aria-label="趋势指标"></div></div>
+      </details>
+      <div id="trend-grid" class="trend-grid"><p class="empty">正在读取指标趋势…</p></div>
+    </section>
+
+    <section id="entry-section" class="report-section" aria-labelledby="entry-title">
+      <div class="section-heading"><div><p class="eyebrow">ENTRY POINTS</p><h2 id="entry-title">入口请求统计</h2><p>按进程启动以来累计。选择一行可查看保留窗口中的单次调用。</p></div></div>
+      <div class="section-tools"><div class="filters" id="entry-filters" role="group" aria-label="入口类型"><button class="selected" data-source="ALL" aria-pressed="true">全部入口</button><button data-source="HTTP" aria-pressed="false">HTTP</button><button data-source="JOB" aria-pressed="false">Job</button><button data-source="KAFKA_CONSUMER" aria-pressed="false">Kafka 消费</button></div><span class="table-hint">按累计耗时排序</span></div>
+      <div class="table-scroll"><table><thead><tr><th>入口</th><th>调用次数</th><th>累计耗时占比</th><th>平均耗时</th><th>最大耗时</th><th>错误数</th><th>错误率</th><th>平均 CPU</th><th>平均分配内存</th></tr></thead><tbody id="entry-rows"></tbody></table></div>
+      <p id="entry-empty" class="empty" hidden>当前没有入口调用统计。HTTP 入口由 Spring Observation 采集；任务和 Kafka 消费需启用对应 Observation。</p>
+    </section>
+
+    <section id="incidents-section" class="report-section" aria-labelledby="incidents-title">
+      <div class="section-heading"><div><p class="eyebrow">SLOW &amp; ERRORS</p><h2 id="incidents-title">需要关注的请求</h2><p>只保留慢请求和失败入口的完整 Trace，点击记录即可下钻。</p></div><span class="source-badge">按所选时间范围</span></div>
+      <div class="incident-columns">
+        <section class="incident-panel slow-panel" aria-labelledby="slow-title"><div class="incident-heading"><span class="incident-symbol" aria-hidden="true">!</span><h3 id="slow-title">慢请求</h3><b id="slow-total">0</b></div><div class="table-scroll"><table><thead><tr><th>入口</th><th>耗时</th><th>CPU</th><th>分配内存</th><th>线程</th><th>完成时间</th></tr></thead><tbody id="slow-rows"></tbody></table></div><p id="slow-empty" class="empty" hidden>当前范围内没有慢请求</p></section>
+        <section class="incident-panel error-panel" aria-labelledby="error-title"><div class="incident-heading"><span class="incident-symbol" aria-hidden="true">×</span><h3 id="error-title">错误请求</h3><b id="error-total">0</b></div><div class="table-scroll"><table><thead><tr><th>入口</th><th>状态</th><th>错误</th><th>耗时</th><th>线程</th><th>完成时间</th></tr></thead><tbody id="error-rows"></tbody></table></div><p id="error-empty" class="empty" hidden>当前范围内没有错误请求</p></section>
+      </div>
+    </section>
+
+    <section id="traces-section" class="report-section" aria-labelledby="traces-title">
+      <div class="section-heading"><div><p class="eyebrow">TRACE EXPLORER</p><h2 id="traces-title">最近入口调用</h2><p>成功、慢、错误入口均可查看 Trace 和下游调用。</p></div><span class="source-badge">最多读取最近 500 条</span></div>
+      <div class="table-scroll"><table><thead><tr><th>结果</th><th>入口</th><th>状态</th><th>耗时</th><th>Trace ID</th><th>完成时间</th></tr></thead><tbody id="trace-rows"></tbody></table></div><p id="trace-empty" class="empty" hidden>尚无已完成 Trace</p>
+      <div class="table-footer"><span id="trace-page"></span><button id="trace-prev" type="button">上一页</button><button id="trace-next" type="button">下一页</button></div>
+    </section>
+    <footer class="page-footer"><span>Easy Observability</span><span>数据来自当前应用实例 · 指标历史保存在本地</span></footer>
+  </main>
+
+  <dialog id="entry-dialog" aria-labelledby="entry-dialog-title"><div class="dialog-head"><div><p class="eyebrow">ENTRY STATISTIC</p><h2 id="entry-dialog-title">入口执行记录</h2></div><button id="close-entry-dialog" class="dialog-close" aria-label="关闭">×</button></div><p id="entry-dialog-note" class="dialog-note"></p><div class="table-scroll"><table><thead><tr><th>结果</th><th>状态</th><th>耗时</th><th>Trace ID</th><th>完成时间</th></tr></thead><tbody id="entry-trace-rows"></tbody></table></div></dialog>
+  <dialog id="trace-dialog" aria-labelledby="dialog-title"><div class="dialog-head"><div><p class="eyebrow">TRACE DETAIL</p><h2 id="dialog-title">请求详情</h2></div><button id="close-dialog" class="dialog-close" aria-label="关闭">×</button></div><div id="trace-facts" class="trace-facts"></div><h3>调用树</h3><pre id="trace-tree"></pre><h3>调用明细</h3><div class="table-scroll"><table id="operation-table"><thead><tr><th>类型</th><th>操作</th><th>耗时</th><th>CPU</th><th>分配内存</th><th>线程</th><th>结果</th><th>错误</th></tr></thead><tbody id="operation-rows"></tbody></table></div></dialog>
+  <script type="module" src="/easy-observability/assets/dashboard.js?v=20261018.1"></script>
+</body>
+</html>
