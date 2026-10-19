@@ -1,20 +1,50 @@
-# Easy Observability Spring Boot Starter
+# Easy Observability
 
-Easy Observability 是面向 Spring Boot 应用的轻量监控 Starter，基于 Micrometer 提供指标、慢错误诊断和进程内 Trace Tree。项目使用 Spring Boot 官方父 POM 独立构建，不依赖特定宿主应用、数据库或业务模块。
+Easy Observability 是面向 Spring Boot 应用的轻量监控项目，基于 Micrometer 提供指标趋势、慢请求与错误诊断、Trace 调用树和线程资源信息。项目包含 Spring Boot 3 / 4 两个独立 Starter，以及可直接运行的示例应用。
 
 Starter 自带 Spring Boot Actuator 的 Micrometer 自动配置，因此 Web 应用可以直接产出 `http.server.requests` 等框架指标；Actuator Web 端点仍遵循 Spring Boot 默认暴露范围，独立监控页面使用 `/easy-observability/`。
 
-## 添加依赖
+## 选择 Spring Boot 版本
+
+Spring Boot 3 和 4 使用不同的 Starter artifact，避免在一个构件中混合两代自动配置和模块依赖。两者使用相同的 Easy Observability API 和实现。
+
+Spring Boot 3：
 
 ```xml
 <dependency>
     <groupId>com.laker.observability</groupId>
-    <artifactId>easy-observability-spring-boot-starter</artifactId>
+    <artifactId>easy-observability-spring-boot-3-starter</artifactId>
     <version>0.1.0-alpha.0</version>
 </dependency>
 ```
 
-本仓库是独立 Maven 项目，可在项目根目录运行 `mvn verify`。当前版本为预览版，尚未发布到 Maven Central。
+Spring Boot 4：
+
+```xml
+<dependency>
+    <groupId>com.laker.observability</groupId>
+    <artifactId>easy-observability-spring-boot-4-starter</artifactId>
+    <version>0.1.0-alpha.0</version>
+</dependency>
+```
+
+当前版本为预览版，尚未发布到 Maven Central。Java 17+、Maven 3.6.3+ 可在项目根目录构建全部 Starter 和示例：`mvn verify`。
+
+## 运行示例
+
+仓库提供 Spring Boot 3 和 Spring Boot 4 两个独立示例，默认仅监听本机端口并允许匿名访问监控 API，适合本地体验，不要直接用于生产环境。
+
+```bash
+# Spring Boot 3 示例
+mvn -pl examples/easy-observability-example-boot3 -am package
+java -jar examples/easy-observability-example-boot3/target/easy-observability-example-boot3-0.1.0-alpha.0.jar
+
+# Spring Boot 4 示例（另开终端）
+mvn -pl examples/easy-observability-example-boot4 -am package
+java -jar examples/easy-observability-example-boot4/target/easy-observability-example-boot4-0.1.0-alpha.0.jar
+```
+
+分别访问 `http://localhost:8083/` 或 `http://localhost:8084/`，触发正常、慢、错误和嵌套 Trace 请求，再打开页面查看趋势与下钻详情。
 
 ## 配置
 

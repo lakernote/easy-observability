@@ -1,6 +1,6 @@
-/target/
-/.idea/
-/.vscode/
+**/target/
+**/data/
+.idea/
+.vscode/
 *.iml
 .DS_Store
-/data/
