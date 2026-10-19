@@ -50,7 +50,8 @@ public final class MybatisTraceInterceptor implements Interceptor {
         long threadId = Thread.currentThread().getId();
         String threadName = Thread.currentThread().getName();
         boolean sample = properties.getTrace().isResourceSamplingEnabled();
-        ThreadResourceSnapshot before = ThreadResourceSnapshot.capture(threadId, sample);
+        boolean sampleContention = properties.getTrace().isThreadContentionSamplingEnabled();
+        ThreadResourceSnapshot before = ThreadResourceSnapshot.capture(threadId, sample, sampleContention);
         TraceContext.DetachedSpan span = TraceContext.active()
                 ? TraceContext.startDetachedSpan(name, SpanKind.DATABASE, command) : null;
         long started = System.nanoTime();
@@ -63,7 +64,7 @@ public final class MybatisTraceInterceptor implements Interceptor {
         } finally {
             long durationNanos = Math.max(0, System.nanoTime() - started);
             long durationMs = TimeUnit.NANOSECONDS.toMillis(durationNanos);
-            ThreadResourceSnapshot after = ThreadResourceSnapshot.capture(threadId, sample);
+            ThreadResourceSnapshot after = ThreadResourceSnapshot.capture(threadId, sample, sampleContention);
             boolean failed = failure != null;
             long threshold = properties.getMybatis().getSlowThresholdMs();
             boolean slow = threshold > 0 && durationMs >= threshold;

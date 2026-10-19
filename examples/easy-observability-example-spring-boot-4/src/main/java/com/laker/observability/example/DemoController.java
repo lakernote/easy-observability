@@ -24,8 +24,14 @@ public class DemoController {
                 <li><a href="/api/demo/high-cpu?durationMs=900">高 CPU 请求（约 900 ms）</a></li>
                 <li><a href="/api/demo/high-memory?sizeMb=24">高内存分配请求（24 MiB）</a></li>
                 <li><a href="/api/demo/error">错误请求（HTTP 500）</a></li>
-                <li><a href="/api/demo/trace">嵌套调用树（模拟数据库、Redis、远程调用）</a></li></ul>
-                <p class="note">示例不连接真实数据库或中间件；树节点用于演示追踪 API，明确标记为模拟调用。</p></html>
+                <li><a href="/api/demo/trace">嵌套调用树（模拟调用）</a></li>
+                <li><a href="/api/demo/redis">真实 Redis 读写</a></li>
+                <li><a href="/api/demo/remote">真实远程调用（httpbingo，含 1 秒延迟）</a></li>
+                <li><a href="/api/demo/kafka">Kafka 正常消费并验证 Trace ID</a></li>
+                <li><a href="/api/demo/kafka/slow">Kafka 慢消费（约 650 ms）</a></li>
+                <li><a href="/api/demo/kafka/error">Kafka 消费异常（验证错误 Trace）</a></li>
+                <li><a href="/api/demo/kafka/status">查看最近消费的 Trace ID</a></li></ul>
+                <p class="note">真实 Redis 和 Kafka 示例需要先启动 examples/docker-compose.yml 中的依赖。定时任务每 30 秒自动执行一次 Redis 计数。</p></html>
                 """;
     }
 

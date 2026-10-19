@@ -2,6 +2,13 @@ package com.laker.observability.autoconfigure;
 
 import com.laker.observability.config.EasyObservabilityProperties;
 import com.laker.observability.integration.kafka.TraceIdProducerInterceptor;
+import com.laker.observability.integration.observation.ObservationTraceHandler;
+import com.laker.observability.metrics.OperationRecorder;
+import com.laker.observability.trace.store.RecentTraceStore;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.common.header.internals.RecordHeader;
+import org.springframework.kafka.support.micrometer.KafkaRecordReceiverContext;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
@@ -16,6 +23,7 @@ import org.springframework.kafka.listener.RecordInterceptor;
 
 import java.util.List;
 import java.util.Map;
+import java.nio.charset.StandardCharsets;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -52,6 +60,33 @@ class KafkaTraceAutoConfigurationTest {
                     assertThat(names).contains("example.ExistingInterceptor",
                             TraceIdProducerInterceptor.class.getName());
                     factory.destroy();
+                });
+    }
+
+    @Test
+    void consumerObservationUsesTraceIdFromKafkaRecordHeader() {
+        EasyObservabilityProperties properties = new EasyObservabilityProperties();
+        RecentTraceStore history = new RecentTraceStore(10, 10);
+        OperationRecorder recorder = new OperationRecorder(new SimpleMeterRegistry(), history, properties);
+        new ApplicationContextRunner()
+                .withConfiguration(AutoConfigurations.of(KafkaTraceAutoConfiguration.class))
+                .withBean(EasyObservabilityProperties.class, () -> properties)
+                .run(context -> {
+                    ObservationTraceHandler handler = new ObservationTraceHandler(recorder, history, null,
+                            properties, context.getBeansOfType(
+                            com.laker.observability.integration.observation.ObservationTraceIdResolver.class)
+                                    .values().stream().toList());
+                    ConsumerRecord<String, String> record = new ConsumerRecord<>("events", 0, 1L, "key", "value");
+                    record.headers().add(new RecordHeader("X-Trace-Id",
+                            "trace-from-message".getBytes(StandardCharsets.UTF_8)));
+                    KafkaRecordReceiverContext receiver = new KafkaRecordReceiverContext(record, "demo-listener", () -> "cluster");
+                    receiver.setName("spring.kafka.listener");
+
+                    handler.onStart(receiver);
+                    handler.onStop(receiver);
+
+                    assertThat(history.recent(10)).singleElement()
+                            .satisfies(trace -> assertThat(trace.traceId()).isEqualTo("trace-from-message"));
                 });
     }
 

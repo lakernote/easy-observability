@@ -86,7 +86,8 @@ public final class RedissonTraceConnectionFactoryPostProcessor implements BeanPo
             long threadId = Thread.currentThread().getId();
             long startedNanos = System.nanoTime();
             ThreadResourceSnapshot before = ThreadResourceSnapshot.capture(threadId,
-                    properties.getTrace().isResourceSamplingEnabled());
+                    properties.getTrace().isResourceSamplingEnabled(),
+                    properties.getTrace().isThreadContentionSamplingEnabled());
             TraceContext.DetachedSpan span = TraceContext.startDetachedSpan("Redis " + name, SpanKind.REDIS, name);
             Throwable failure = null;
             try {
@@ -106,7 +107,8 @@ public final class RedissonTraceConnectionFactoryPostProcessor implements BeanPo
                         Throwable failure, OperationRecorder recorder, EasyObservabilityProperties properties) {
         long durationMs = Math.max(0, TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedNanos));
         ThreadResourceSnapshot after = ThreadResourceSnapshot.capture(threadId,
-                properties.getTrace().isResourceSamplingEnabled());
+                properties.getTrace().isResourceSamplingEnabled(),
+                properties.getTrace().isThreadContentionSamplingEnabled());
         long threshold = properties.getTrace().getRedisSlowThresholdMs();
         boolean slow = threshold > 0 && durationMs >= threshold;
         try {

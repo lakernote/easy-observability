@@ -151,6 +151,7 @@ public class EasyObservabilityProperties {
         private long jobSlowThresholdMs = 1_000;
         private long slowThresholdMs = 250;
         private boolean resourceSamplingEnabled = true;
+        private boolean threadContentionSamplingEnabled;
         private String slowErrorOperationFile = "./data/easy-observability/incidents.jsonl";
         private String slowErrorTraceFile = "./data/easy-observability/traces.jsonl";
         private int slowErrorHistoryLimit = 10_000;
@@ -181,6 +182,10 @@ public class EasyObservabilityProperties {
         public boolean isResourceSamplingEnabled() { return resourceSamplingEnabled; }
         public void setResourceSamplingEnabled(boolean resourceSamplingEnabled) {
             this.resourceSamplingEnabled = resourceSamplingEnabled;
+        }
+        public boolean isThreadContentionSamplingEnabled() { return threadContentionSamplingEnabled; }
+        public void setThreadContentionSamplingEnabled(boolean enabled) {
+            this.threadContentionSamplingEnabled = enabled;
         }
         public String getSlowErrorOperationFile() { return slowErrorOperationFile; }
         public void setSlowErrorOperationFile(String slowErrorOperationFile) { this.slowErrorOperationFile = slowErrorOperationFile; }

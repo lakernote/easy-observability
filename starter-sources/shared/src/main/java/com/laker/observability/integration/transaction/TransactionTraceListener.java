@@ -77,7 +77,8 @@ public final class TransactionTraceListener implements TransactionExecutionListe
             state.threadId = Thread.currentThread().getId();
             state.threadName = Thread.currentThread().getName();
             state.resources = ThreadResourceSnapshot.capture(state.threadId,
-                    properties.getTrace().isResourceSamplingEnabled());
+                    properties.getTrace().isResourceSamplingEnabled(),
+                    properties.getTrace().isThreadContentionSamplingEnabled());
             if (state.tracing) {
                 // A transaction is an operation inside an entry trace, never an entry itself.
                 state.span = TraceContext.startDetachedSpan(state.name, SpanKind.TRANSACTION,
@@ -110,12 +111,17 @@ public final class TransactionTraceListener implements TransactionExecutionListe
                     - (state.started ? state.startedNanos : state.createdNanos)));
             boolean slow = properties.getTransaction().getSlowThresholdMs() > 0
                     && durationMs >= properties.getTransaction().getSlowThresholdMs();
-            if (state.tracing && slow) TraceContext.markSlow("LONG_TRANSACTION");
-            if (state.tracing && !success && failure != null) TraceContext.markError("TRANSACTION_ERROR", failure);
-            if (state.span != null) state.span.run();
+            boolean sameThread = state.threadId == Thread.currentThread().getId();
+            if (state.tracing && sameThread && slow) TraceContext.markSlow("LONG_TRANSACTION");
+            if (state.tracing && sameThread && !success && failure != null) {
+                TraceContext.markError("TRANSACTION_ERROR", failure);
+            }
+            if (sameThread && state.span != null) state.span.run();
 
-            ThreadResourceSnapshot end = transactionStarted
-                    ? ThreadResourceSnapshot.capture(state.threadId, properties.getTrace().isResourceSamplingEnabled())
+            ThreadResourceSnapshot end = transactionStarted && sameThread
+                    ? ThreadResourceSnapshot.capture(state.threadId,
+                    properties.getTrace().isResourceSamplingEnabled(),
+                    properties.getTrace().isThreadContentionSamplingEnabled())
                     : null;
             BoundedThrowableFormatter.FailureEvidence error = failure == null ? null
                     : BoundedThrowableFormatter.capture(failure);

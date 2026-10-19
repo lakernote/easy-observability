@@ -3,14 +3,36 @@ server:
 spring:
   application:
     name: easy-observability-example-spring-boot-4
+  data:
+    redis:
+      host: localhost
+      port: 16379
+      connect-timeout: 2s
+      timeout: 2s
+  kafka:
+    bootstrap-servers: localhost:29092
+    consumer:
+      group-id: easy-observability-demo
+      auto-offset-reset: earliest
+    template:
+      observation-enabled: true
+    listener:
+      observation-enabled: true
 easy:
   observability:
+    kafka:
+      enabled: true
+    demo:
+      schedule-initial-delay: 5s
+      schedule-delay: 30s
+      httpbingo-base-url: https://httpbingo.org
     web:
       enabled: true
       allow-anonymous: true # 仅用于本机示例，不要在生产环境开放匿名访问。
     trace:
       slow-threshold-ms: 250
       job-slow-threshold-ms: 250
+      redis-observation-enabled: false # Lettuce 在 Netty 线程完成命令；示例用 TraceBlock 包裹真实同步命令以保留父子关系。
       slow-error-operation-file: ./data/easy-observability-example-spring-boot-4/incidents.jsonl
       slow-error-trace-file: ./data/easy-observability-example-spring-boot-4/traces.jsonl
     metrics:

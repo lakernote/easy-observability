@@ -12,6 +12,8 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
+import java.util.concurrent.CompletableFuture;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 class ObservationTraceHandlerTest {
@@ -180,5 +182,30 @@ class ObservationTraceHandlerTest {
             assertThat(trace.name()).isEqualTo("/orders · GET");
             assertThat(trace.tree()).contains("/orders · GET");
         });
+    }
+
+    @Test
+    void asyncStopDoesNotFinishTraceOwnedByAnotherThread() {
+        EasyObservabilityProperties properties = new EasyObservabilityProperties();
+        RecentTraceStore history = new RecentTraceStore(10, 10);
+        OperationRecorder recorder = new OperationRecorder(new SimpleMeterRegistry(), history, properties);
+        ObservationRegistry registry = ObservationRegistry.create();
+        registry.observationConfig().observationHandler(new ObservationTraceHandler(recorder, history, properties));
+        Observation observation = Observation.createNotStarted("http.server.requests", registry)
+                .lowCardinalityKeyValue("http.request.method", "GET")
+                .lowCardinalityKeyValue("http.route", "/async")
+                .start();
+
+        boolean unrelatedTraceWasPreserved = CompletableFuture.supplyAsync(() -> {
+            TraceContext.startRoot("GET /unrelated", SpanKind.HTTP);
+            observation.stop();
+            boolean active = TraceContext.active();
+            TraceContext.clear();
+            return active;
+        }).join();
+
+        assertThat(unrelatedTraceWasPreserved).isTrue();
+        assertThat(TraceContext.active()).isTrue();
+        assertThat(history.recent(10)).isEmpty();
     }
 }

@@ -74,11 +74,11 @@ class TraceTreeTest {
         String tree = trace.renderTree();
 
         assertThat(tree)
-                .contains("[Mapper] SysUserMapper#selectById [count=2 total=")
+                .contains("[Database] SysUserMapper#selectById [count=2 total=")
                 .contains(" min=")
                 .contains(" max=")
                 .contains("] ")
-                .contains("[Mapper] SysRoleMapper#selectList ")
+                .contains("[Database] SysRoleMapper#selectList ")
                 .doesNotContain("tag=\"\"");
         assertThat(occurrences(tree, "SysUserMapper#selectById")).isEqualTo(2);
     }

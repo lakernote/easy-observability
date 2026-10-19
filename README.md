@@ -2,7 +2,7 @@
 
 Easy Observability 是面向 Spring Boot 应用的轻量监控项目，基于 Micrometer 提供指标趋势、慢请求与错误诊断、Trace 调用树和线程资源信息。项目包含 Spring Boot 3 / 4 两个独立 Starter，以及可直接运行的示例应用。
 
-Starter 自带 Spring Boot Actuator 的 Micrometer 自动配置，因此 Web 应用可以直接产出 `http.server.requests` 等框架指标；Actuator Web 端点仍遵循 Spring Boot 默认暴露范围，独立监控页面使用 `/easy-observability/`。
+Starter 自动引入 Spring Boot Actuator，为 Micrometer 指标和 Observation 提供 Boot 管理的注册表与框架接入。Easy Observability 复用该注册表，不替换现有 Bean，也不设置 `management.*` 配置；Actuator 端点仍遵循 Spring Boot 自己的默认暴露范围。宿主应用如果已经引入 Actuator，Maven 会复用同一套依赖，不会创建第二个注册表。
 
 ## 选择 Spring Boot 版本
 
@@ -34,7 +34,7 @@ Spring Boot 4：
 
 - 根 easy-observability 是父 POM 和聚合 POM，发布 Starter 时也需要发布它；示例只用于本地体验，不上传 Maven Central。
 - 两个 Starter 保留一致的能力边界，Boot 3 / Boot 4 专属源码位于 `starter-sources/spring-boot-3` 和 `starter-sources/spring-boot-4`；共用实现和资源位于 `starter-sources/shared`。这些是源码集合，不是独立 Maven 构件。
-- Actuator、Micrometer、Jackson 和 RRD4J 是默认指标与本地历史存储所需的基础依赖。
+- Actuator、Micrometer Core、Micrometer Observation、Jackson 和 RRD4J 是指标与本地历史存储所需的基础依赖。Starter 使用 Boot 的 Actuator 自动配置，但不改动其端点暴露设置，也不会覆盖宿主应用已有的 `MeterRegistry` 或 `ObservationRegistry`。
 - Web MVC、Servlet、AOP、Redis/Lettuce、Kafka、事务、MyBatis 和 Feign 依赖均为可选；只有宿主应用已引入相应框架时才启用对应适配，不会把 Tomcat、Kafka 或 Redis 客户端强加给使用者。
 - Spring Boot 4 使用 Boot 4 拆分后的 Kafka、Redis 自动配置依赖；Boot 3 继续使用其 spring-boot-autoconfigure 中提供的扩展点。两个 Starter 的依赖版本分别由各自 Boot BOM 管理，共享的独立集成版本在根 POM 集中维护。
 
@@ -95,6 +95,8 @@ easy:
       header-name: X-Trace-Id
       slow-threshold-ms: 250
       job-slow-threshold-ms: 1000
+      resource-sampling-enabled: true
+      thread-contention-sampling-enabled: false
       slow-error-operation-file: ./data/easy-observability/incidents.jsonl
       slow-error-trace-file: ./data/easy-observability/traces.jsonl
       slow-error-history-limit: 10000
@@ -164,6 +166,8 @@ Micrometer 当前指标每分钟写入 RRD4J。默认保留至少 30 天，使�
 独立页面采用 JavaMelody 报告式阅读顺序：顶部运行摘要、多个关键指标趋势、入口统计、慢请求/错误列表和最近 Trace。入口统计展示 HTTP、Job、Kafka 消费的调用数、平均/最大耗时、累计耗时占比、失败数/失败率、线程 CPU 时间和分配内存均值。计数从当前应用进程启动后累计；趋势范围作用于 RRD4J 时间序列和慢错事件列表。页面默认选择最多四个常用趋势，也可搜索 Micrometer 历史目录并切换最多四个指标。
 
 Trace 根节点只由 HTTP server、Job 和 Kafka consumer 入口创建。HTTP client、Kafka producer、Redis、Elasticsearch、JDBC/MyBatis 与事务作为当前入口下的操作节点；它们在没有入口上下文时只记录操作指标，不会伪装成一次独立请求。发生慢调用或错误时，慢错列表打开入口 Trace，展示调用树、操作耗时、线程 ID、CPU 和线程分配内存。线程资源值受 JVM 支持和操作是否在同一线程完成的影响；异步切换线程时无法可靠计算的字段显示为空。慢错 Trace 在进程重启后仍可查询；数据按当前实例本地保存，不会自动汇总多个实例。
+
+线程 CPU 时间和线程分配字节默认采样，可通过 `easy.observability.trace.resource-sampling-enabled=false` 关闭。分配字节表示操作期间线程累计分配量，不是操作结束时仍占用的堆内存。阻塞/等待计数需要额外查询 JVM `ThreadInfo`，默认关闭以减少高频调用开销；需要这些指标时可开启 `easy.observability.trace.thread-contention-sampling-enabled=true`。JVM 未启用相应线程监控能力时，字段显示为空值。
 
 页面资源可直接打开，但 `/api/easy-observability/**` 默认拒绝匿名读取，避免新接入的应用意外暴露 Trace、错误摘要和线程信息。推荐由应用提供 `ObservabilityAccessPolicy` Bean 接入自己的登录/权限体系；页面同源请求会携带 Cookie，也支持 `window.EasyObservabilityAuth.token()` 钩子传入 Bearer Token。只有在可信本地开发环境，才显式设置 `easy.observability.web.allow-anonymous=true` 开放匿名读取。
 

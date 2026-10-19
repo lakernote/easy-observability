@@ -13,6 +13,7 @@ import com.laker.observability.metrics.history.MetricHistoryCollector;
 import com.laker.observability.metrics.history.MetricHistoryStore;
 import com.laker.observability.integration.job.JobObservation;
 import com.laker.observability.integration.observation.ObservationTraceHandler;
+import com.laker.observability.integration.observation.ObservationTraceIdResolver;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -27,7 +28,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  * 注册监控共用组件。
  * <p>各 Bean 都允许宿主应用通过同类型 Bean 替换；框架专属接入由独立自动配置按需启用。</p>
  */
-@AutoConfiguration(afterName = "org.springframework.boot.autoconfigure.jackson.JacksonAutoConfiguration")
+@AutoConfiguration(afterName = {
+        "org.springframework.boot.autoconfigure.jackson.JacksonAutoConfiguration",
+        "org.springframework.boot.actuate.autoconfigure.observation.ObservationAutoConfiguration",
+        "org.springframework.boot.actuate.autoconfigure.metrics.MetricsAutoConfiguration"
+})
 @ConditionalOnProperty(prefix = "easy.observability", name = "enabled", havingValue = "true", matchIfMissing = true)
 @EnableConfigurationProperties(EasyObservabilityProperties.class)
 @Import(MetricCardinalityConfiguration.class)
@@ -41,6 +46,7 @@ public class ObservabilityAutoConfiguration {
     }
 
     @Bean
+    @ConditionalOnBean(MeterRegistry.class)
     @ConditionalOnMissingBean
     BusinessMetrics businessMetrics(MeterRegistry meterRegistry, EasyObservabilityProperties properties) {
         return new BusinessMetrics(meterRegistry, properties.getMetrics().isEnabled());
@@ -85,6 +91,7 @@ public class ObservabilityAutoConfiguration {
     }
 
     @Bean
+    @ConditionalOnBean(MeterRegistry.class)
     @ConditionalOnProperty(prefix = "easy.observability.metrics.history", name = "enabled",
             havingValue = "true", matchIfMissing = true)
     @ConditionalOnMissingBean
@@ -95,6 +102,7 @@ public class ObservabilityAutoConfiguration {
     }
 
     @Bean
+    @ConditionalOnBean(MeterRegistry.class)
     @ConditionalOnMissingBean
     OperationRecorder operationRecorder(MeterRegistry meterRegistry, RecentTraceStore recentTraces,
                                         IncidentOperationStore incidentOperations, EasyObservabilityProperties properties) {
@@ -119,11 +127,13 @@ public class ObservabilityAutoConfiguration {
     @Bean
     @ConditionalOnProperty(prefix = "easy.observability.trace", name = "enabled",
             havingValue = "true", matchIfMissing = true)
+    @ConditionalOnBean(OperationRecorder.class)
     @ConditionalOnMissingBean
     ObservationTraceHandler observationTraceHandler(OperationRecorder recorder, RecentTraceStore history,
                                                     IncidentTraceStore archive,
-                                                    EasyObservabilityProperties properties) {
-        return new ObservationTraceHandler(recorder, history, archive, properties);
+                                                    EasyObservabilityProperties properties,
+                                                    org.springframework.beans.factory.ObjectProvider<ObservationTraceIdResolver> resolvers) {
+        return new ObservationTraceHandler(recorder, history, archive, properties, resolvers.orderedStream().toList());
     }
 
 }

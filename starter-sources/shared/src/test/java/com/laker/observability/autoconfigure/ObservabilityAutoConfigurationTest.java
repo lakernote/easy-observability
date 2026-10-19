@@ -47,6 +47,21 @@ class ObservabilityAutoConfigurationTest {
     }
 
     @Test
+    void startsWithoutCreatingAMeterRegistryForTheHostApplication() {
+        new ApplicationContextRunner()
+                .withConfiguration(AutoConfigurations.of(ObservabilityAutoConfiguration.class,
+                        RuntimeMetricsAutoConfiguration.class))
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(context).hasSingleBean(com.laker.observability.config.EasyObservabilityProperties.class);
+                    assertThat(context).hasSingleBean(com.laker.observability.trace.store.RecentTraceStore.class);
+                    assertThat(context).doesNotHaveBean(BusinessMetrics.class);
+                    assertThat(context).doesNotHaveBean(com.laker.observability.metrics.OperationRecorder.class);
+                    assertThat(context).doesNotHaveBean(MeterRegistry.class);
+                });
+    }
+
+    @Test
     void startsWithoutSpringAopOnTheApplicationClasspath() {
         contextRunner.withClassLoader(new FilteredClassLoader("org.aspectj")).run(context -> {
             assertThat(context).hasNotFailed();

@@ -6,6 +6,7 @@ import io.micrometer.core.instrument.binder.jvm.JvmMemoryMetrics;
 import io.micrometer.core.instrument.binder.system.ProcessorMetrics;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 
@@ -17,6 +18,7 @@ import org.springframework.context.annotation.Bean;
 @ConditionalOnProperty(prefix = "easy.observability", name = "enabled", havingValue = "true", matchIfMissing = true)
 @ConditionalOnProperty(prefix = "easy.observability.metrics", name = "enabled", havingValue = "true", matchIfMissing = true)
 @ConditionalOnClass({JvmMemoryMetrics.class, ProcessorMetrics.class})
+@ConditionalOnBean(MeterRegistry.class)
 public class RuntimeMetricsAutoConfiguration {
     @Bean(destroyMethod = "close")
     RuntimeMetricsBinder runtimeMetricsBinder(MeterRegistry registry) {

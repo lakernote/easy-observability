@@ -3,9 +3,8 @@ package com.laker.observability.trace;
 /** Describes the kind of work represented by a trace span. */
 public enum SpanKind {
     HTTP("Http"),
-    CONTROLLER("Controller"),
     SERVICE("Service"),
-    DATABASE("Mapper"),
+    DATABASE("Database"),
     REDIS("Redis"),
     TRANSACTION("Transaction"),
     REMOTE("Remote"),
