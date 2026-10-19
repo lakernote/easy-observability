@@ -3,8 +3,6 @@ const byId = id => document.getElementById(id)
 const labels = { HTTP: 'HTTP', JOB: 'Job', KAFKA_CONSUMER: 'Kafka 消费', REDIS: 'Redis', DATABASE: '数据库', SQL: '数据库', TRANSACTION: '事务', REMOTE: '远程调用', ELASTICSEARCH: 'Elasticsearch', KAFKA_PRODUCER: 'Kafka 生产' }
 let requestStats = []
 let traces = []
-let slowOperations = []
-let errorOperations = []
 let selectedSource = 'ALL'
 let seriesCatalog = []
 let liveMetrics = []
@@ -55,6 +53,28 @@ async function getJson(path) {
   if (response.status === 401 || response.status === 403) throw new Error('监控数据访问受限，请登录或配置 ObservabilityAccessPolicy')
   if (!response.ok) throw new Error(`读取监控数据失败：${response.status}`)
   return response.json()
+}
+function initializeEmbeddedAuth() {
+  if (window.parent === window) return Promise.resolve()
+  return new Promise(resolve => {
+    let completed = false
+    const finish = token => {
+      if (completed) return
+      completed = true
+      clearTimeout(timeout)
+      window.removeEventListener('message', receiveAuth)
+      window.EasyObservabilityAuth = { token: () => token }
+      resolve()
+    }
+    const receiveAuth = event => {
+      if (event.origin !== window.location.origin || event.source !== window.parent
+        || event.data?.type !== 'easy-observability:auth-response') return
+      finish(typeof event.data.token === 'string' ? event.data.token : '')
+    }
+    const timeout = setTimeout(() => finish(''), 1500)
+    window.addEventListener('message', receiveAuth)
+    window.parent.postMessage({ type: 'easy-observability:auth-request' }, window.location.origin)
+  })
 }
 function td(row, value, className = '') {
   const cell = document.createElement('td')
@@ -139,16 +159,8 @@ function openEntryDetails(item) {
   byId('entry-dialog').showModal()
 }
 
-function traceEntryName(trace) {
-  const name = (trace.name || '').trim()
-  const detail = (trace.method || '').trim()
-  if (!name) return detail
-  if (!detail || name.includes(detail)) return name
-  return `${detail} ${name}`
-}
-
 async function openTrace(trace) {
-  byId('dialog-title').textContent = `${labels[trace.sourceType] || trace.sourceType || 'Trace'} · ${traceEntryName(trace)}`.trim()
+  byId('dialog-title').textContent = `${labels[trace.sourceType] || trace.sourceType || 'Trace'} · ${trace.method || ''} ${trace.name || ''}`.trim()
   byId('trace-facts').replaceChildren()
   const facts = [
     `状态 ${trace.status ?? '—'}`, `耗时 ${formatNumber(trace.durationMs, ' ms')}`,
@@ -163,12 +175,7 @@ async function openTrace(trace) {
   let detail = trace
   try { detail = await getJson(`/traces/${encodeURIComponent(trace.traceId)}`) || trace }
   catch (error) { byId('trace-tree').textContent = error?.message || '读取 Trace 明细失败'; return }
-  const focusedOperation = trace.incidentOperation
-  if (focusedOperation?.type === 'KAFKA_CONSUMER') {
-    byId('trace-tree').textContent = `\`- [Kafka 消费] ${focusedOperation.name || 'receive'}${focusedOperation.detail ? ` · ${focusedOperation.detail}` : ''} ${formatNumber(focusedOperation.durationMs, ' ms')}\n\nKafka 消费在 Listener 线程异步执行。下方明细按实际 Span 关系展示同 Trace 操作；仅 Trace ID 相同的操作不会误画成父子调用。`
-  } else {
-    byId('trace-tree').textContent = detail.tree || '此请求未触发慢或错误，未保存完整调用树；已采集的下游操作见下表。'
-  }
+  byId('trace-tree').textContent = detail.tree || '此请求未触发慢或错误，未保存完整调用树；已采集的下游操作见下表。'
   const operationRows = byId('operation-rows'); operationRows.replaceChildren()
   const renderedRows = new Set()
   for (const { operation, depth } of orderOperations(detail.operations || [])) {
@@ -212,39 +219,31 @@ function orderOperations(operations) {
     seen.add(identity)
     unique.push(operation)
   }
-  const byId = new Map()
-  for (const operation of unique) {
-    if (!operation.spanId) continue
-    const candidates = byId.get(operation.spanId) || []
-    candidates.push(operation)
-    byId.set(operation.spanId, candidates)
-  }
+  const byId = new Map(unique.filter(item => item.spanId).map(item => [item.spanId, item]))
   const children = new Map()
   const roots = []
   const ordered = unique.sort((left, right) => new Date(left.finishedAt).getTime() - new Date(right.finishedAt).getTime())
   for (const operation of ordered) {
     const parentId = operation.parentSpanId
-    const candidates = parentId && parentId !== operation.spanId
-      ? (byId.get(parentId) || []).filter(candidate => candidate !== operation)
-      : []
-    // 每个线程的根 Span 都从本地编号 1 开始；同 Trace 的异步消费者可能与 HTTP 根节点编号相同。
-    // 父子关系优先匹配同一线程，避免仅因 Span ID 相同就把 Kafka consumer 错挂到 HTTP 调用树。
-    const sameThread = candidates.filter(candidate => candidate.threadId === operation.threadId
-      && candidate.threadName === operation.threadName)
-    const parent = sameThread.length === 1 ? sameThread[0] : candidates.length === 1 ? candidates[0] : null
-    if (parent) {
-      const siblings = children.get(parent) || []
+    if (parentId && parentId !== operation.spanId && byId.has(parentId)) {
+      const siblings = children.get(parentId) || []
       siblings.push(operation)
-      children.set(parent, siblings)
+      children.set(parentId, siblings)
     } else roots.push(operation)
   }
   const result = []
   const visitedOperations = new Set()
+  const visitedSpanIds = new Set()
   const visit = (operation, depth) => {
     if (visitedOperations.has(operation)) return
+    if (operation.spanId && visitedSpanIds.has(operation.spanId)) {
+      visitedOperations.add(operation)
+      return
+    }
     visitedOperations.add(operation)
+    if (operation.spanId) visitedSpanIds.add(operation.spanId)
     result.push({ operation, depth })
-    for (const child of children.get(operation) || []) visit(child, depth + 1)
+    for (const child of children.get(operation.spanId) || []) visit(child, depth + 1)
   }
   roots.forEach(root => visit(root, 0))
   ordered.forEach(operation => {
@@ -256,7 +255,7 @@ function orderOperations(operations) {
 function traceRow(trace, target) {
   const row = document.createElement('tr')
   makeClickable(row, `查看 Trace ${trace.traceId}`, () => openTrace(trace))
-  td(row, `${labels[trace.sourceType] || trace.sourceType || '入口'} · ${traceEntryName(trace)}`.trim())
+  td(row, `${labels[trace.sourceType] || trace.sourceType || '入口'} · ${trace.method || ''} ${trace.name || ''}`.trim())
   if (target === 'slow') {
     td(row, formatNumber(trace.durationMs, ' ms'), 'number')
     td(row, formatNumber(trace.cpuTimeMs, ' ms'), 'number')
@@ -264,7 +263,7 @@ function traceRow(trace, target) {
     td(row, formatNumber(trace.threadId), 'number')
   } else {
     td(row, formatNumber(trace.status), 'number')
-    const root = trace.incidentOperation || (trace.operations || []).find(op => op.type === trace.sourceType)
+    const root = (trace.operations || []).find(op => op.type === trace.sourceType)
     td(row, root ? [root.errorType, root.errorMessage].filter(Boolean).join(': ') : trace.tree?.split('\n').find(line => /ERROR|HTTP_5/.test(line)) || '—')
     td(row, formatNumber(trace.durationMs, ' ms'), 'number')
     td(row, formatNumber(trace.threadId), 'number')
@@ -273,45 +272,9 @@ function traceRow(trace, target) {
   return row
 }
 function renderIncidentTables() {
-  const incidentRows = (operations, flag) => {
-    const rows = []
-    const seen = new Set()
-    for (const operation of operations) {
-      if (!['HTTP', 'JOB', 'KAFKA_CONSUMER'].includes(operation.type) || !operation[flag]) continue
-      const identity = `${operation.traceId}:${operation.type}:${operation.spanId}:${operation.finishedAt}`
-      if (seen.has(identity)) continue
-      seen.add(identity)
-      const rootTrace = traces.find(trace => trace.traceId === operation.traceId)
-      rows.push({
-        ...(rootTrace || {}),
-        id: `${operation.traceId}:${operation.type}:${operation.spanId}`,
-        traceId: operation.traceId,
-        sourceType: operation.type,
-        name: rootTrace?.sourceType === operation.type ? rootTrace.name : operation.detail || operation.name,
-        method: rootTrace?.sourceType === operation.type ? rootTrace.method : '',
-        status: rootTrace?.sourceType === operation.type ? rootTrace.status : operation.error ? 500 : 200,
-        durationMs: operation.durationMs,
-        cpuTimeMs: operation.cpuTimeMs,
-        allocatedBytes: operation.allocatedBytes,
-        threadId: operation.threadId,
-        finishedAt: operation.finishedAt,
-        slow: operation.slow,
-        error: operation.error,
-        incidentOperation: operation,
-        tree: rootTrace?.tree || `\`- [${operation.type}] ${operation.name}${operation.detail ? ` · ${operation.detail}` : ''} ${formatNumber(operation.durationMs, ' ms')}\n`,
-        operations: rootTrace?.operations || [operation]
-      })
-    }
-    // 老版本或已裁剪的操作记录可能没有保留入口 Operation，仍显示 Trace 根记录。
-    for (const trace of traces) {
-      if (!trace[flag] || rows.some(row => row.traceId === trace.traceId && row.sourceType === trace.sourceType)) continue
-      rows.push(trace)
-    }
-    return rows.filter(inSelectedPeriod).sort((left, right) =>
-      new Date(right.finishedAt).getTime() - new Date(left.finishedAt).getTime())
-  }
-  const slowMatches = incidentRows(slowOperations, 'slow')
-  const errorMatches = incidentRows(errorOperations, 'error')
+  const selected = traces.filter(inSelectedPeriod)
+  const slowMatches = selected.filter(trace => trace.slow)
+  const errorMatches = selected.filter(trace => trace.error)
   const slow = slowMatches.slice(0, 50)
   const errors = errorMatches.slice(0, 50)
   byId('slow-count').textContent = formatNumber(slowMatches.length)
@@ -331,7 +294,7 @@ function renderIncidentTables() {
     const row = document.createElement('tr')
     makeClickable(row, `查看 Trace ${trace.traceId}`, () => openTrace(trace))
     const result = td(row, trace.error ? '错误' : trace.slow ? '慢' : '正常', `status ${trace.error ? 'error' : trace.slow ? 'slow' : 'ok'}`)
-    td(row, `${labels[trace.sourceType] || trace.sourceType || '入口'} · ${traceEntryName(trace)}`.trim())
+    td(row, `${labels[trace.sourceType] || trace.sourceType || '入口'} · ${trace.method || ''} ${trace.name || ''}`.trim())
     td(row, formatNumber(trace.status), 'number'); td(row, formatNumber(trace.durationMs, ' ms'), 'number')
     td(row, trace.traceId, 'mono'); td(row, formatTime(trace.finishedAt)); rows.append(row)
   }
@@ -481,9 +444,8 @@ async function renderTrends() {
 async function refresh() {
   byId('refresh').disabled = true; showNotice('')
   try {
-    const [statsResult, tracesResult, metricsResult, slowResult, errorsResult] = await Promise.allSettled([
-      getJson('/request-statistics?source=ALL&limit=500'), getJson('/traces?limit=500'), getJson('/metrics?limit=2000'),
-      getJson('/slow?limit=500'), getJson('/errors?limit=500')
+    const [statsResult, tracesResult, metricsResult] = await Promise.allSettled([
+      getJson('/request-statistics?source=ALL&limit=500'), getJson('/traces?limit=500'), getJson('/metrics?limit=2000')
     ])
     const catalogResult = await getJson('/metrics/series').then(
       value => ({ status: 'fulfilled', value }), reason => ({ status: 'rejected', reason }))
@@ -491,13 +453,7 @@ async function refresh() {
       value => ({ status: 'fulfilled', value }), reason => ({ status: 'rejected', reason }))
     const failed = []
     if (statsResult.status === 'fulfilled') { requestStats = statsResult.value; renderStats() } else failed.push(statsResult.reason?.message)
-    if (tracesResult.status === 'fulfilled') traces = tracesResult.value
-    else failed.push(tracesResult.reason?.message)
-    if (slowResult.status === 'fulfilled') slowOperations = slowResult.value
-    else failed.push(slowResult.reason?.message)
-    if (errorsResult.status === 'fulfilled') errorOperations = errorsResult.value
-    else failed.push(errorsResult.reason?.message)
-    if (tracesResult.status === 'fulfilled' || slowResult.status === 'fulfilled' || errorsResult.status === 'fulfilled') renderIncidentTables()
+    if (tracesResult.status === 'fulfilled') { traces = tracesResult.value; renderIncidentTables() } else failed.push(tracesResult.reason?.message)
     if (catalogResult.status === 'fulfilled') { seriesCatalog = catalogResult.value; seriesCache.clear() } else failed.push(catalogResult.reason?.message)
     const storageWarnings = []
     if (storageResult.status === 'fulfilled' && storageResult.value) {
@@ -574,4 +530,4 @@ byId('entry-filters').addEventListener('click', event => {
   renderStats()
 })
 byId('close-dialog').addEventListener('click', () => byId('trace-dialog').close())
-refresh()
+initializeEmbeddedAuth().then(refresh)

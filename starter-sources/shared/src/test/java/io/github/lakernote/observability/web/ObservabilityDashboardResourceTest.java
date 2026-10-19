@@ -20,6 +20,9 @@ class ObservabilityDashboardResourceTest {
         assertThat(style).isNotNull();
         assertThat(new String(page.readAllBytes(), StandardCharsets.UTF_8))
                 .contains("Easy Observability", "/easy-observability/assets/dashboard.js");
+        assertThat(new String(script.readAllBytes(), StandardCharsets.UTF_8))
+                .contains("easy-observability:auth-request", "easy-observability:auth-response",
+                        "initializeEmbeddedAuth().then(refresh)");
         page.close();
         script.close();
         style.close();
