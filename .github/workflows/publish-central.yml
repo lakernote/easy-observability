@@ -25,9 +25,6 @@ jobs:
 
       - name: Set up Java and Maven credentials
         uses: actions/setup-java@v6
-        env:
-          CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
-          CENTRAL_PASSWORD: ${{ secrets.CENTRAL_PASSWORD }}
         with:
           distribution: temurin
           java-version: '17'
@@ -49,5 +46,7 @@ jobs:
       - name: Build, sign, and submit to Central Portal
         run: mvn --batch-mode --no-transfer-progress -Pcentral-release -Dgpg.signer=bc clean deploy
         env:
+          CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
+          CENTRAL_PASSWORD: ${{ secrets.CENTRAL_PASSWORD }}
           MAVEN_GPG_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
           MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
