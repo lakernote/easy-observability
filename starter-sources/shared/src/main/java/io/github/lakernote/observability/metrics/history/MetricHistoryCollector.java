@@ -19,13 +19,13 @@ import java.util.concurrent.TimeUnit;
 /**
  * 定期保存有界的 Micrometer 指标快照。
  * <p>使用独立守护线程，不依赖宿主开启定时任务；每轮最多采集 512 个优先级较高的 Meter。</p>
+ * <p>逐 operation 的 CPU、分配和线程争用明细不进入长期历史，具体值由慢错 Trace 保存。</p>
  */
 public final class MetricHistoryCollector implements SmartLifecycle {
     private static final Logger log = LoggerFactory.getLogger(MetricHistoryCollector.class);
     private final long intervalSeconds;
     private static final int MAX_METERS = 512;
     private static final String COLLECTOR_PREFIX = "easy.observability.history.collector.";
-
     private final MeterRegistry registry;
     private final MetricHistoryStore store;
     private volatile ScheduledExecutorService executor;
@@ -95,6 +95,9 @@ public final class MetricHistoryCollector implements SmartLifecycle {
 
     private static boolean useful(String name) {
         if (name.startsWith(COLLECTOR_PREFIX)) return false;
+        // 逐 operation 资源差值会按 operation/outcome 扩展出许多序列；异常和慢操作的精确值
+        // 已写入关联 Trace，长期指标历史只保留低基数的总体趋势。
+        if (!MetricHistoryStore.shouldPersistMetric(name)) return false;
         return name.startsWith("easy.") || name.startsWith("jvm.") || name.startsWith("process.")
                 || name.startsWith("system.") || name.startsWith("http.server.requests")
                 || name.startsWith("hikaricp.") || name.startsWith("jdbc.connections.")

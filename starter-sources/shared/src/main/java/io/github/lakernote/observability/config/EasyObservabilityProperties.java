@@ -113,7 +113,7 @@ public class EasyObservabilityProperties {
         public static class History {
             private boolean enabled = true;
             private String storageDir = "./data/easy-observability/metrics";
-            private int retentionDays = 30;
+            private int retentionDays = 15;
             private long intervalMs = 60_000;
             private long maxStorageBytes = 64L * 1024 * 1024;
             private long maxSeriesBytes = 8L * 1024 * 1024;

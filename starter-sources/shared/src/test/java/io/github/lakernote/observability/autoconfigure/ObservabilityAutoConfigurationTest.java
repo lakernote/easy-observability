@@ -54,6 +54,8 @@ class ObservabilityAutoConfigurationTest {
                 .run(context -> {
                     assertThat(context).hasNotFailed();
                     assertThat(context).hasSingleBean(io.github.lakernote.observability.config.EasyObservabilityProperties.class);
+                    assertThat(context.getBean(io.github.lakernote.observability.config.EasyObservabilityProperties.class)
+                            .getMetrics().getHistory().getRetentionDays()).isEqualTo(15);
                     assertThat(context).hasSingleBean(io.github.lakernote.observability.trace.store.RecentTraceStore.class);
                     assertThat(context).doesNotHaveBean(BusinessMetrics.class);
                     assertThat(context).doesNotHaveBean(io.github.lakernote.observability.metrics.OperationRecorder.class);

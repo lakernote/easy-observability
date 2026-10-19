@@ -67,14 +67,21 @@ public class MetricHistoryStore {
     private static final double X_FILES_FACTOR = 0.5;
     private static final long DAY_SECONDS = 24 * 60 * 60;
 
-    private static final int DEFAULT_RETENTION_DAYS = 30;
     private static final long DEFAULT_MAX_STORAGE_BYTES = 64L * 1024 * 1024;
     private static final long DEFAULT_MAX_SERIES_BYTES = 8L * 1024 * 1024;
     private static final int DEFAULT_MAX_SERIES = 512;
     private static final long REJECTED_SERIES_CACHE_TTL_SECONDS = 5 * 60;
     private static final int MIN_REJECTED_SERIES_CACHE_ENTRIES = 256;
     private static final int MAX_REJECTED_SERIES_CACHE_ENTRIES = 8_192;
-    private static final int MAX_NEW_SERIES_ATTEMPTS_PER_BATCH = 512;
+    /** Bound file creation/eviction work so a high-cardinality registry cannot monopolize the writer thread. */
+    private static final int MAX_NEW_SERIES_ATTEMPTS_PER_BATCH = 64;
+    private static final Set<String> NON_PERSISTED_OPERATION_RESOURCE_METRICS = Set.of(
+            "easy.operations.cpu.time",
+            "easy.operations.allocated",
+            "easy.operations.blocked.count",
+            "easy.operations.blocked.time",
+            "easy.operations.waited.count",
+            "easy.operations.waited.time");
     private static final int REQUEST_PRIORITY = 0;
     private static final int CORE_PRIORITY = 1;
     private static final int PLATFORM_PRIORITY = 2;
@@ -123,7 +130,7 @@ public class MetricHistoryStore {
                                Clock clock, boolean enabled) {
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper").copy();
         this.storageDirectory = Path.of(storageDir).toAbsolutePath().normalize();
-        this.retentionDays = Math.max(DEFAULT_RETENTION_DAYS, retentionDays);
+        this.retentionDays = Math.max(1, retentionDays);
         this.maxStorageBytes = maxStorageBytes > 0 ? maxStorageBytes : DEFAULT_MAX_STORAGE_BYTES;
         long configuredSeriesBytes = maxSeriesBytes > 0 ? maxSeriesBytes : DEFAULT_MAX_SERIES_BYTES;
         this.maxSeriesBytes = Math.min(configuredSeriesBytes, this.maxStorageBytes);
@@ -613,6 +620,13 @@ public class MetricHistoryStore {
                 try {
                     SeriesMetadata metadata = objectMapper.readValue(metadataFile.toFile(), SeriesMetadata.class);
                     if (!validMetadata(id, metadata)) throw new IOException("invalid series metadata");
+                    if (!shouldPersistMetric(metadata.name())) {
+                        deleteFiles(id);
+                        long evicted = evictedSeries.incrementAndGet();
+                        log.info("已删除不再写入长期历史的 operation 资源序列 {} ({})，累计清理 {} 个 series",
+                                id, metadata.name(), evicted);
+                        continue;
+                    }
                     if (removeOversizedRrdLocked(id)) continue;
                     ObservedSampleRange observed = validateOrMigrateAndReadRrd(metadata);
                     String key = seriesKey(metadata.name(), metadata.tags());
@@ -908,9 +922,10 @@ public class MetricHistoryStore {
     }
 
     /**
-     * Makes room without allowing optional, high-cardinality meters to displace JVM/process/system series.
-     * A quarter of the configured series slots remains available for core meters;
-     * higher-priority arrivals may evict lower-priority least-recently-written series.
+     * Makes room while protecting JVM/process/system series from lower-priority meters.
+     * A quarter of the configured series slots remains available for core meters. When no lower-priority
+     * candidate remains, the least-recently-written series at the incoming priority is replaced so fresh data
+     * can continue to enter the bounded store.
      */
     private boolean ensureAdmissionCapacityLocked(String incomingName, Map<String, String> incomingTags,
                                                    long requiredBytes, boolean needsSlot, String excludedId) {
@@ -947,11 +962,11 @@ public class MetricHistoryStore {
     }
 
     private boolean hasEvictableSeriesLocked(int incomingPriority) {
-        for (int priority = incomingPriority + 1; priority <= OPTIONAL_PRIORITY; priority++) {
+        for (int priority = incomingPriority; priority <= OPTIONAL_PRIORITY; priority++) {
             if (incomingPriority == REQUEST_PRIORITY && priority == CORE_PRIORITY) continue;
             if (seriesCountsByPriority[priority] > 0) return true;
         }
-        return incomingPriority == CORE_PRIORITY && seriesCountsByPriority[CORE_PRIORITY] > 0;
+        return false;
     }
 
     /** Selects the least valuable candidate first, then the least recently written within that priority. */
@@ -959,11 +974,12 @@ public class MetricHistoryStore {
                                                        boolean allowAnyPriority) {
         return seriesByKey.values().stream()
                 .filter(metadata -> !metadata.id().equals(excludedId))
-                .filter(metadata -> allowAnyPriority || metricPriority(metadata.name(), metadata.tags()) > incomingPriority
-                        && !(incomingPriority == REQUEST_PRIORITY
-                        && metricPriority(metadata.name(), metadata.tags()) == CORE_PRIORITY)
-                        || (incomingPriority == CORE_PRIORITY
-                        && metricPriority(metadata.name(), metadata.tags()) == CORE_PRIORITY))
+                .filter(metadata -> {
+                    if (allowAnyPriority) return true;
+                    int candidatePriority = metricPriority(metadata.name(), metadata.tags());
+                    return candidatePriority >= incomingPriority
+                            && !(incomingPriority == REQUEST_PRIORITY && candidatePriority == CORE_PRIORITY);
+                })
                 .min(Comparator.comparingInt((SeriesMetadata metadata) -> metricPriority(metadata.name(), metadata.tags()))
                         .reversed()
                         .thenComparingLong(this::lastUpdateTime)
@@ -1040,7 +1056,7 @@ public class MetricHistoryStore {
 
     private int retentionThirtyMinuteRows() {
         return Math.toIntExact(Math.min(Integer.MAX_VALUE,
-                Math.max(1_440L, (long) retentionDays * 24 * 2)));
+                Math.max(1L, (long) retentionDays * 24 * 2)));
     }
 
     private Map<String, String> dataSourceMapping(Iterable<String> measurements,
@@ -1182,6 +1198,10 @@ public class MetricHistoryStore {
             return PLATFORM_PRIORITY;
         }
         return OPTIONAL_PRIORITY;
+    }
+
+    static boolean shouldPersistMetric(String name) {
+        return !NON_PERSISTED_OPERATION_RESOURCE_METRICS.contains(name);
     }
 
     /** Entry summaries stay ahead of dependency details while a fixed share remains reserved for JVM metrics. */

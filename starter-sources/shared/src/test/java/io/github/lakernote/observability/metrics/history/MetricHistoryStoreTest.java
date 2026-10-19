@@ -101,6 +101,26 @@ class MetricHistoryStoreTest {
     }
 
     @Test
+    void removesPreviouslyStoredPerOperationResourceSeriesWhenRestoringHistory() {
+        MetricHistoryStore previous = store(64 * MEBIBYTE, 8 * MEBIBYTE, 512);
+        previous.restore();
+        previous.recordMetricsSnapshot(List.of(
+                new MetricSample("easy.operations.duration", Map.of("source", "HTTP", "operation", "GET /orders"),
+                        Map.of("COUNT", 1D)),
+                new MetricSample("easy.operations.cpu.time", Map.of("source", "HTTP", "operation", "GET /orders"),
+                        Map.of("VALUE", 3D)),
+                new MetricSample("easy.operations.allocated", Map.of("source", "HTTP", "operation", "GET /orders"),
+                        Map.of("VALUE", 4096D))));
+
+        MetricHistoryStore current = store(64 * MEBIBYTE, 8 * MEBIBYTE, 512);
+        current.restore();
+
+        assertThat(current.listSeries()).extracting(MetricHistoryStore.MetricSeriesDescriptor::name)
+                .containsExactly("easy.operations.duration");
+        assertThat(current.getStatus().evictedSeries()).isEqualTo(2);
+    }
+
+    @Test
     void keepsCoreJvmSeriesWhenOperationMetricsReachTheNonCoreCapacity() {
         MetricHistoryStore store = store(64 * MEBIBYTE, 8 * MEBIBYTE, 2);
         store.restore();
@@ -205,11 +225,11 @@ class MetricHistoryStoreTest {
 
     @Test
     void shrinksRetentionArchiveWithoutLosingHistoryInsideTheNewWindow() throws Exception {
-        MetricHistoryStore initial = store(60, 64 * MEBIBYTE, 8 * MEBIBYTE, 512);
+        MetricHistoryStore initial = store(30, 64 * MEBIBYTE, 8 * MEBIBYTE, 512);
         initial.restore();
         initial.recordMetricsSnapshot(List.of(metric("process.cpu.usage", 1, "VALUE")));
 
-        MetricHistoryStore changedRetention = store(30, 64 * MEBIBYTE, 8 * MEBIBYTE, 512);
+        MetricHistoryStore changedRetention = store(15, 64 * MEBIBYTE, 8 * MEBIBYTE, 512);
         changedRetention.restore();
 
         assertThat(changedRetention.getStatus().segmentCount()).isEqualTo(1);
@@ -218,7 +238,7 @@ class MetricHistoryStoreTest {
                 Map.of("area", "heap", "node", "local"), 10))
                 .extracting(point -> point.measurements().get("VALUE"))
                 .containsExactly(1D);
-        assertRetentionRows(30 * 24 * 2);
+        assertRetentionRows(15 * 24 * 2);
     }
 
     @Test
@@ -266,13 +286,14 @@ class MetricHistoryStoreTest {
     }
 
     @Test
-    void keepsFixedDirectoryCapacityAndReportsDroppedSnapshot() {
+    void keepsFixedDirectoryCapacityByReplacingTheOldestSeries() {
         MetricHistoryStore store = store(90_000, 80_000, 10);
         store.restore();
-        store.recordMetricsSnapshot(List.of(
-                metric("test.one", 1, "VALUE"),
-                metric("test.two", 2, "VALUE"),
-                metric("test.three", 3, "VALUE")));
+        store.recordMetricsSnapshot(List.of(metric("test.one", 1, "VALUE")));
+        clock.advance(Duration.ofMinutes(1));
+        store.recordMetricsSnapshot(List.of(metric("test.two", 2, "VALUE")));
+        clock.advance(Duration.ofMinutes(1));
+        store.recordMetricsSnapshot(List.of(metric("test.three", 3, "VALUE")));
 
         MetricHistoryStore.StorageStatus status = store.getStatus();
         assertThat(status.segmentCount()).isEqualTo(2);
@@ -280,9 +301,38 @@ class MetricHistoryStoreTest {
         assertThat(status.maxStorageBytes()).isEqualTo(90_000);
         assertThat(status.maxSegmentBytes()).isEqualTo(80_000);
         assertThat(status.retentionDays()).isEqualTo(30);
-        assertThat(status.droppedWrites()).isEqualTo(1);
-        assertThat(status.rejectedSeries()).isEqualTo(1);
-        assertThat(status.evictedSeries()).isZero();
+        assertThat(status.droppedWrites()).isZero();
+        assertThat(status.rejectedSeries()).isZero();
+        assertThat(status.evictedSeries()).isEqualTo(1);
+        assertThat(store.queryHistory("test.one", defaultTags(), 10)).isEmpty();
+        assertThat(store.queryHistory("test.two", defaultTags(), 10)).hasSize(1);
+        assertThat(store.queryHistory("test.three", defaultTags(), 10)).hasSize(1);
+    }
+
+    @Test
+    void admitsFreshOptionalSeriesByEvictingOnlyTheLeastRecentlyWrittenOptionalSeries() {
+        MetricHistoryStore store = store(64 * MEBIBYTE, 8 * MEBIBYTE, 4);
+        store.restore();
+        store.recordMetricsSnapshot(List.of(
+                metric("jvm.memory.used", 1, "VALUE"),
+                metric("optional.first", 1, "VALUE")));
+        clock.advance(Duration.ofMinutes(1));
+        store.recordMetricsSnapshot(List.of(metric("optional.second", 2, "VALUE")));
+        clock.advance(Duration.ofMinutes(1));
+        store.recordMetricsSnapshot(List.of(metric("optional.third", 3, "VALUE")));
+        clock.advance(Duration.ofMinutes(1));
+
+        store.recordMetricsSnapshot(List.of(metric("optional.newest", 4, "VALUE")));
+
+        assertThat(store.queryHistory("jvm.memory.used", defaultTags(), 10)).hasSize(1);
+        assertThat(store.queryHistory("optional.first", defaultTags(), 10)).isEmpty();
+        assertThat(store.queryHistory("optional.second", defaultTags(), 10)).hasSize(1);
+        assertThat(store.queryHistory("optional.third", defaultTags(), 10)).hasSize(1);
+        assertThat(store.queryHistory("optional.newest", defaultTags(), 10)).hasSize(1);
+        assertThat(store.getStatus().segmentCount()).isEqualTo(4);
+        assertThat(store.getStatus().evictedSeries()).isEqualTo(1);
+        assertThat(store.getStatus().rejectedSeries()).isZero();
+        assertThat(store.getStatus().droppedWrites()).isZero();
     }
 
     @Test
@@ -409,6 +459,19 @@ class MetricHistoryStoreTest {
         assertThat(store.getStatus().segmentCount()).isZero();
         assertThat(rrdFiles()).isEmpty();
         assertThat(metricMetadataFiles()).isEmpty();
+    }
+
+    @Test
+    void honorsConfiguredRetentionShorterThanThirtyDays() {
+        MetricHistoryStore store = store(7, 64 * MEBIBYTE, 8 * MEBIBYTE, 512);
+        store.restore();
+        store.recordMetricsSnapshot(List.of(metric("process.cpu.usage", 1, "VALUE")));
+
+        assertThat(store.getStatus().retentionDays()).isEqualTo(7);
+        clock.advance(Duration.ofDays(8));
+        store.pruneExpired();
+
+        assertThat(store.getStatus().segmentCount()).isZero();
     }
 
     @Test

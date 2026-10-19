@@ -91,7 +91,7 @@ easy:
       history:
         enabled: true
         storage-dir: ./data/easy-observability/metrics
-        retention-days: 30
+        retention-days: 15
         max-storage-bytes: 67108864
         max-series: 512
       executor:
@@ -170,7 +170,9 @@ jobObservation.observe("nightly-reconciliation", () -> reconciliation.run());
 
 Spring MVC 应用会获得 `/easy-observability/` 独立页面。页面打包在 Starter JAR 中，不依赖宿主前端路由、菜单或在线 JavaScript 资源。只读 API 位于 `/api/easy-observability`。
 
-Micrometer 当前指标每分钟写入 RRD4J。默认保留至少 30 天，使用 1 分钟（24 小时）、5 分钟（7 天）和 30 分钟分辨率；默认最多 512 个系列、总计 64 MiB，每个系列最多 8 MiB。指标名称、标签和 measurement 都有长度/数量上限，写入/查询失败时不影响业务调用。
+Micrometer 当前指标每分钟由独立后台线程写入 RRD4J。默认每个系列最多保留 15 天，可通过 `retention-days` 配置为 7 天或 30 天；历史分辨率为 1 分钟（24 小时）、5 分钟（7 天）和 30 分钟（其余保留期）。默认最多 512 个系列、总计 64 MiB，每个系列最多 8 MiB。总容量或系列数达到上限时，优先淘汰较低优先级、最近最久未更新的系列；同一优先级也会淘汰最旧系列，让新系列进入。JVM、进程和系统核心指标保留独立容量，低优先级系列不会挤掉它们。单轮最多创建或替换 64 个系列，以限制磁盘操作量；超出部分在后续采集轮次继续准入。指标名称、标签和 measurement 都有长度/数量上限。采集写入在独立后台线程执行，不占用业务请求线程；页面查询与写入共用有界文件访问，读请求等待超过上限时会快速失败返回。
+
+为了控制高基数历史序列，RRD4J 保存 operation 耗时趋势，但不保存逐 operation 的 CPU、线程分配、阻塞和等待趋势；这些逐次资源信息仍可用于运行时统计，并随慢请求/错误 Trace 保存，支持按 Trace ID 下钻。JVM、进程和系统级资源趋势仍会保存。升级后首次恢复历史时，旧版本已经落盘的逐 operation 资源序列会被清理，释放出的空间可用于新的趋势数据。
 
 慢操作和错误操作以有界 JSONL 持久化，事件包含操作名、Trace ID、线程 ID/名称、耗时、CPU 时间、线程分配字节数、阻塞/等待计数及错误摘要。慢/错 Trace 树单独落盘并保留关联操作资源信息；正常成功操作只保留在有界进程内列表，不写磁盘。默认文件位于 `./data/easy-observability/`，可用 `easy.observability.trace.slow-error-operation-file`、`slow-error-trace-file`、`slow-error-history-limit` 和 `slow-error-max-bytes` 调整。
 
