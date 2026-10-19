@@ -12,7 +12,7 @@ Spring Boot 3：
 
 ```xml
 <dependency>
-    <groupId>com.laker.observability</groupId>
+    <groupId>io.github.lakernote</groupId>
     <artifactId>easy-observability-spring-boot-3-starter</artifactId>
     <version>0.1.0-alpha.0</version>
 </dependency>
@@ -22,7 +22,7 @@ Spring Boot 4：
 
 ```xml
 <dependency>
-    <groupId>com.laker.observability</groupId>
+    <groupId>io.github.lakernote</groupId>
     <artifactId>easy-observability-spring-boot-4-starter</artifactId>
     <version>0.1.0-alpha.0</version>
 </dependency>
@@ -40,7 +40,7 @@ Spring Boot 4：
 
 ## Maven Central 发布准备
 
-发布构件前，先在 Central Portal 验证 `com.laker.observability` namespace。正式版本不可覆盖；每次发布都要使用新的版本号。根目录的 `central-release` Maven profile 会生成签名并通过 Central Publishing Portal 提交构件，默认需要在 Portal 人工确认发布；两个 Example 模块会自动跳过发布。
+发布构件前，先在 Central Portal 验证 `io.github.lakernote` namespace。正式版本不可覆盖；每次发布都要使用新的版本号。根目录的 `central-release` Maven profile 会生成签名并通过 Central Publishing Portal 提交构件，默认需要在 Portal 人工确认发布；两个 Example 模块会自动跳过发布。
 
 本地先验证发布包（不会上传）：
 
@@ -48,7 +48,14 @@ Spring Boot 4：
 mvn -Pcentral-release -DskipTests -Dgpg.skip=true clean verify
 ```
 
-实际发布前需在 Maven `settings.xml` 配置 `central` 用户令牌，并配置可用的 GPG 私钥；再使用新的正式版本执行 `mvn -Pcentral-release clean deploy`。第一次发布前应先检查生成的主 JAR、sources JAR、Javadoc JAR、POM 和签名，并在 Central Portal 验证部署内容。
+仓库提供 GitHub Actions 发布工作流：创建名为 `maven-central` 的 GitHub Environment，并在其中配置以下 Secrets：
+
+- `CENTRAL_USERNAME`、`CENTRAL_PASSWORD`：Central Portal 生成的 User Token 凭据。
+- `GPG_PRIVATE_KEY`、`GPG_PASSPHRASE`：用于签署构件的 ASCII-armored GPG 私钥及其口令。
+
+推送与 Maven 项目版本完全匹配的 `v<version>` 标签后，工作流会构建、签名并提交到 Central Portal。工作流使用 `autoPublish=false`，部署验证通过后仍需在 Portal 检查并手动发布。正式版本不可覆盖，第一次发布前应先检查生成的主 JAR、sources JAR、Javadoc JAR、POM 和签名。
+
+如果本地发布，可在 Maven `settings.xml` 配置 `id` 为 `central` 的用户令牌服务器，并配置可用的 GPG 私钥；之后使用新的版本执行 `mvn -Pcentral-release clean deploy`。
 
 
 ## 运行示例

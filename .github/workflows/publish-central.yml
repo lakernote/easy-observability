@@ -1,0 +1,50 @@
+name: Publish to Maven Central
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: maven-central-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Build and publish release
+    runs-on: ubuntu-latest
+    environment: maven-central
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Java and Maven credentials
+        uses: actions/setup-java@v6
+        env:
+          CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
+          CENTRAL_PASSWORD: ${{ secrets.CENTRAL_PASSWORD }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+          server-id: central
+          server-username-env-var: CENTRAL_USERNAME
+          server-password-env-var: CENTRAL_PASSWORD
+          gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
+          gpg-passphrase-env-var: GPG_PASSPHRASE
+
+      - name: Ensure tag matches Maven version
+        shell: bash
+        run: |
+          version="$(mvn --batch-mode --quiet help:evaluate -Dexpression=project.version -DforceStdout)"
+          if [[ "v${version}" != "${GITHUB_REF_NAME}" ]]; then
+            echo "Release tag ${GITHUB_REF_NAME} does not match Maven version ${version}."
+            exit 1
+          fi
+
+      - name: Build, sign, and submit to Central Portal
+        run: mvn --batch-mode --no-transfer-progress -Pcentral-release clean deploy
