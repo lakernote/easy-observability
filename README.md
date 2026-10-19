@@ -55,7 +55,7 @@ mvn -Pcentral-release -DskipTests -Dgpg.skip=true clean verify
 仓库提供 GitHub Actions 发布工作流：创建名为 `maven-central` 的 GitHub Environment，并在其中配置以下 Secrets：
 
 - `CENTRAL_USERNAME`、`CENTRAL_PASSWORD`：Central Portal 生成的 User Token 凭据。
-- `GPG_PRIVATE_KEY`、`GPG_PASSPHRASE`：用于签署构件的 ASCII-armored GPG 私钥及其口令。
+- `GPG_PRIVATE_KEY`、`GPG_PASSPHRASE`：用于签署构件的 ASCII-armored GPG 私钥（`gpg --armor --export-secret-keys <密钥指纹>` 导出）及其口令。GitHub Actions 使用 Maven GPG Plugin 的 Bouncy Castle 签名器读取密钥，不需要在 Runner 上导入 GPG keyring。
 
 推送与 Maven 项目版本完全匹配的 `v<version>` 标签后，工作流会构建、签名并提交到 Central Portal，校验通过后自动发布。正式版本不可覆盖，第一次发布前应先检查生成的主 JAR、sources JAR、Javadoc JAR、POM 和签名。
 

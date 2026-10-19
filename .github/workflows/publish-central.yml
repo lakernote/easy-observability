@@ -28,7 +28,6 @@ jobs:
         env:
           CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
           CENTRAL_PASSWORD: ${{ secrets.CENTRAL_PASSWORD }}
-          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         with:
           distribution: temurin
           java-version: '17'
@@ -36,8 +35,6 @@ jobs:
           server-id: central
           server-username-env-var: CENTRAL_USERNAME
           server-password-env-var: CENTRAL_PASSWORD
-          gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
-          gpg-passphrase-env-var: GPG_PASSPHRASE
 
       - name: Ensure tag matches Maven version
         if: github.event_name == 'push'
@@ -50,4 +47,7 @@ jobs:
           fi
 
       - name: Build, sign, and submit to Central Portal
-        run: mvn --batch-mode --no-transfer-progress -Pcentral-release clean deploy
+        run: mvn --batch-mode --no-transfer-progress -Pcentral-release -Dgpg.signer=bc clean deploy
+        env:
+          MAVEN_GPG_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
