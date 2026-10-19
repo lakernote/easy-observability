@@ -30,18 +30,39 @@ Spring Boot 4：
 
 当前版本为预览版，尚未发布到 Maven Central。Java 17+、Maven 3.6.3+ 可在项目根目录构建全部 Starter 和示例：`mvn verify`。
 
+## 模块与依赖
+
+- 根 easy-observability 是父 POM 和聚合 POM，发布 Starter 时也需要发布它；示例只用于本地体验，不上传 Maven Central。
+- 两个 Starter 保留一致的能力边界，Boot 3 / Boot 4 专属源码位于 `starter-sources/spring-boot-3` 和 `starter-sources/spring-boot-4`；共用实现和资源位于 `starter-sources/shared`。这些是源码集合，不是独立 Maven 构件。
+- Actuator、Micrometer、Jackson 和 RRD4J 是默认指标与本地历史存储所需的基础依赖。
+- Web MVC、Servlet、AOP、Redis/Lettuce、Kafka、事务、MyBatis 和 Feign 依赖均为可选；只有宿主应用已引入相应框架时才启用对应适配，不会把 Tomcat、Kafka 或 Redis 客户端强加给使用者。
+- Spring Boot 4 使用 Boot 4 拆分后的 Kafka、Redis 自动配置依赖；Boot 3 继续使用其 spring-boot-autoconfigure 中提供的扩展点。两个 Starter 的依赖版本分别由各自 Boot BOM 管理，共享的独立集成版本在根 POM 集中维护。
+
+## Maven Central 发布准备
+
+发布构件前，先在 Central Portal 验证 `com.laker.observability` namespace。正式版本不可覆盖；每次发布都要使用新的版本号。根目录的 `central-release` Maven profile 会生成签名并通过 Central Publishing Portal 提交构件，默认需要在 Portal 人工确认发布；两个 Example 模块会自动跳过发布。
+
+本地先验证发布包（不会上传）：
+
+```bash
+mvn -Pcentral-release -DskipTests -Dgpg.skip=true clean verify
+```
+
+实际发布前需在 Maven `settings.xml` 配置 `central` 用户令牌，并配置可用的 GPG 私钥；再使用新的正式版本执行 `mvn -Pcentral-release clean deploy`。第一次发布前应先检查生成的主 JAR、sources JAR、Javadoc JAR、POM 和签名，并在 Central Portal 验证部署内容。
+
+
 ## 运行示例
 
 仓库提供 Spring Boot 3 和 Spring Boot 4 两个独立示例，默认仅监听本机端口并允许匿名访问监控 API，适合本地体验，不要直接用于生产环境。
 
 ```bash
 # Spring Boot 3 示例
-mvn -pl examples/easy-observability-example-boot3 -am package
-java -jar examples/easy-observability-example-boot3/target/easy-observability-example-boot3-0.1.0-alpha.0.jar
+mvn -pl examples/easy-observability-example-spring-boot-3 -am package
+java -jar examples/easy-observability-example-spring-boot-3/target/easy-observability-example-spring-boot-3-0.1.0-alpha.0.jar
 
 # Spring Boot 4 示例（另开终端）
-mvn -pl examples/easy-observability-example-boot4 -am package
-java -jar examples/easy-observability-example-boot4/target/easy-observability-example-boot4-0.1.0-alpha.0.jar
+mvn -pl examples/easy-observability-example-spring-boot-4 -am package
+java -jar examples/easy-observability-example-spring-boot-4/target/easy-observability-example-spring-boot-4-0.1.0-alpha.0.jar
 ```
 
 分别访问 `http://localhost:8083/` 或 `http://localhost:8084/`，可触发正常、慢、高 CPU、高内存分配、错误和嵌套 Trace 请求，再打开页面查看趋势与下钻详情。CPU 示例最多运行 3 秒；内存示例最多分配 32 MiB，并会等待片刻以进入慢请求列表。它们用于本机体验，不建议在生产环境或共享实例上触发。
@@ -74,10 +95,10 @@ easy:
       header-name: X-Trace-Id
       slow-threshold-ms: 250
       job-slow-threshold-ms: 1000
-      history-file: ./data/easy-observability/incidents.jsonl
-      archive-file: ./data/easy-observability/traces.jsonl
-      history-limit: 10000
-      history-max-bytes: 33554432
+      slow-error-operation-file: ./data/easy-observability/incidents.jsonl
+      slow-error-trace-file: ./data/easy-observability/traces.jsonl
+      slow-error-history-limit: 10000
+      slow-error-max-bytes: 33554432
     web:
       enabled: true
       allow-anonymous: false
@@ -138,17 +159,13 @@ Spring MVC 应用会获得 `/easy-observability/` 独立页面。页面打包在
 
 Micrometer 当前指标每分钟写入 RRD4J。默认保留至少 30 天，使用 1 分钟（24 小时）、5 分钟（7 天）和 30 分钟分辨率；默认最多 512 个系列、总计 64 MiB，每个系列最多 8 MiB。指标名称、标签和 measurement 都有长度/数量上限，写入/查询失败时不影响业务调用。
 
-慢操作和错误操作以有界 JSONL 持久化，事件包含操作名、Trace ID、线程 ID/名称、耗时、CPU 时间、线程分配字节数、阻塞/等待计数及错误摘要。慢/错 Trace 树单独落盘并保留关联操作资源信息；正常成功操作只保留在有界进程内列表，不写磁盘。默认文件位于 `./data/easy-observability/`，可用 `easy.observability.trace.history-file`、`archive-file` 和 `history-max-bytes` 调整。
+慢操作和错误操作以有界 JSONL 持久化，事件包含操作名、Trace ID、线程 ID/名称、耗时、CPU 时间、线程分配字节数、阻塞/等待计数及错误摘要。慢/错 Trace 树单独落盘并保留关联操作资源信息；正常成功操作只保留在有界进程内列表，不写磁盘。默认文件位于 `./data/easy-observability/`，可用 `easy.observability.trace.slow-error-operation-file`、`slow-error-trace-file`、`slow-error-history-limit` 和 `slow-error-max-bytes` 调整。
 
 独立页面采用 JavaMelody 报告式阅读顺序：顶部运行摘要、多个关键指标趋势、入口统计、慢请求/错误列表和最近 Trace。入口统计展示 HTTP、Job、Kafka 消费的调用数、平均/最大耗时、累计耗时占比、失败数/失败率、线程 CPU 时间和分配内存均值。计数从当前应用进程启动后累计；趋势范围作用于 RRD4J 时间序列和慢错事件列表。页面默认选择最多四个常用趋势，也可搜索 Micrometer 历史目录并切换最多四个指标。
 
 Trace 根节点只由 HTTP server、Job 和 Kafka consumer 入口创建。HTTP client、Kafka producer、Redis、Elasticsearch、JDBC/MyBatis 与事务作为当前入口下的操作节点；它们在没有入口上下文时只记录操作指标，不会伪装成一次独立请求。发生慢调用或错误时，慢错列表打开入口 Trace，展示调用树、操作耗时、线程 ID、CPU 和线程分配内存。线程资源值受 JVM 支持和操作是否在同一线程完成的影响；异步切换线程时无法可靠计算的字段显示为空。慢错 Trace 在进程重启后仍可查询；数据按当前实例本地保存，不会自动汇总多个实例。
 
 页面资源可直接打开，但 `/api/easy-observability/**` 默认拒绝匿名读取，避免新接入的应用意外暴露 Trace、错误摘要和线程信息。推荐由应用提供 `ObservabilityAccessPolicy` Bean 接入自己的登录/权限体系；页面同源请求会携带 Cookie，也支持 `window.EasyObservabilityAuth.token()` 钩子传入 Bearer Token。只有在可信本地开发环境，才显式设置 `easy.observability.web.allow-anonymous=true` 开放匿名读取。
-
-```java
-traceHistory.add(traceId, handlerName, methodAndPath, status, durationMs, slow, error, renderedTree);
-```
 
 设置 `easy.observability.web.enabled=false` 可关闭页面、API 和对应自动配置；`easy.observability.web.allow-anonymous=true` 仅用于可信本地环境；`easy.observability.web.trace-limit` 控制最近 Trace 数量，默认 `500`。生产环境应提供 `ObservabilityAccessPolicy` 并由宿主认证授权。
 
@@ -161,6 +178,6 @@ public Account loadAccount(long id) {
 }
 ```
 
-`TraceContext` 管理当前 Trace Tree，`TraceBlock` 用于包裹一段本地代码，`TraceIdContext` 管理 Trace ID 和 SLF4J MDC，`TraceContextTaskDecorator` 用于 Spring 线程池任务间传播和恢复 Trace/MDC 上下文。框架适配器可以将操作和 Trace 写入 `TraceHistory`。它是有界的进程内历史记录，不是分布式 Trace 后端。
+`TraceContext` 管理当前 Trace Tree，`TraceBlock.call` / `TraceBlock.run` 用于分别包裹有返回值和无返回值的本地代码，`TraceIdContext` 管理 Trace ID 和 SLF4J MDC，`TraceContextTaskDecorator` 用于 Spring 线程池任务间传播和恢复 Trace/MDC 上下文。框架适配器内部使用有界的近期 Trace 存储；它不是分布式 Trace 后端，也不属于应用侧扩展 API。
 
-`BusinessMetrics` 使用低基数标签提供 API 访问、远程调用、限流、定时任务、Outbox 和事务等 Micrometer 指标。应用可以调用这些方法，也可以直接使用 Micrometer 记录自己的指标。
+需要跳过 `@TraceSpan` 时可在类或方法上标注 `@TraceDisabled`。`BusinessMetrics` 使用低基数标签提供 API 访问、远程调用、限流、定时任务、Outbox 和事务等 Micrometer 指标。应用可以调用这些方法，也可以直接使用 Micrometer 记录自己的指标。

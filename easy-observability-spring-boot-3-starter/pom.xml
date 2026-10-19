@@ -13,24 +13,12 @@
     <name>Easy Observability Spring Boot 3 Starter</name>
     <description>Easy Observability starter built for Spring Boot 3</description>
     <url>https://github.com/lakernote/easy-observability</url>
-    <licenses>
-        <license>
-            <name>Apache License, Version 2.0</name>
-            <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
-            <distribution>repo</distribution>
-        </license>
-    </licenses>
-    <scm>
-        <connection>scm:git:https://github.com/lakernote/easy-observability.git</connection>
-        <developerConnection>scm:git:ssh://git@github.com/lakernote/easy-observability.git</developerConnection>
-        <url>https://github.com/lakernote/easy-observability</url>
-    </scm>
     <dependencyManagement>
         <dependencies>
             <dependency>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-dependencies</artifactId>
-                <version>3.5.16</version>
+                <version>${spring-boot-3.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -48,7 +36,7 @@
         <dependency>
             <groupId>org.rrd4j</groupId>
             <artifactId>rrd4j</artifactId>
-            <version>3.10</version>
+            <version>${rrd4j.version}</version>
         </dependency>
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
@@ -68,14 +56,18 @@
             <optional>true</optional>
         </dependency>
         <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-web</artifactId>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-webmvc</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>jakarta.servlet</groupId>
+            <artifactId>jakarta.servlet-api</artifactId>
             <optional>true</optional>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
-            <optional>true</optional>
             <scope>test</scope>
         </dependency>
         <dependency>
@@ -96,13 +88,13 @@
         <dependency>
             <groupId>org.mybatis</groupId>
             <artifactId>mybatis</artifactId>
-            <version>3.5.19</version>
+            <version>${mybatis.version}</version>
             <optional>true</optional>
         </dependency>
         <dependency>
             <groupId>io.github.openfeign</groupId>
             <artifactId>feign-core</artifactId>
-            <version>13.6.1</version>
+            <version>${openfeign.version}</version>
             <optional>true</optional>
         </dependency>
         <dependency>
@@ -122,10 +114,11 @@
     </dependencies>
     <build>
         <plugins>
+
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>build-helper-maven-plugin</artifactId>
-                <version>3.6.1</version>
+                <version>${build-helper.version}</version>
                 <executions>
                     <execution>
                         <id>add-shared-source</id>
@@ -135,7 +128,7 @@
                         </goals>
                         <configuration>
                             <sources>
-                                <source>${project.basedir}/../starter-sources/src/main/java</source>
+                                <source>${project.basedir}/../starter-sources/shared/src/main/java</source>
                             </sources>
                         </configuration>
                     </execution>
@@ -148,20 +141,20 @@
                         <configuration>
                             <resources>
                                 <resource>
-                                    <directory>${project.basedir}/../starter-sources/src/main/resources</directory>
+                                    <directory>${project.basedir}/../starter-sources/shared/src/main/resources</directory>
                                 </resource>
                             </resources>
                         </configuration>
                     </execution>
                     <execution>
-                        <id>add-boot3-source</id>
+                        <id>add-spring-boot-3-source</id>
                         <phase>generate-sources</phase>
                         <goals>
                             <goal>add-source</goal>
                         </goals>
                         <configuration>
                             <sources>
-                                <source>${project.basedir}/../boot3-sources/src/main/java</source>
+                                <source>${project.basedir}/../starter-sources/spring-boot-3/src/main/java</source>
                             </sources>
                         </configuration>
                     </execution>
@@ -173,19 +166,19 @@
                         </goals>
                         <configuration>
                             <sources>
-                                <source>${project.basedir}/../starter-sources/src/test/java</source>
+                                <source>${project.basedir}/../starter-sources/shared/src/test/java</source>
                             </sources>
                         </configuration>
                     </execution>
                     <execution>
-                        <id>add-boot3-test-source</id>
+                        <id>add-spring-boot-3-test-source</id>
                         <phase>generate-test-sources</phase>
                         <goals>
                             <goal>add-test-source</goal>
                         </goals>
                         <configuration>
                             <sources>
-                                <source>${project.basedir}/../boot3-sources/src/test/java</source>
+                                <source>${project.basedir}/../starter-sources/spring-boot-3/src/test/java</source>
                             </sources>
                         </configuration>
                     </execution>
@@ -194,16 +187,47 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
-                <version>3.5.16</version>
+                <version>${spring-boot-3.version}</version>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
-                <version>3.14.1</version>
+                <version>${maven-compiler-plugin.version}</version>
                 <configuration>
                     <release>${maven.compiler.release}</release>
                 </configuration>
             </plugin>
         </plugins>
     </build>
+    <profiles>
+        <profile>
+            <id>central-release</id>
+            <build>
+                <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-source-plugin</artifactId>
+                <version>3.4.0</version>
+                <executions>
+                    <execution>
+                        <id>attach-sources</id>
+                        <goals><goal>jar-no-fork</goal></goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <version>3.12.0</version>
+                <executions>
+                    <execution>
+                        <id>attach-javadocs</id>
+                        <goals><goal>jar</goal></goals>
+                    </execution>
+                </executions>
+            </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>

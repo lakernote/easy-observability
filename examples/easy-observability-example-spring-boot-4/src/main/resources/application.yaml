@@ -1,0 +1,18 @@
+server:
+  port: 8084
+spring:
+  application:
+    name: easy-observability-example-spring-boot-4
+easy:
+  observability:
+    web:
+      enabled: true
+      allow-anonymous: true # 仅用于本机示例，不要在生产环境开放匿名访问。
+    trace:
+      slow-threshold-ms: 250
+      job-slow-threshold-ms: 250
+      slow-error-operation-file: ./data/easy-observability-example-spring-boot-4/incidents.jsonl
+      slow-error-trace-file: ./data/easy-observability-example-spring-boot-4/traces.jsonl
+    metrics:
+      history:
+        storage-dir: ./data/easy-observability-example-spring-boot-4/metrics
