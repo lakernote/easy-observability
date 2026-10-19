@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch: {}
 
 permissions:
   contents: read
@@ -15,6 +16,7 @@ concurrency:
 jobs:
   publish:
     name: Build and publish release
+    if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: maven-central
     steps:
@@ -38,6 +40,7 @@ jobs:
           gpg-passphrase-env-var: GPG_PASSPHRASE
 
       - name: Ensure tag matches Maven version
+        if: github.event_name == 'push'
         shell: bash
         run: |
           version="$(mvn --batch-mode --quiet help:evaluate -Dexpression=project.version -DforceStdout)"

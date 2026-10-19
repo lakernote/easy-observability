@@ -28,6 +28,8 @@ Spring Boot 4：
 </dependency>
 ```
 
+Maven 坐标使用 `io.github.lakernote`，Java API 使用 `io.github.lakernote.observability`；两者共享同一发布命名空间，方便用户识别来源。Starter 对外包名会作为兼容性 API 维护。
+
 当前版本为预览版，尚未发布到 Maven Central。Java 17+、Maven 3.6.3+ 可在项目根目录构建全部 Starter 和示例：`mvn verify`。
 
 ## 模块与依赖
@@ -40,7 +42,9 @@ Spring Boot 4：
 
 ## Maven Central 发布准备
 
-发布构件前，先在 Central Portal 验证 `io.github.lakernote` namespace。正式版本不可覆盖；每次发布都要使用新的版本号。根目录的 `central-release` Maven profile 会生成签名并通过 Central Publishing Portal 提交构件，默认需要在 Portal 人工确认发布；两个 Example 模块会自动跳过发布。
+发布构件前，先在 Central Portal 验证 `io.github.lakernote` namespace。正式版本不可覆盖；每次发布都要使用新的版本号。根目录的 `central-release` Maven profile 会生成签名并通过 Central Publishing Portal 提交构件；校验通过后会自动发布，两个 Example 模块会自动跳过发布。
+
+GitHub Actions 的 `Publish to Maven Central` 支持两种触发方式：推送与 Maven 版本一致的 `v*` tag，或在 Actions 页面选择该工作流并点击 `Run workflow`。手动运行不需要填写参数，只会从默认分支读取当前 POM 版本；发布前先更新根 POM 与子模块 parent 中的版本，并确保该版本从未发布。校验通过后工作流会自动完成最终发布。
 
 本地先验证发布包（不会上传）：
 
@@ -53,7 +57,7 @@ mvn -Pcentral-release -DskipTests -Dgpg.skip=true clean verify
 - `CENTRAL_USERNAME`、`CENTRAL_PASSWORD`：Central Portal 生成的 User Token 凭据。
 - `GPG_PRIVATE_KEY`、`GPG_PASSPHRASE`：用于签署构件的 ASCII-armored GPG 私钥及其口令。
 
-推送与 Maven 项目版本完全匹配的 `v<version>` 标签后，工作流会构建、签名并提交到 Central Portal。工作流使用 `autoPublish=false`，部署验证通过后仍需在 Portal 检查并手动发布。正式版本不可覆盖，第一次发布前应先检查生成的主 JAR、sources JAR、Javadoc JAR、POM 和签名。
+推送与 Maven 项目版本完全匹配的 `v<version>` 标签后，工作流会构建、签名并提交到 Central Portal，校验通过后自动发布。正式版本不可覆盖，第一次发布前应先检查生成的主 JAR、sources JAR、Javadoc JAR、POM 和签名。
 
 如果本地发布，可在 Maven `settings.xml` 配置 `id` 为 `central` 的用户令牌服务器，并配置可用的 GPG 私钥；之后使用新的版本执行 `mvn -Pcentral-release clean deploy`。
 
@@ -126,7 +130,7 @@ easy:
 
 当应用存在 Micrometer `MeterRegistry` 且没有自定义 `BusinessMetrics` Bean 时，Starter 会创建 `BusinessMetrics`。开启 Trace 后会注册显式 `@TraceSpan` 切面；它只处理标注了注解的类和方法，不会拦截所有 Service。
 
-框架接入代码位于 `com.laker.observability.integration`。Starter 使用 Micrometer `ObservationHandler` 把已启用的框架 Observation 接入有界操作历史和 Trace Tree；Spring 事务则通过 `TransactionExecutionListener` 接入真实的 begin、commit、rollback 生命周期，不需要业务方法 AOP。采集结果只包含操作名和低基数上下文，不复制 Redis key、SQL 绑定参数、HTTP 请求体或 Kafka 消息体。JVM 支持时，操作记录还会包含线程 ID、CPU 时间、分配字节数和阻塞/等待计数。
+框架接入代码位于 `io.github.lakernote.observability.integration`。Starter 使用 Micrometer `ObservationHandler` 把已启用的框架 Observation 接入有界操作历史和 Trace Tree；Spring 事务则通过 `TransactionExecutionListener` 接入真实的 begin、commit、rollback 生命周期，不需要业务方法 AOP。采集结果只包含操作名和低基数上下文，不复制 Redis key、SQL 绑定参数、HTTP 请求体或 Kafka 消息体。JVM 支持时，操作记录还会包含线程 ID、CPU 时间、分配字节数和阻塞/等待计数。
 
 Servlet 应用会获得 `TraceIdFilter`。它独立于监控页面开关运行，接收有效的 `X-Trace-Id`，缺少或无效时生成新 ID，并将 ID 写入响应头；请求结束后恢复此前的 MDC。可通过 `easy.observability.trace.header-name` 修改请求头名称，也可由应用提供自己的 `TraceIdFilter` Bean 替换默认实现。
 
