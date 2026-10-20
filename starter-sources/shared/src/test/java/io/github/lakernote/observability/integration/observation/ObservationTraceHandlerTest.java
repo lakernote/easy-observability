@@ -165,7 +165,7 @@ class ObservationTraceHandlerTest {
     @Test
     void recordsHttpObservationWhenContextualNameIsNotAvailableAtStart() throws Exception {
         EasyObservabilityProperties properties = new EasyObservabilityProperties();
-        properties.getTrace().setSlowThresholdMs(1);
+        properties.getTrace().setHttpSlowThresholdMs(1);
         RecentTraceStore history = new RecentTraceStore(10, 10);
         OperationRecorder recorder = new OperationRecorder(new SimpleMeterRegistry(), history, properties);
         ObservationRegistry registry = ObservationRegistry.create();

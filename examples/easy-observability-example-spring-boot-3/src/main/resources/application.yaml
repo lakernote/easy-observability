@@ -30,8 +30,9 @@ easy:
       enabled: true
       allow-anonymous: true # 仅用于本机示例，不要在生产环境开放匿名访问。
     trace:
-      slow-threshold-ms: 250
+      http-slow-threshold-ms: 250
       job-slow-threshold-ms: 250
+      kafka-consumer-slow-threshold-ms: 250
       redis-observation-enabled: false # Lettuce 在 Netty 线程完成命令；示例用 TraceBlock 包裹真实同步命令以保留父子关系。
       slow-error-operation-file: ./data/easy-observability-example-spring-boot-3/incidents.jsonl
       slow-error-trace-file: ./data/easy-observability-example-spring-boot-3/traces.jsonl

@@ -149,7 +149,9 @@ public class EasyObservabilityProperties {
         private String headerName = "X-Trace-Id";
         private long redisSlowThresholdMs = 250;
         private long jobSlowThresholdMs = 1_000;
-        private long slowThresholdMs = 250;
+        private long httpSlowThresholdMs = 250;
+        private long kafkaConsumerSlowThresholdMs = 250;
+        private long dependencySlowThresholdMs = 250;
         private boolean resourceSamplingEnabled = true;
         private boolean threadContentionSamplingEnabled;
         private String slowErrorOperationFile = "./data/easy-observability/incidents.jsonl";
@@ -177,8 +179,16 @@ public class EasyObservabilityProperties {
         public void setRedisSlowThresholdMs(long redisSlowThresholdMs) { this.redisSlowThresholdMs = redisSlowThresholdMs; }
         public long getJobSlowThresholdMs() { return jobSlowThresholdMs; }
         public void setJobSlowThresholdMs(long jobSlowThresholdMs) { this.jobSlowThresholdMs = jobSlowThresholdMs; }
-        public long getSlowThresholdMs() { return slowThresholdMs; }
-        public void setSlowThresholdMs(long slowThresholdMs) { this.slowThresholdMs = slowThresholdMs; }
+        public long getHttpSlowThresholdMs() { return httpSlowThresholdMs; }
+        public void setHttpSlowThresholdMs(long httpSlowThresholdMs) { this.httpSlowThresholdMs = httpSlowThresholdMs; }
+        public long getKafkaConsumerSlowThresholdMs() { return kafkaConsumerSlowThresholdMs; }
+        public void setKafkaConsumerSlowThresholdMs(long kafkaConsumerSlowThresholdMs) {
+            this.kafkaConsumerSlowThresholdMs = kafkaConsumerSlowThresholdMs;
+        }
+        public long getDependencySlowThresholdMs() { return dependencySlowThresholdMs; }
+        public void setDependencySlowThresholdMs(long dependencySlowThresholdMs) {
+            this.dependencySlowThresholdMs = dependencySlowThresholdMs;
+        }
         public boolean isResourceSamplingEnabled() { return resourceSamplingEnabled; }
         public void setResourceSamplingEnabled(boolean resourceSamplingEnabled) {
             this.resourceSamplingEnabled = resourceSamplingEnabled;

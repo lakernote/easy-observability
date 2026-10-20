@@ -321,7 +321,9 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
             return switch (this) {
                 case REDIS -> properties.getTrace().getRedisSlowThresholdMs();
                 case JOB -> properties.getTrace().getJobSlowThresholdMs();
-                default -> properties.getTrace().getSlowThresholdMs();
+                case HTTP -> properties.getTrace().getHttpSlowThresholdMs();
+                case KAFKA_CONSUMER -> properties.getTrace().getKafkaConsumerSlowThresholdMs();
+                default -> properties.getTrace().getDependencySlowThresholdMs();
             };
         }
 

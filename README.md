@@ -104,8 +104,10 @@ easy:
       redis-observation-enabled: true
       database-observation-enabled: true
       header-name: X-Trace-Id
-      slow-threshold-ms: 250
+      http-slow-threshold-ms: 250
       job-slow-threshold-ms: 1000
+      kafka-consumer-slow-threshold-ms: 500
+      dependency-slow-threshold-ms: 250
       resource-sampling-enabled: true
       thread-contention-sampling-enabled: false
       slow-error-operation-file: ./data/easy-observability/incidents.jsonl
@@ -134,7 +136,7 @@ easy:
 
 Servlet 应用会获得 `TraceIdFilter`。它独立于监控页面开关运行，接收有效的 `X-Trace-Id`，缺少或无效时生成新 ID，并将 ID 写入响应头；请求结束后恢复此前的 MDC。可通过 `easy.observability.trace.header-name` 修改请求头名称，也可由应用提供自己的 `TraceIdFilter` Bean 替换默认实现。
 
-默认由 `http.server.requests` Observation 创建 HTTP 入口 Trace。若宿主已经提供负责异步生命周期的 HTTP Trace 适配器，可设置 `easy.observability.trace.http-server-observation-enabled=false`，让宿主适配器成为唯一入口；宿主仍可通过 Starter 的 `OperationRecorder` 写入统一指标和 Trace 历史。
+HTTP、Job 和 Kafka consumer 入口分别通过 `http-slow-threshold-ms`、`job-slow-threshold-ms` 和 `kafka-consumer-slow-threshold-ms` 配置慢阈值，单位为毫秒；设为 `0` 或负数可关闭该入口的慢分类。其他框架 Observation 使用 `dependency-slow-threshold-ms`。默认由 `http.server.requests` Observation 创建 HTTP 入口 Trace。若宿主已经提供负责异步生命周期的 HTTP Trace 适配器，可设置 `easy.observability.trace.http-server-observation-enabled=false`，让宿主适配器成为唯一入口；宿主仍可通过 Starter 的 `OperationRecorder` 写入统一指标和 Trace 历史。
 
 Redis 和数据库 Observation 默认开启。若应用同时使用 Starter 提供的 Redisson 或 MyBatis 原生拦截器，应关闭对应的 `redis-observation-enabled` 或 `database-observation-enabled`，避免 Micrometer Observation 与原生扩展点重复记录同一次操作；原生拦截器不会受这两个开关影响。
 
