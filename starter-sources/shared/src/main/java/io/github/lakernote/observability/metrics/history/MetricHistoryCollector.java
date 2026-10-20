@@ -101,7 +101,7 @@ public final class MetricHistoryCollector implements SmartLifecycle {
         return name.startsWith("easy.") || name.startsWith("jvm.") || name.startsWith("process.")
                 || name.startsWith("system.") || name.startsWith("http.server.requests")
                 || name.startsWith("hikaricp.") || name.startsWith("jdbc.connections.")
-                || name.startsWith("tomcat.threads.") || name.startsWith("executor.");
+                || name.startsWith("tomcat.") || name.startsWith("logback.") || name.startsWith("executor.");
     }
 
     @Override public void stop() {

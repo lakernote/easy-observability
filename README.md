@@ -178,7 +178,7 @@ Micrometer 当前指标每分钟由独立后台线程写入 RRD4J。默认每个
 
 慢操作和错误操作以有界 JSONL 持久化，事件包含操作名、Trace ID、线程 ID/名称、耗时、CPU 时间、线程分配字节数、阻塞/等待计数及错误摘要。慢/错 Trace 树单独落盘并保留关联操作资源信息；正常成功操作只保留在有界进程内列表，不写磁盘。默认文件位于 `./data/easy-observability/`，可用 `easy.observability.trace.slow-error-operation-file`、`slow-error-trace-file`、`slow-error-history-limit` 和 `slow-error-max-bytes` 调整。
 
-独立页面采用 JavaMelody 报告式阅读顺序：顶部运行摘要、多个关键指标趋势、入口统计、慢请求/错误列表和最近 Trace。入口统计展示 HTTP、Job、Kafka 消费的调用数、平均/最大耗时、累计耗时占比、失败数/失败率、线程 CPU 时间和分配内存均值。计数从当前应用进程启动后累计；趋势范围作用于 RRD4J 时间序列和慢错事件列表。页面默认选择最多四个常用趋势，也可搜索 Micrometer 历史目录并切换最多四个指标。
+独立页面按“概览、Metrics、入口统计、慢与错误、Trace”分为独立视图，可直接切换并通过 URL 锚点打开。Metrics 首屏展示 HTTP 请求速率、错误速率和区间平均耗时趋势，并按 CPU、JVM、Tomcat、日志、进程、系统、数据库、中间件和线程池等类别自动展示常用历史指标。同一指标或同类兼容指标的多个实例合并为多曲线图；单位或含义不同的指标分图展示。HTTP RED 图表从 Micrometer `http.server.requests` Timer 的累计调用数和耗时计算采样增量，按 URI 分组并合并不同状态码序列，错误按 HTTP 4xx/5xx、异常结果标签统计。为限制页面读取开销，最多展示 8 个 URI 组、读取 48 条 Timer 序列；序列总数超过上限时页面显示实际覆盖范围。HTTP RED 面板可切换请求速率、错误速率和平均耗时，URI 多曲线共用一张趋势图和 Max / Mean / Total 明细表。趋势图使用随 Starter 发布的本地 Apache ECharts 6.1.0 资源，不依赖 CDN；时间轴按采样时间定位，纵轴显示指标单位，悬停可查看同一时刻的多序列值，并支持框选缩放和时间窗口拖动。ECharts 的 Apache License 2.0 和 NOTICE 随资源保留在页面资产目录中。入口统计展示 HTTP、Job、Kafka 消费的调用数、平均/最大耗时、累计耗时占比、失败数/失败率、线程 CPU 时间和分配内存均值。计数从当前应用进程启动后累计；时间范围作用于指标历史和慢错事件列表。
 
 Trace 根节点只由 HTTP server、Job 和 Kafka consumer 入口创建。HTTP client、Kafka producer、Redis、Elasticsearch、JDBC/MyBatis 与事务作为当前入口下的操作节点；它们在没有入口上下文时只记录操作指标，不会伪装成一次独立请求。发生慢调用或错误时，慢错列表打开入口 Trace，展示调用树、操作耗时、线程 ID、CPU 和线程分配内存。线程资源值受 JVM 支持和操作是否在同一线程完成的影响；异步切换线程时无法可靠计算的字段显示为空。慢错 Trace 在进程重启后仍可查询；数据按当前实例本地保存，不会自动汇总多个实例。
 

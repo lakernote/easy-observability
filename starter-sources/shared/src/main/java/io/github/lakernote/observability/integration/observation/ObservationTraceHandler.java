@@ -66,6 +66,8 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
         try {
             type = resolveType(context);
             if (type == null || !type.isEnabled(properties)) return;
+            // 诊断页轮询自身 API 和静态资源会持续制造 HTTP Trace；仅跳过本组件记录，不改动宿主 Actuator/Micrometer 指标。
+            if ("HTTP".equals(type.name()) && isDashboardRequest(context)) return;
             // 只有入口请求创建根 Trace。客户端调用、SQL、Redis 和事务是依赖节点；脱离入口时只记录操作指标。
             boolean root = type.entry && !TraceContext.active();
             String currentTraceId = TraceIdContext.currentTraceId();
@@ -119,8 +121,14 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
         if (state == null) return;
         boolean sameThread = state.startedOnCurrentThread();
         try {
-            long durationMs = Math.max(0, TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - state.startedNanos));
             String currentDetail = safeTag(context);
+            // Spring MVC 的 URI 路由标签可能到 onStop 才补齐；此时再判断，避免诊断页轮询占满 Trace 保留区。
+            if ("HTTP".equals(state.type.name()) && isDashboardPath(
+                    currentDetail.isBlank() ? state.detail : currentDetail)) {
+                if (sameThread && state.root) TraceContext.clear();
+                return;
+            }
+            long durationMs = Math.max(0, TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - state.startedNanos));
             String detail = currentDetail.isBlank() ? state.detail : currentDetail;
             String displayName = displayName(context, state.type.name(), state.name, detail);
             ThreadResourceSnapshot resourcesAfter = Thread.currentThread().getId() == state.threadId
@@ -238,6 +246,20 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
         String destination = lowCardinality(context, "messaging.destination.name");
         if (!destination.isBlank()) return safe(destination, 256);
         return "";
+    }
+
+    private static boolean isDashboardRequest(Observation.Context context) {
+        String route = lowCardinality(context, "http.route");
+        if (route.isBlank()) route = lowCardinality(context, "uri");
+        return isDashboardPath(route);
+    }
+
+    private static boolean isDashboardPath(String route) {
+        if (route == null || route.isBlank()) return false;
+        String path = route.split("[?#]", 2)[0];
+        return "/easy-observability".equals(path) || "/easy-observability/".equals(path)
+                || path.startsWith("/easy-observability/assets/")
+                || "/api/easy-observability".equals(path) || path.startsWith("/api/easy-observability/");
     }
 
     private static String lowCardinality(Observation.Context context, String key) {

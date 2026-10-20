@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.lakernote.observability.trace.store.RecentTraceStore;
 import io.github.lakernote.observability.trace.OperationRecord;
+import io.github.lakernote.observability.metrics.OperationRecorder;
 import io.github.lakernote.observability.trace.store.IncidentOperationStore;
 import io.github.lakernote.observability.trace.store.IncidentTraceStore;
 import io.github.lakernote.observability.metrics.history.MetricHistoryStore;
@@ -69,9 +70,25 @@ public class ObservabilityController {
     }
 
     @GetMapping("/traces")
-    public List<RecentTraceStore.TraceRecord> traces(@RequestParam(defaultValue = "100") int limit) {
+    public List<RecentTraceStore.TraceRecord> traces(@RequestParam(defaultValue = "100") int limit,
+                                                     @RequestParam(defaultValue = "") String source,
+                                                     @RequestParam(defaultValue = "") String operation) {
         requireAccess();
+        if (!source.isBlank() || !operation.isBlank()) {
+            // 入口统计是当前进程的 Micrometer 累计值；下钻只查当前进程的有界 Trace，避免混入重启前持久化事件。
+            return recentTraces.recent(500).stream()
+                    .filter(trace -> source.isBlank() || source.equalsIgnoreCase(trace.sourceType()))
+                    .filter(trace -> operation.isBlank() || trace.operations().stream()
+                            .filter(item -> item.type().equalsIgnoreCase(trace.sourceType()))
+                            .map(OperationRecorder::operationTag).anyMatch(operation::equals))
+                    .limit(Math.max(1, Math.min(limit, 500))).toList();
+        }
         return allTraces(limit);
+    }
+
+    /** 保留普通 Java 调用方的原有签名。 */
+    public List<RecentTraceStore.TraceRecord> traces(int limit) {
+        return traces(limit, "", "");
     }
 
     @GetMapping("/request-statistics")

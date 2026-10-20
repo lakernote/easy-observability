@@ -66,9 +66,7 @@ public final class OperationRecorder {
                 : TYPES.contains(operation.type()) ? operation.type() : "OTHER";
         String outcome = OUTCOMES.contains(operation.outcome()) ? operation.outcome() : "failure";
         String source = safeTag(operation.type());
-        String name = safeTag(operation.detail().isBlank() ? operation.name()
-                : "HTTP".equals(operation.type()) ? operation.detail() + " · " + operation.name()
-                : operation.name() + " · " + operation.detail());
+        String name = operationTag(operation);
         Timer.builder("easy.operations.duration")
                 .description("Observed operation duration")
                 .tag("type", type).tag("source", source).tag("operation", name).tag("outcome", outcome)
@@ -80,6 +78,14 @@ public final class OperationRecorder {
         record("easy.operations.blocked.time", "milliseconds", type, source, name, outcome, operation.blockedTimeMs());
         record("easy.operations.waited.count", "events", type, source, name, outcome, operation.waitedCount());
         record("easy.operations.waited.time", "milliseconds", type, source, name, outcome, operation.waitedTimeMs());
+    }
+
+    /** 返回入口指标使用的聚合名称，供统计下钻按相同维度匹配当前进程 Trace。 */
+    public static String operationTag(OperationRecord operation) {
+        if (operation == null) return "unknown";
+        return safeTag(operation.detail().isBlank() ? operation.name()
+                : "HTTP".equals(operation.type()) ? operation.detail() + " · " + operation.name()
+                : operation.name() + " · " + operation.detail());
     }
 
     private void record(String name, String unit, String type, String source, String operation,

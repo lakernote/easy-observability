@@ -58,7 +58,8 @@ public class RecentTraceStore {
             if (!isEntrySource(record.sourceType())) continue;
             if (result.size() == safeLimit) break;
             OperationRecord root = firstRootOperation(record.traceId());
-            result.add(root == null ? record : record.withDetails(root, List.of()));
+            // 列表只附带根操作，供入口统计按实际指标维度下钻；完整子操作仍按需在详情接口读取。
+            result.add(root == null ? record : record.withDetails(root, List.of(root)));
         }
         return List.copyOf(result);
     }

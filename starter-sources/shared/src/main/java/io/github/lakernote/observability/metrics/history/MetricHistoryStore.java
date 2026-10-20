@@ -1194,7 +1194,7 @@ public class MetricHistoryStore {
             return CORE_PRIORITY;
         }
         if (name.startsWith("hikaricp.") || name.startsWith("jdbc.connections.")
-                || name.startsWith("tomcat.threads.") || name.startsWith("executor.")) {
+                || name.startsWith("tomcat.") || name.startsWith("logback.") || name.startsWith("executor.")) {
             return PLATFORM_PRIORITY;
         }
         return OPTIONAL_PRIORITY;

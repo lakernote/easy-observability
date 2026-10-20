@@ -163,6 +163,44 @@ class ObservationTraceHandlerTest {
     }
 
     @Test
+    void excludesBundledDashboardTrafficFromEasyObservabilityRecords() {
+        EasyObservabilityProperties properties = new EasyObservabilityProperties();
+        SimpleMeterRegistry meters = new SimpleMeterRegistry();
+        RecentTraceStore history = new RecentTraceStore(10, 10);
+        OperationRecorder recorder = new OperationRecorder(meters, history, properties);
+        ObservationRegistry registry = ObservationRegistry.create();
+        registry.observationConfig().observationHandler(new ObservationTraceHandler(recorder, history, properties));
+
+        Observation.createNotStarted("http.server.requests", registry)
+                .lowCardinalityKeyValue("http.request.method", "GET")
+                .lowCardinalityKeyValue("http.route", "/api/easy-observability/metrics/history")
+                .start().stop();
+
+        assertThat(meters.find("easy.operations.duration").timers()).isEmpty();
+        assertThat(history.recent(10)).isEmpty();
+        assertThat(history.recentOperations(10, null)).isEmpty();
+    }
+
+    @Test
+    void excludesDashboardTrafficWhenSpringAddsRouteOnlyAtObservationStop() {
+        EasyObservabilityProperties properties = new EasyObservabilityProperties();
+        SimpleMeterRegistry meters = new SimpleMeterRegistry();
+        RecentTraceStore history = new RecentTraceStore(10, 10);
+        OperationRecorder recorder = new OperationRecorder(meters, history, properties);
+        ObservationRegistry registry = ObservationRegistry.create();
+        registry.observationConfig().observationHandler(new ObservationTraceHandler(recorder, history, properties));
+
+        Observation observation = Observation.createNotStarted("http.server.requests", registry)
+                .lowCardinalityKeyValue("http.request.method", "GET").start();
+        observation.lowCardinalityKeyValue("http.route", "/api/easy-observability/metrics/history").stop();
+
+        assertThat(meters.find("easy.operations.duration").timers()).isEmpty();
+        assertThat(history.recent(10)).isEmpty();
+        assertThat(history.recentOperations(10, null)).isEmpty();
+        assertThat(TraceContext.active()).isFalse();
+    }
+
+    @Test
     void recordsHttpObservationWhenContextualNameIsNotAvailableAtStart() throws Exception {
         EasyObservabilityProperties properties = new EasyObservabilityProperties();
         properties.getTrace().setHttpSlowThresholdMs(1);

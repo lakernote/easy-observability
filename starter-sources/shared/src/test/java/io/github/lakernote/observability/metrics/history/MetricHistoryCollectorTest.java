@@ -43,6 +43,9 @@ class MetricHistoryCollectorTest {
                 .register(registry).increment(5);
         Counter.builder("jvm.memory.used").tag("area", "heap")
                 .register(registry).increment(1024);
+        Counter.builder("logback.events").tag("level", "error")
+                .register(registry).increment(2);
+        Counter.builder("tomcat.sessions.created").register(registry).increment(3);
 
         MetricHistoryStore store = new MetricHistoryStore(new ObjectMapper(),
                 tempDirectory.toString(), 15, 64L * 1024 * 1024,
@@ -52,7 +55,7 @@ class MetricHistoryCollectorTest {
         new MetricHistoryCollector(registry, store).collect();
 
         assertThat(store.listSeries()).extracting(MetricHistoryStore.MetricSeriesDescriptor::name)
-                .contains("easy.operations.duration", "jvm.memory.used")
+                .contains("easy.operations.duration", "jvm.memory.used", "logback.events", "tomcat.sessions.created")
                 .doesNotContain("easy.operations.cpu.time", "easy.operations.allocated",
                         "easy.operations.blocked.count", "easy.operations.blocked.time",
                         "easy.operations.waited.count", "easy.operations.waited.time");

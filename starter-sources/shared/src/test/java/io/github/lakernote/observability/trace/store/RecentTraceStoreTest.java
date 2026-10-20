@@ -1,8 +1,11 @@
 package io.github.lakernote.observability.trace.store;
 
 import org.junit.jupiter.api.Test;
+import io.github.lakernote.observability.trace.OperationRecord;
 
+import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -33,5 +36,21 @@ class RecentTraceStoreTest {
         assertThat(records).extracting(RecentTraceStore.TraceRecord::traceId).containsExactly("trace-3", "trace-2");
         assertThat(history.find("trace-2").tree()).isEqualTo("tree");
         assertThat(history.find("trace-1")).isNull();
+    }
+
+    @Test
+    void includesRootOperationInRecentListForStatisticDrilldown() {
+        RecentTraceStore history = new RecentTraceStore(10);
+        history.add("job-trace", "nightly cleanup", "", "JOB", 200, 120, true, false, "tree");
+        history.addOperation(new OperationRecord("JOB", "job-trace", "tasks.scheduled.execution", "worker-1",
+                7, "success", 120, 3, 4096, -1, -1, -1, -1, "", "", "", true, false,
+                List.of(), "", "", Map.of(), Instant.now(), "1", ""));
+
+        RecentTraceStore.TraceRecord recent = history.recent(10).get(0);
+
+        assertThat(recent.name()).isEqualTo("nightly cleanup");
+        assertThat(recent.operations()).extracting(OperationRecord::name)
+                .containsExactly("tasks.scheduled.execution");
+        assertThat(history.find("job-trace").operations()).hasSize(1);
     }
 }
