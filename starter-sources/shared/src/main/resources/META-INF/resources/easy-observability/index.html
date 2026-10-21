@@ -14,13 +14,12 @@
   <a class="skip-link" href="#main-content">跳到主要内容</a>
   <header class="masthead">
     <div class="masthead-inner">
-      <a class="brand" href="#overview" aria-label="Easy Observability 首页">
+      <a class="brand" href="#metrics-section" aria-label="Easy Observability 指标趋势">
         <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M5 17h5l3-8 5 15 3-9h6"/><circle cx="5" cy="17" r="1.5"/><circle cx="27" cy="15" r="1.5"/></svg></span>
         <span class="brand-copy"><strong>Easy Observability</strong><small>应用运行诊断</small></span>
       </a>
       <nav class="primary-nav" aria-label="页面导航">
-        <a class="active" href="#overview" aria-current="page">概览</a>
-        <a href="#metrics-section">Metrics</a>
+        <a class="active" href="#metrics-section" aria-current="page">Metrics</a>
         <a href="#entry-section">入口统计</a>
         <a href="#incidents-section">慢与错误</a>
         <a href="#traces-section">Trace</a>
@@ -35,21 +34,7 @@
 
   <main id="main-content" class="report">
     <div id="notice" class="notice" role="alert" hidden></div>
-    <section id="overview" class="overview-section" aria-labelledby="page-title">
-      <div class="page-heading">
-        <div><p class="eyebrow">APPLICATION OBSERVABILITY</p><h1 id="page-title">运行概览</h1><p class="page-description">从运行趋势到单次调用，快速定位应用中的慢与错误。</p></div>
-        <div class="updated-pill"><span id="status-dot" class="live-dot" aria-hidden="true"></span><span id="updated">等待数据</span></div>
-      </div>
-      <div class="summary-grid" aria-label="运行摘要">
-        <article class="summary-card summary-primary"><div class="summary-label"><span class="summary-icon icon-requests" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4V5Z"/><path d="M8 9h8M8 12h5"/></svg></span><span>入口调用</span></div><strong id="total-count">—</strong><small>按当前 Micrometer 统计值</small></article>
-        <article class="summary-card"><div class="summary-label"><span class="summary-icon icon-duration" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3 2"/></svg></span><span>平均耗时</span></div><strong id="mean-duration">—</strong><small>按当前入口筛选</small></article>
-        <article class="summary-card"><div class="summary-label"><span class="summary-icon icon-slow" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3 2.8 19h18.4L12 3Z"/><path d="M12 9v4m0 3h.01"/></svg></span><span>慢调用</span></div><strong id="slow-count">—</strong><small>所选范围内最近的入口和操作</small></article>
-        <article class="summary-card"><div class="summary-label"><span class="summary-icon icon-error" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="m9 9 6 6m0-6-6 6"/></svg></span><span>失败调用</span></div><strong id="failure-count">—</strong><small>所选范围内最近的入口和操作</small></article>
-        <article class="summary-card"><div class="summary-label"><span class="summary-icon icon-rate" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 17 9 12l3 3 8-9"/><path d="M15 6h5v5"/></svg></span><span>错误率</span></div><strong id="error-rate">—</strong><small>按当前入口筛选</small></article>
-      </div>
-    </section>
-
-    <section id="metrics-section" class="report-section metrics-view" aria-labelledby="metrics-title" hidden>
+    <section id="metrics-section" class="report-section metrics-view" aria-labelledby="metrics-title">
       <div class="page-heading metrics-page-heading"><div><p class="eyebrow">METRICS WORKSPACE</p><h1 id="metrics-title">指标趋势</h1><p class="page-description">先看 HTTP 请求、错误和耗时，再查看进程、JVM 与基础设施的常用趋势。</p><p id="metric-range-note" class="page-description metrics-range-note" role="status">正在读取指标历史范围…</p></div><span id="metric-storage-status" class="source-badge" role="status">本地历史 · 1 分钟采样</span></div>
       <section class="red-section" aria-labelledby="http-red-title">
         <div class="subsection-heading"><div><p class="eyebrow">HTTP · RED</p><h2 id="http-red-title">HTTP 请求健康度</h2><p>请求速率、错误速率和平均耗时合并在同一面板；切换指标查看趋势，点击 URI 表格中的彩色标记显隐曲线。错误包含 4xx、5xx 和异常结果；诊断页面自身的请求会排除。</p></div><span id="http-red-scope" class="source-badge">等待 HTTP 指标</span></div>
@@ -85,6 +70,6 @@
   <dialog id="entry-dialog" aria-labelledby="entry-dialog-title"><div class="dialog-head"><div><p class="eyebrow">ENTRY STATISTIC</p><h2 id="entry-dialog-title">入口执行记录</h2></div><button id="close-entry-dialog" class="dialog-close" aria-label="关闭">×</button></div><p id="entry-dialog-note" class="dialog-note"></p><div class="table-scroll"><table><thead><tr><th>结果</th><th>状态</th><th>耗时</th><th>Trace ID</th><th>完成时间</th></tr></thead><tbody id="entry-trace-rows"></tbody></table></div></dialog>
   <dialog id="trace-dialog" aria-labelledby="dialog-title"><div class="dialog-head"><div><p class="eyebrow">TRACE DETAIL</p><h2 id="dialog-title">请求详情</h2></div><button id="close-dialog" class="dialog-close" aria-label="关闭">×</button></div><div id="trace-facts" class="trace-facts"></div><h3>调用树</h3><pre id="trace-tree"></pre><p id="trace-operations-note" class="dialog-note" hidden></p><h3>调用明细</h3><div class="table-scroll"><table id="operation-table"><thead><tr><th>类型</th><th>操作</th><th>耗时</th><th>CPU</th><th>分配内存</th><th>线程</th><th>结果</th><th>错误</th></tr></thead><tbody id="operation-rows"></tbody></table></div></dialog>
   <script defer src="/easy-observability/assets/vendor/echarts.min.js?v=6.1.0"></script>
-  <script type="module" src="/easy-observability/assets/dashboard.js?v=20261021.5"></script>
+  <script type="module" src="/easy-observability/assets/dashboard.js?v=20261021.6"></script>
 </body>
 </html>

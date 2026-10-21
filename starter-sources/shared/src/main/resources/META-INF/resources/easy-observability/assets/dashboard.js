@@ -235,12 +235,6 @@ function traceOperationLabel(trace) {
 function renderStats() {
   const visible = requestStats.filter(item => !isDashboardHttpTraffic(item.source, item.operation)
     && (selectedSource === 'ALL' || item.source === selectedSource))
-  const count = visible.reduce((sum, item) => sum + Number(item.count || 0), 0)
-  const errors = visible.reduce((sum, item) => sum + Number(item.errorCount || 0), 0)
-  const totalMs = visible.reduce((sum, item) => sum + Number(item.totalDurationMs || 0), 0)
-  byId('total-count').textContent = formatNumber(count)
-  byId('mean-duration').textContent = formatNumber(count ? totalMs / count : 0, ' ms')
-  byId('error-rate').textContent = `${(count ? errors / count * 100 : 0).toFixed(2)}%`
   const rows = byId('entry-rows')
   rows.replaceChildren()
   const sumDuration = visible.reduce((sum, item) => sum + Number(item.totalDurationMs || 0), 0)
@@ -507,8 +501,6 @@ function renderIncidentTables() {
   const errors = errorItems.slice(0, 50)
   const slowCountLabel = slowItems.length >= 100 ? '100+' : formatNumber(slowItems.length)
   const errorCountLabel = errorItems.length >= 100 ? '100+' : formatNumber(errorItems.length)
-  byId('slow-count').textContent = slowCountLabel
-  byId('failure-count').textContent = errorCountLabel
   byId('slow-total').textContent = `(${slowCountLabel}${slowItems.length > 50 ? '，列表显示前 50 条' : ''})`
   byId('error-total').textContent = `(${errorCountLabel}${errorItems.length > 50 ? '，列表显示前 50 条' : ''})`
   byId('slow-rows').replaceChildren(...slow.map(trace => traceRow(trace, 'slow')))
@@ -1359,17 +1351,11 @@ async function refresh() {
     const notices = [...failed.filter(Boolean), ...storageWarnings]
     if (notices.length) {
       showNotice(notices.join('；'))
-      byId('status-dot').className = 'live-dot is-warning'
-      byId('updated').textContent = `部分数据异常 · ${new Date().toLocaleTimeString()}`
     } else {
       showNotice('')
-      byId('status-dot').className = 'live-dot'
-      byId('updated').textContent = `更新于 ${new Date().toLocaleTimeString()}`
     }
   } catch (error) {
     showNotice(error?.message || '加载监控报告失败')
-    byId('status-dot').className = 'live-dot is-warning'
-    byId('updated').textContent = `更新失败 · ${new Date().toLocaleTimeString()}`
   }
   finally { byId('refresh').disabled = false }
 }
@@ -1402,7 +1388,7 @@ byId('close-entry-dialog').addEventListener('click', () => byId('entry-dialog').
 const sectionLinks = [...document.querySelectorAll('.primary-nav a')]
 const viewSections = sectionLinks.map(link => document.querySelector(link.hash)).filter(Boolean)
 function activateView(id, updateHistory = false) {
-  const selected = viewSections.find(section => section.id === id) || byId('overview')
+  const selected = viewSections.find(section => section.id === id) || byId('metrics-section')
   viewSections.forEach(section => { section.hidden = section !== selected })
   sectionLinks.forEach(link => {
     const active = link.hash === `#${selected.id}`
@@ -1433,7 +1419,7 @@ sectionLinks.forEach(link => link.addEventListener('click', event => {
 }))
 document.querySelector('.brand').addEventListener('click', event => {
   event.preventDefault()
-  activateView('overview', true)
+  activateView('metrics-section', true)
 })
 window.addEventListener('popstate', () => activateView(location.hash.slice(1)))
 activateView(location.hash.slice(1))
