@@ -16,7 +16,9 @@ import java.util.concurrent.ConcurrentMap;
 @Aspect
 public class TraceSpanAspect {
     private final EasyObservabilityProperties properties;
-    /** Annotation metadata and default span names are immutable, so resolve them only on the first method call. */
+    /**
+     * Annotation metadata and default span names are immutable, so resolve them only on the first method call.
+     */
     private final ClassValue<ConcurrentMap<Method, TraceDescriptor>> traceDescriptors = new ClassValue<>() {
         @Override
         protected ConcurrentMap<Method, TraceDescriptor> computeValue(Class<?> type) {
@@ -28,10 +30,10 @@ public class TraceSpanAspect {
         this.properties = properties;
     }
 
-    @Around("(@annotation(io.github.lakernote.observability.trace.TraceSpan) || " +
-            "@within(io.github.lakernote.observability.trace.TraceSpan)) && " +
-            "!@annotation(io.github.lakernote.observability.trace.TraceDisabled) && " +
-            "!@within(io.github.lakernote.observability.trace.TraceDisabled)")
+    @Around("(@annotation(TraceSpan) || " +
+            "@within(TraceSpan)) && " +
+            "!@annotation(TraceDisabled) && " +
+            "!@within(TraceDisabled)")
     public Object around(ProceedingJoinPoint joinPoint) throws Throwable {
         if (!properties.getTrace().isEnabled() || !TraceContext.active()) {
             return joinPoint.proceed();
@@ -117,5 +119,6 @@ public class TraceSpanAspect {
         return traceSpan == null ? "" : traceSpan.tag();
     }
 
-    private record TraceDescriptor(String spanName, SpanKind kind, String tag) { }
+    private record TraceDescriptor(String spanName, SpanKind kind, String tag) {
+    }
 }

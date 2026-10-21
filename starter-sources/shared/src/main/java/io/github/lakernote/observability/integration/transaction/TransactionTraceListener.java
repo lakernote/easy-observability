@@ -2,13 +2,7 @@ package io.github.lakernote.observability.integration.transaction;
 
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
 import io.github.lakernote.observability.metrics.OperationRecorder;
-import io.github.lakernote.observability.trace.BoundedThrowableFormatter;
-import io.github.lakernote.observability.trace.OperationRecord;
-import io.github.lakernote.observability.trace.SpanKind;
-import io.github.lakernote.observability.trace.ThreadResourceSnapshot;
-import io.github.lakernote.observability.trace.TraceContext;
-import io.github.lakernote.observability.trace.TraceIdContext;
-import io.github.lakernote.observability.trace.ObservationSuppression;
+import io.github.lakernote.observability.trace.*;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import org.springframework.transaction.TransactionExecution;
@@ -23,7 +17,9 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.LongSupplier;
 
-/** Records Spring transaction boundaries without proxying application services. */
+/**
+ * Records Spring transaction boundaries without proxying application services.
+ */
 public final class TransactionTraceListener implements TransactionExecutionListener {
     private final OperationRecorder recorder;
     private final EasyObservabilityProperties properties;
@@ -185,9 +181,10 @@ public final class TransactionTraceListener implements TransactionExecutionListe
         return Map.copyOf(timers);
     }
 
-    private record TransactionMetricKey(boolean success, boolean readOnly) { }
+    private record TransactionMetricKey(boolean success, boolean readOnly) {
+    }
 
-    private enum Resource { CPU, ALLOCATED, BLOCKED_COUNT, BLOCKED_TIME, WAITED_COUNT, WAITED_TIME }
+    private enum Resource {CPU, ALLOCATED, BLOCKED_COUNT, BLOCKED_TIME, WAITED_COUNT, WAITED_TIME}
 
     private static final class State {
         private final String traceId;
@@ -203,6 +200,7 @@ public final class TransactionTraceListener implements TransactionExecutionListe
         private TraceContext.ScopedSpan span;
         private boolean started;
         private boolean countedActive;
+
         private State(String traceId, boolean ownsTraceId, boolean tracing, String name, boolean readOnly,
                       long createdNanos) {
             this.traceId = traceId;

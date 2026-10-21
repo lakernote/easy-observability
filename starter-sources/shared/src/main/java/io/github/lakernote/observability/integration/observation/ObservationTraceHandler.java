@@ -275,11 +275,12 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
     /** SQL is useful for slow-query diagnosis; literal values and comments are removed before it is retained. */
     private static String normalizedSql(Observation.Context context) {
         for (KeyValue value : context.getHighCardinalityKeyValues()) {
-            if (value.getKey() != null && value.getKey().startsWith("jdbc.query[")
-                    && value.getValue() != null && !value.getValue().isBlank()) {
-                String withoutComments = SQL_COMMENT.matcher(value.getValue()).replaceAll(" ");
-                String withoutLiterals = SQL_LITERAL.matcher(withoutComments).replaceAll("?");
-                return withoutLiterals.replaceAll("\\s+", " ").trim();
+            if (value.getKey().startsWith("jdbc.query[")) {
+                if (!value.getValue().isBlank()) {
+                    String withoutComments = SQL_COMMENT.matcher(value.getValue()).replaceAll(" ");
+                    String withoutLiterals = SQL_LITERAL.matcher(withoutComments).replaceAll("?");
+                    return withoutLiterals.replaceAll("\\s+", " ").trim();
+                }
             }
         }
         return "";
@@ -301,7 +302,7 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
 
     private static String lowCardinality(Observation.Context context, String key) {
         KeyValue value = context.getLowCardinalityKeyValue(key);
-        return value == null || value.getValue() == null ? "" : value.getValue();
+        return value == null ? "" : value.getValue();
     }
 
     private static int httpStatus(Observation.Context context) {

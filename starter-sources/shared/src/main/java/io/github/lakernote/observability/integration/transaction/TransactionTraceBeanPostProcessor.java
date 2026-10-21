@@ -10,7 +10,9 @@ import org.springframework.transaction.support.AbstractPlatformTransactionManage
 import java.util.ArrayList;
 import java.util.List;
 
-/** Adds the trace listener through Spring's transaction-manager extension point. */
+/**
+ * Adds the trace listener through Spring's transaction-manager extension point.
+ */
 public final class TransactionTraceBeanPostProcessor implements BeanPostProcessor, PriorityOrdered {
     private final ObjectProvider<TransactionTraceListener> listenerProvider;
 
@@ -32,5 +34,8 @@ public final class TransactionTraceBeanPostProcessor implements BeanPostProcesso
         return bean;
     }
 
-    @Override public int getOrder() { return Ordered.LOWEST_PRECEDENCE; }
+    @Override
+    public int getOrder() {
+        return Ordered.LOWEST_PRECEDENCE;
+    }
 }

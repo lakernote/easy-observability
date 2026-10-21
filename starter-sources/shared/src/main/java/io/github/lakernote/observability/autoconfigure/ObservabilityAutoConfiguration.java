@@ -1,28 +1,28 @@
 package io.github.lakernote.observability.autoconfigure;
 
-import io.github.lakernote.observability.metrics.MetricCardinalityConfiguration;
-import io.github.lakernote.observability.metrics.OperationRecorder;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
-import io.github.lakernote.observability.trace.store.RecentTraceStore;
-import io.github.lakernote.observability.trace.store.IncidentTraceStore;
-import io.github.lakernote.observability.trace.BoundedHistoryWriter;
-import io.github.lakernote.observability.trace.TraceContextTaskDecorator;
-import io.github.lakernote.observability.metrics.history.MetricHistoryCollector;
-import io.github.lakernote.observability.metrics.history.MetricHistoryStore;
-import io.github.lakernote.observability.integration.job.JobObservation;
 import io.github.lakernote.observability.integration.executor.ExecutorTaskObservation;
+import io.github.lakernote.observability.integration.job.JobObservation;
 import io.github.lakernote.observability.integration.observation.ObservationTraceHandler;
 import io.github.lakernote.observability.integration.observation.ObservationTraceIdResolver;
+import io.github.lakernote.observability.metrics.MetricCardinalityConfiguration;
+import io.github.lakernote.observability.metrics.OperationRecorder;
+import io.github.lakernote.observability.metrics.history.MetricHistoryCollector;
+import io.github.lakernote.observability.metrics.history.MetricHistoryStore;
+import io.github.lakernote.observability.trace.BoundedHistoryWriter;
+import io.github.lakernote.observability.trace.TraceContextTaskDecorator;
+import io.github.lakernote.observability.trace.store.IncidentTraceStore;
+import io.github.lakernote.observability.trace.store.RecentTraceStore;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
-import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
  * 注册监控共用组件。
@@ -74,7 +74,7 @@ public class ObservabilityAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     IncidentTraceStore incidentTraces(ObjectMapper objectMapper, EasyObservabilityProperties properties,
-                              BoundedHistoryWriter writer) {
+                                      BoundedHistoryWriter writer) {
         EasyObservabilityProperties.Trace trace = properties.getTrace();
         return new IncidentTraceStore(objectMapper, trace.getSlowErrorTraceFile(), trace.getSlowErrorHistoryLimit(),
                 trace.getSlowErrorMaxBytes().toBytes(), writer);

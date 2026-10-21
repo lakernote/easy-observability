@@ -11,7 +11,9 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 
-/** 为每个 Servlet 请求接收或生成 Trace ID，并写入响应头和 MDC。 */
+/**
+ * 为每个 Servlet 请求接收或生成 Trace ID，并写入响应头和 MDC。
+ */
 public final class TraceIdFilter extends OncePerRequestFilter {
     private final EasyObservabilityProperties properties;
 

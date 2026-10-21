@@ -1,6 +1,7 @@
 package io.github.lakernote.observability.trace;
 
 import org.slf4j.MDC;
+
 import java.util.Map;
 
 /**
