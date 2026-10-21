@@ -296,11 +296,14 @@ async function openTrace(trace) {
   let detail = trace
   try { detail = await getJson(`/traces/${encodeURIComponent(trace.traceId)}`) || trace }
   catch (error) { byId('trace-tree').textContent = error?.message || '读取 Trace 明细失败'; return }
-  byId('trace-tree').textContent = detail.tree || '此请求未触发慢或错误，未保存完整调用树；已采集的下游操作见下表。'
+  byId('trace-tree').textContent = detail.tree || renderOperationTree(detail)
   const treeNodeCount = String(detail.tree || '').split('\n').filter(line => line.trim()).length
   const hasStructuredChild = (detail.operations || []).some(operation =>
     operation.type !== detail.sourceType || Boolean(operation.parentSpanId))
-  if (treeNodeCount > 1 && !hasStructuredChild) {
+  if (treeNodeCount > 1 && detail.tree && hasStructuredChild) {
+    byId('trace-operations-note').textContent = '调用树展示执行层级；下表展示已采集的结构化操作。自定义代码段可能只出现在调用树中，CPU、内存等数值取决于对应集成。'
+    byId('trace-operations-note').hidden = false
+  } else if (treeNodeCount > 1 && !hasStructuredChild) {
     byId('trace-operations-note').textContent = '调用树包含下游节点，但当前集成只采集了入口级结构化明细；下游节点的独立 CPU、内存和线程数据尚未采集。'
     byId('trace-operations-note').hidden = false
   }
@@ -309,9 +312,7 @@ async function openTrace(trace) {
   for (const { operation, depth } of orderOperations(detail.operations || [])) {
     const row = document.createElement('tr')
     td(row, labels[operation.type] || operation.type)
-    const displayName = ['http.server.requests', 'http.client.requests'].includes(operation.name) && operation.detail
-      ? operation.detail
-      : `${operation.name || ''}${operation.detail ? ` · ${operation.detail}` : ''}`
+    const displayName = operationDisplayName(operation)
     const operationName = `${depth ? `${'　'.repeat(depth)}↳ ` : ''}${displayName}`
     td(row, operationName)
     td(row, formatNumber(operation.durationMs, ' ms'), 'number')
@@ -353,7 +354,11 @@ function orderOperations(operations) {
   const byId = new Map(unique.filter(item => item.spanId).map(item => [item.spanId, item]))
   const children = new Map()
   const roots = []
-  const ordered = unique.sort((left, right) => new Date(left.finishedAt).getTime() - new Date(right.finishedAt).getTime())
+  const operationStart = operation => {
+    const finishedAt = new Date(operation.finishedAt).getTime()
+    return Number.isFinite(finishedAt) ? finishedAt - Math.max(0, Number(operation.durationMs) || 0) : 0
+  }
+  const ordered = unique.sort((left, right) => operationStart(left) - operationStart(right))
   for (const operation of ordered) {
     const parentId = operation.parentSpanId
     if (parentId && parentId !== operation.spanId && byId.has(parentId)) {
@@ -381,6 +386,25 @@ function orderOperations(operations) {
     if (!visitedOperations.has(operation)) visit(operation, 0)
   })
   return result
+}
+
+function operationDisplayName(operation) {
+  if (['http.server.requests', 'http.client.requests'].includes(operation.name) && operation.detail) {
+    return operation.detail
+  }
+  return `${operation.name || ''}${operation.detail ? ` · ${operation.detail}` : ''}`
+}
+
+function renderOperationTree(trace) {
+  const ordered = orderOperations(trace.operations || [])
+  if (!ordered.length) return '没有可展示的调用树或下游操作记录。'
+  const lines = ordered.map(({ operation, depth }) => {
+    const kind = labels[operation.type] || operation.type || '操作'
+    const name = operationDisplayName(operation) || kind
+    return `${'  '.repeat(depth)}${depth ? '↳ ' : ''}[${kind}] ${name} · ${formatNumber(operation.durationMs, ' ms')}`
+  })
+  lines.push('', '根据已采集操作的父子关系和开始时间整理；未采集的代码段不会显示。')
+  return lines.join('\n')
 }
 
 function traceRow(trace, target) {
