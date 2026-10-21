@@ -55,8 +55,10 @@ public final class TransactionTraceListener implements TransactionExecutionListe
         try {
             String currentId = TraceIdContext.currentTraceId();
             boolean tracing = properties.getTrace().isEnabled();
-            boolean ownsTraceId = tracing && (currentId == null || currentId.isBlank());
-            String traceId = !tracing ? currentId : ownsTraceId ? TraceIdContext.getOrCreateTraceId() : currentId;
+            boolean needsTraceId = tracing && TraceContext.active();
+            boolean ownsTraceId = needsTraceId && !TraceIdContext.isValidTraceId(currentId);
+            String traceId = ownsTraceId ? TraceIdContext.getOrCreateTraceId()
+                    : currentId == null ? "" : currentId;
             State state = new State(traceId, ownsTraceId, tracing,
                     safeName(execution.getTransactionName()), execution.isReadOnly(), nanoTime.getAsLong());
             if (tracing && TraceContext.active()) {
