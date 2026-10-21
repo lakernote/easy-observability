@@ -1466,8 +1466,8 @@ byId('period').addEventListener('change', () => {
   updateMetricRangeNote()
   redHistoryCache = null
   renderIncidentTables()
-  if (byId('metrics-section').hidden) return
   metricTimeRange = captureMetricTimeRange()
+  if (byId('metrics-section').hidden) return
   renderMetricDashboard(metricTimeRange, true)
 })
 byId('entry-filters').addEventListener('click', event => {
