@@ -42,13 +42,7 @@ class TransactionTraceListenerTest {
         clock.addAndGet(1_200_000_000L);
         listener.afterCommit(execution, null);
 
-        assertThat(history.recentOperations(10, "slow")).singleElement()
-                .satisfies(operation -> {
-                    assertThat(operation.type()).isEqualTo("TRANSACTION");
-                    assertThat(operation.durationMs()).isEqualTo(1_200);
-                    assertThat(operation.slow()).isTrue();
-                    assertThat(operation.reasons()).contains("LONG_TRANSACTION");
-                });
+        assertThat(history.recent(10)).isEmpty();
         assertThat(meters.get("easy.transactions").tag("result", "success").tag("read_only", "false")
                 .timer().count()).isEqualTo(1);
         assertThat(meters.get("easy.transactions.active").gauge().value()).isZero();

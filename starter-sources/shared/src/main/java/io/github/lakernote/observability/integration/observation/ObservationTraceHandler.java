@@ -76,12 +76,13 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
             boolean root = type.entry && !TraceContext.active();
             String currentTraceId = TraceIdContext.currentTraceId();
             String propagatedTraceId = resolveTraceId(context);
-            generatedTraceId = !TraceIdContext.isValidTraceId(currentTraceId)
+            boolean needsTraceId = root || TraceContext.active();
+            generatedTraceId = needsTraceId && !TraceIdContext.isValidTraceId(currentTraceId)
                     && !TraceIdContext.isValidTraceId(propagatedTraceId);
             // Kafka 的 Observation 在 RecordInterceptor 之前启动；此处先从消息头恢复同一 Trace ID。
             String traceId = TraceIdContext.isValidTraceId(propagatedTraceId)
                     ? propagatedTraceId
-                    : TraceIdContext.getOrCreateTraceId();
+                    : needsTraceId ? TraceIdContext.getOrCreateTraceId() : "";
             String name = operationName(context, type.name());
             String detail = safeTag(context);
             long threadId = Thread.currentThread().getId();
@@ -191,7 +192,7 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
                             status > 0 ? status : failed ? 500 : 200, durationMs, traceSlow, traceFailed, completion.tree());
                     if (incidentTraces != null && (traceSlow || traceFailed)) {
                         // 只把慢/错入口 Trace 写入持久存储；正常请求留在有界内存列表中。
-                        try { incidentTraces.record(recentTraces.find(state.traceId)); }
+                        try { incidentTraces.record(recentTraces.find(state.traceId, state.type.name())); }
                         catch (RuntimeException ignored) { }
                     }
                 });

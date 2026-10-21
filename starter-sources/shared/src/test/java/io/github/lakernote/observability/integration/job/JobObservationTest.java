@@ -21,7 +21,8 @@ class JobObservationTest {
 
         new JobObservation(registry).observe("nightly-reconciliation", () -> { });
 
-        assertThat(history.recentOperations(10, null)).singleElement().satisfies(operation -> {
+        var trace = history.recent(10).get(0);
+        assertThat(history.find(trace.traceId(), "JOB").operations()).singleElement().satisfies(operation -> {
             assertThat(operation.type()).isEqualTo("JOB");
             assertThat(operation.name()).isEqualTo("nightly-reconciliation");
         });

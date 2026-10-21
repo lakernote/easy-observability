@@ -11,16 +11,23 @@ import java.util.Map;
 /** Copies the current trace ID to outgoing Kafka records without retaining the message payload. */
 public class TraceIdProducerInterceptor<K, V> implements ProducerInterceptor<K, V> {
     public static final String TRACE_ID_HEADER = "X-Trace-Id";
+    public static final String TRACE_ID_HEADER_CONFIG = "easy.observability.trace.header-name";
+    private String traceIdHeader = TRACE_ID_HEADER;
 
     @Override
     public ProducerRecord<K, V> onSend(ProducerRecord<K, V> record) {
-        String traceId = TraceIdContext.getOrCreateTraceId();
-        record.headers().remove(TRACE_ID_HEADER);
-        record.headers().add(TRACE_ID_HEADER, traceId.getBytes(StandardCharsets.UTF_8));
+        String traceId = TraceIdContext.currentTraceId();
+        if (TraceIdContext.isValidTraceId(traceId)) {
+            record.headers().remove(traceIdHeader);
+            record.headers().add(traceIdHeader, traceId.getBytes(StandardCharsets.UTF_8));
+        }
         return record;
     }
 
     @Override public void onAcknowledgement(RecordMetadata metadata, Exception exception) { }
     @Override public void close() { }
-    @Override public void configure(Map<String, ?> configs) { }
+    @Override public void configure(Map<String, ?> configs) {
+        Object configuredHeader = configs.get(TRACE_ID_HEADER_CONFIG);
+        if (configuredHeader instanceof String value && !value.isBlank()) traceIdHeader = value.trim();
+    }
 }

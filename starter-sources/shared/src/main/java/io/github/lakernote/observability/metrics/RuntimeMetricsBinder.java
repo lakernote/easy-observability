@@ -19,17 +19,22 @@ public final class RuntimeMetricsBinder implements SmartInitializingSingleton, A
 
     @Override
     public void afterSingletonsInstantiated() {
-        if (registry.find("jvm.memory.used").meter() == null) new JvmMemoryMetrics().bindTo(registry);
-        if (registry.find("jvm.gc.pause").meter() == null) {
+        // A binder registers a family of meters. Checking a single member can miss a partially
+        // initialized family and then emit duplicate-registration warnings for its other members.
+        if (!hasFamily("jvm.memory.")) new JvmMemoryMetrics().bindTo(registry);
+        if (!hasFamily("jvm.gc.")) {
             gcMetrics = new JvmGcMetrics();
             gcMetrics.bindTo(registry);
         }
-        if (registry.find("jvm.threads.live").meter() == null) new JvmThreadMetrics().bindTo(registry);
-        if (registry.find("jvm.classes.loaded").meter() == null) new ClassLoaderMetrics().bindTo(registry);
-        if (registry.find("system.cpu.usage").meter() == null
-                || registry.find("process.cpu.usage").meter() == null) {
+        if (!hasFamily("jvm.threads.")) new JvmThreadMetrics().bindTo(registry);
+        if (!hasFamily("jvm.classes.")) new ClassLoaderMetrics().bindTo(registry);
+        if (!hasFamily("system.cpu.") && !hasFamily("process.cpu.")) {
             new ProcessorMetrics().bindTo(registry);
         }
+    }
+
+    private boolean hasFamily(String prefix) {
+        return registry.getMeters().stream().anyMatch(meter -> meter.getId().getName().startsWith(prefix));
     }
 
     @Override

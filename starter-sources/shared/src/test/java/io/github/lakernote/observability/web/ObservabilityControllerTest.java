@@ -81,6 +81,21 @@ class ObservabilityControllerTest {
     }
 
     @Test
+    void keepsDistinctEntryRootsWhenHttpAndKafkaShareOneTraceId() {
+        RecentTraceStore history = new RecentTraceStore(10, 10);
+        history.add("shared-trace", "/api/demo/kafka/error", "GET", "HTTP",
+                200, 35, false, false, "http tree");
+        history.add("shared-trace", "receive", "", "KAFKA_CONSUMER",
+                200, 4, false, true, "kafka tree");
+        ObservabilityController controller = new ObservabilityController(new SimpleMeterRegistry(), history, () -> true);
+
+        assertThat(controller.traces(10)).extracting(RecentTraceStore.TraceRecord::sourceType)
+                .containsExactly("KAFKA_CONSUMER", "HTTP");
+        assertThat(controller.incidents("error", "", 10))
+                .extracting(RecentTraceStore.TraceRecord::sourceType).containsExactly("KAFKA_CONSUMER");
+    }
+
+    @Test
     void aggregatesEntryOperationsLikeRequestStatistics() {
         SimpleMeterRegistry registry = new SimpleMeterRegistry();
         Timer.builder("easy.operations.duration").tags("source", "HTTP", "operation", "GET /orders",

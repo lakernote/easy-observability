@@ -5,7 +5,6 @@ import io.github.lakernote.observability.trace.OperationRecord;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ConcurrentMap;
@@ -22,7 +21,6 @@ public class RecentTraceStore {
     private final ConcurrentMap<String, ConcurrentLinkedDeque<OperationRecord>> operationsByTraceId =
             new ConcurrentHashMap<>();
     private final AtomicInteger operationCount = new AtomicInteger();
-    private final AtomicLong nextOperationId = new AtomicLong();
     private final int capacity;
     private final int operationCapacity;
 
@@ -65,14 +63,6 @@ public class RecentTraceStore {
         return List.copyOf(result);
     }
 
-    public List<TraceRecord> recentIncidents(int limit, String kind) {
-        String filter = kind == null ? "" : kind.trim().toLowerCase(Locale.ROOT);
-        return recent(capacity).stream()
-                .filter(trace -> "slow".equals(filter) ? trace.slow()
-                        : ("error".equals(filter) || "errors".equals(filter)) && trace.error())
-                .limit(Math.max(1, Math.min(limit, capacity))).toList();
-    }
-
     public TraceRecord find(String traceId) {
         return find(traceId, "");
     }
@@ -112,19 +102,6 @@ public class RecentTraceStore {
         }
     }
 
-    public List<OperationRecord> recentOperations(int limit, String kind) {
-        int safeLimit = Math.max(1, Math.min(limit, operationCapacity));
-        String filter = kind == null ? "" : kind.trim().toLowerCase(Locale.ROOT);
-        List<OperationRecord> result = new ArrayList<>(Math.min(safeLimit, 100));
-        for (OperationRecord operation : operations) {
-            if ("slow".equals(filter) && !operation.slow()) continue;
-            if (("error".equals(filter) || "errors".equals(filter)) && !operation.error()) continue;
-            if (result.size() == safeLimit) break;
-            result.add(operation);
-        }
-        return List.copyOf(result);
-    }
-
     public List<OperationRecord> operationsFor(String traceId, int limit) {
         if (traceId == null || traceId.isBlank()) return List.of();
         TraceRecord trace = records.stream().filter(item -> traceId.equals(item.traceId())
@@ -159,11 +136,23 @@ public class RecentTraceStore {
     }
 
     private TraceRecord withOperations(TraceRecord record) {
-        List<OperationRecord> related = operationsFor(record.traceId(), 500);
-        OperationRecord root = related.stream().filter(operation -> isRootOperation(operation)
+        List<OperationRecord> candidates = operationsFor(record.traceId(), 500);
+        OperationRecord root = candidates.stream().filter(operation -> isRootOperation(operation)
                 && record.sourceType().equalsIgnoreCase(operation.type())).findFirst()
-                .orElseGet(() -> related.stream().filter(RecentTraceStore::isRootOperation).findFirst().orElse(null));
+                .orElseGet(() -> candidates.stream().filter(RecentTraceStore::isRootOperation).findFirst().orElse(null));
+        // A propagated Trace ID may have multiple local entry roots (for example, an HTTP request
+        // that publishes Kafka and the consumer that processes it). Span IDs are local to each tree,
+        // so select operations from the root's execution window instead of merging both trees.
+        List<OperationRecord> related = root == null ? candidates : candidates.stream()
+                .filter(operation -> belongsToEntryWindow(operation, root)).toList();
         return record.withDetails(root, related);
+    }
+
+    private static boolean belongsToEntryWindow(OperationRecord operation, OperationRecord root) {
+        if (root.threadId() < 0 || operation.threadId() != root.threadId()) return false;
+        if (operation.finishedAt() == null || root.finishedAt() == null) return true;
+        Instant startedAt = root.finishedAt().minusMillis(Math.max(0, root.durationMs()) + 5);
+        return !operation.finishedAt().isBefore(startedAt) && !operation.finishedAt().isAfter(root.finishedAt());
     }
 
     private static boolean isRootOperation(OperationRecord operation) {

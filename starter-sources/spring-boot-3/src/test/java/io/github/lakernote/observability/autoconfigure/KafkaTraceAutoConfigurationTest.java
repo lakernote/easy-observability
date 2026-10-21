@@ -48,6 +48,11 @@ class KafkaTraceAutoConfigurationTest {
     void appendsProducerInterceptorAndKeepsConfiguredInterceptors() {
         new ApplicationContextRunner()
                 .withConfiguration(AutoConfigurations.of(KafkaProducerTraceAutoConfiguration.class))
+                .withBean(EasyObservabilityProperties.class, () -> {
+                    EasyObservabilityProperties properties = new EasyObservabilityProperties();
+                    properties.getTrace().setHeaderName("x-correlation-id");
+                    return properties;
+                })
                 .run(context -> {
                     DefaultKafkaProducerFactory<String, String> factory = new DefaultKafkaProducerFactory<>(Map.of(
                             ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092",
@@ -59,8 +64,27 @@ class KafkaTraceAutoConfigurationTest {
                     List<String> names = interceptors.stream().map(String::valueOf).toList();
                     assertThat(names).contains("example.ExistingInterceptor",
                             TraceIdProducerInterceptor.class.getName());
+                    assertThat(factory.getConfigurationProperties().get(
+                            TraceIdProducerInterceptor.TRACE_ID_HEADER_CONFIG)).isEqualTo("x-correlation-id");
                     factory.destroy();
                 });
+    }
+
+    @Test
+    void producerUsesConfiguredHeaderAndDoesNotInventTraceIdsOutsideAnEntry() {
+        TraceIdProducerInterceptor<String, String> interceptor = new TraceIdProducerInterceptor<>();
+        interceptor.configure(Map.of(TraceIdProducerInterceptor.TRACE_ID_HEADER_CONFIG, "x-correlation-id"));
+        var record = new org.apache.kafka.clients.producer.ProducerRecord<>("events", "key", "value");
+        assertThat(interceptor.onSend(record).headers().lastHeader("x-correlation-id")).isNull();
+
+        io.github.lakernote.observability.trace.TraceIdContext.putTraceId("0123456789abcdef0123456789abcdef");
+        try {
+            assertThat(interceptor.onSend(record).headers().lastHeader("x-correlation-id").value())
+                    .containsExactly("0123456789abcdef0123456789abcdef".getBytes(StandardCharsets.UTF_8));
+            assertThat(record.headers().lastHeader("X-Trace-Id")).isNull();
+        } finally {
+            io.github.lakernote.observability.trace.TraceIdContext.clear();
+        }
     }
 
     @Test

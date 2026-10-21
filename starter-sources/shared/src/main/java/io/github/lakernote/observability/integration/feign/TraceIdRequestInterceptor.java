@@ -14,6 +14,10 @@ public final class TraceIdRequestInterceptor implements RequestInterceptor {
 
     @Override
     public void apply(feign.RequestTemplate template) {
-        template.header(headerName, TraceIdContext.getOrCreateTraceId());
+        String traceId = TraceIdContext.currentTraceId();
+        if (TraceIdContext.isValidTraceId(traceId)) {
+            template.removeHeader(headerName);
+            template.header(headerName, traceId);
+        }
     }
 }

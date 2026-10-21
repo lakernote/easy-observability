@@ -5,7 +5,6 @@ import io.github.lakernote.observability.metrics.MetricCardinalityConfiguration;
 import io.github.lakernote.observability.metrics.OperationRecorder;
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
 import io.github.lakernote.observability.trace.store.RecentTraceStore;
-import io.github.lakernote.observability.trace.store.IncidentOperationStore;
 import io.github.lakernote.observability.trace.store.IncidentTraceStore;
 import io.github.lakernote.observability.trace.BoundedHistoryWriter;
 import io.github.lakernote.observability.trace.TraceContextTaskDecorator;
@@ -69,15 +68,6 @@ public class ObservabilityAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    IncidentOperationStore incidentOperations(ObjectMapper objectMapper, EasyObservabilityProperties properties,
-                                    BoundedHistoryWriter writer) {
-        EasyObservabilityProperties.Trace trace = properties.getTrace();
-        return new IncidentOperationStore(objectMapper, trace.getSlowErrorOperationFile(), trace.getSlowErrorHistoryLimit(),
-                trace.getSlowErrorMaxBytes().toBytes(), writer);
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
     IncidentTraceStore incidentTraces(ObjectMapper objectMapper, EasyObservabilityProperties properties,
                               BoundedHistoryWriter writer) {
         EasyObservabilityProperties.Trace trace = properties.getTrace();
@@ -109,8 +99,8 @@ public class ObservabilityAutoConfiguration {
     @ConditionalOnBean(MeterRegistry.class)
     @ConditionalOnMissingBean
     OperationRecorder operationRecorder(MeterRegistry meterRegistry, RecentTraceStore recentTraces,
-                                        IncidentOperationStore incidentOperations, EasyObservabilityProperties properties) {
-        return new OperationRecorder(meterRegistry, recentTraces, incidentOperations, properties);
+                                        EasyObservabilityProperties properties) {
+        return new OperationRecorder(meterRegistry, recentTraces, properties);
     }
 
     @Bean

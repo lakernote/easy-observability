@@ -2,8 +2,8 @@ package io.github.lakernote.observability.metrics;
 
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
 import io.github.lakernote.observability.trace.OperationRecord;
+import io.github.lakernote.observability.trace.TraceContext;
 import io.github.lakernote.observability.trace.store.RecentTraceStore;
-import io.github.lakernote.observability.trace.store.IncidentOperationStore;
 import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -27,30 +27,24 @@ public final class OperationRecorder {
 
     private final MeterRegistry meterRegistry;
     private final RecentTraceStore recentTraces;
-    private final IncidentOperationStore incidentOperations;
     private final EasyObservabilityProperties properties;
     private final AtomicBoolean failureLogged = new AtomicBoolean();
 
     public OperationRecorder(MeterRegistry meterRegistry, RecentTraceStore recentTraces,
                              EasyObservabilityProperties properties) {
-        this(meterRegistry, recentTraces, null, properties);
-    }
-
-    public OperationRecorder(MeterRegistry meterRegistry, RecentTraceStore recentTraces,
-                             IncidentOperationStore incidentOperations, EasyObservabilityProperties properties) {
         this.meterRegistry = meterRegistry;
         this.recentTraces = recentTraces;
-        this.incidentOperations = incidentOperations;
         this.properties = properties;
     }
 
     /** 监控记录失败不向外抛出，不影响被观测的业务操作。 */
     public void record(OperationRecord operation) {
         if (operation == null) return;
-        // 指标、近期 Trace 和慢错事件分别处理，单一存储故障不阻断其他记录路径。
+        // 指标和近期 Trace 分别处理，单一存储故障不阻断其他记录路径。
         if (properties.getMetrics().isEnabled()) safely("记录操作指标", () -> recordMetrics(operation));
-        if (properties.getTrace().isEnabled()) safely("保留 Trace 操作", () -> recentTraces.addOperation(operation));
-        if (incidentOperations != null) safely("保留 slow/error 操作", () -> incidentOperations.record(operation));
+        if (properties.getTrace().isEnabled() && TraceContext.active()) {
+            safely("保留 Trace 操作", () -> recentTraces.addOperation(operation));
+        }
     }
 
     private void safely(String actionName, Runnable action) {

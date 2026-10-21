@@ -170,7 +170,6 @@ public class EasyObservabilityProperties {
         // CPU and allocation counters require JVM management calls for every observed operation; keep opt-in.
         private boolean resourceSamplingEnabled;
         private boolean threadContentionSamplingEnabled;
-        private String slowErrorOperationFile = "./data/easy-observability/incidents.jsonl";
         private String slowErrorTraceFile = "./data/easy-observability/traces.jsonl";
         private int slowErrorHistoryLimit = 1_000;
         private DataSize slowErrorMaxBytes = DataSize.ofMegabytes(8);
@@ -215,8 +214,6 @@ public class EasyObservabilityProperties {
         public void setThreadContentionSamplingEnabled(boolean enabled) {
             this.threadContentionSamplingEnabled = enabled;
         }
-        public String getSlowErrorOperationFile() { return slowErrorOperationFile; }
-        public void setSlowErrorOperationFile(String slowErrorOperationFile) { this.slowErrorOperationFile = slowErrorOperationFile; }
         public String getSlowErrorTraceFile() { return slowErrorTraceFile; }
         public void setSlowErrorTraceFile(String slowErrorTraceFile) { this.slowErrorTraceFile = slowErrorTraceFile; }
         public int getSlowErrorHistoryLimit() { return slowErrorHistoryLimit; }

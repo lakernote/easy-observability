@@ -2,6 +2,7 @@ package io.github.lakernote.observability.integration.observation;
 
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
 import io.github.lakernote.observability.metrics.OperationRecorder;
+import io.github.lakernote.observability.trace.OperationRecord;
 import io.github.lakernote.observability.trace.SpanKind;
 import io.github.lakernote.observability.trace.TraceContext;
 import io.github.lakernote.observability.trace.store.RecentTraceStore;
@@ -44,7 +45,9 @@ class ObservationTraceHandlerTest {
         TraceContext.Completion[] completion = new TraceContext.Completion[1];
         TraceContext.stopRoot(Long.MAX_VALUE, "test", null, result -> completion[0] = result);
         assertThat(completion[0].tree()).contains("[Redis] GET");
-        assertThat(history.recentOperations(10, "slow")).singleElement()
+        history.add("trace-redis-1", "GET /cache", "GET", "HTTP", 200, 20,
+                false, false, completion[0].tree());
+        assertThat(history.find("trace-redis-1", "HTTP").operations()).singleElement()
                 .satisfies(operation -> {
                     assertThat(operation.traceId()).isEqualTo("trace-redis-1");
                     assertThat(operation.spanId()).isNotBlank();
@@ -66,13 +69,14 @@ class ObservationTraceHandlerTest {
 
         observation.start().stop();
 
-        assertThat(history.recentOperations(10, null)).singleElement()
-                .satisfies(operation -> {
-                    assertThat(operation.type()).isEqualTo("REDIS");
-                    assertThat(operation.name()).isEqualTo("GET");
-                    assertThat(operation.traceId()).isNotBlank();
-                });
         assertThat(history.recent(10)).isEmpty();
+        recorder.record(new OperationRecord("REDIS", "orphan-trace", "GET", "worker", 7,
+                "success", 1, -1, -1, -1, -1, -1, -1, "Redis command", "", "",
+                false, false, java.util.List.of(), "", "", java.util.Map.of(), java.time.Instant.now()));
+        history.add("orphan-trace", "GET /cache", "GET", "HTTP", 200, 10,
+                false, false, "tree");
+
+        assertThat(history.find("orphan-trace", "HTTP").operations()).isEmpty();
     }
 
     @Test
@@ -94,9 +98,11 @@ class ObservationTraceHandlerTest {
             assertThat(trace.error()).isTrue();
             assertThat(trace.tree()).isNotBlank();
         });
-        assertThat(history.recentOperations(10, "error")).singleElement().satisfies(operation -> {
-            assertThat(operation.error()).isTrue();
-            assertThat(operation.errorMessage()).isEqualTo("HTTP status 503");
+        assertThat(history.recent(10)).singleElement().satisfies(trace -> {
+            assertThat(trace.operations()).singleElement().satisfies(operation -> {
+                assertThat(operation.error()).isTrue();
+                assertThat(operation.errorMessage()).isEqualTo("HTTP status 503");
+            });
         });
     }
 
@@ -114,7 +120,6 @@ class ObservationTraceHandlerTest {
                 .lowCardinalityKeyValue("http.route", "/orders")
                 .start().stop();
 
-        assertThat(history.recentOperations(10, null)).isEmpty();
         assertThat(history.recent(10)).isEmpty();
         assertThat(TraceContext.active()).isFalse();
     }
@@ -178,7 +183,6 @@ class ObservationTraceHandlerTest {
 
         assertThat(meters.find("easy.operations.duration").timers()).isEmpty();
         assertThat(history.recent(10)).isEmpty();
-        assertThat(history.recentOperations(10, null)).isEmpty();
     }
 
     @Test
@@ -196,7 +200,6 @@ class ObservationTraceHandlerTest {
 
         assertThat(meters.find("easy.operations.duration").timers()).isEmpty();
         assertThat(history.recent(10)).isEmpty();
-        assertThat(history.recentOperations(10, null)).isEmpty();
         assertThat(TraceContext.active()).isFalse();
     }
 

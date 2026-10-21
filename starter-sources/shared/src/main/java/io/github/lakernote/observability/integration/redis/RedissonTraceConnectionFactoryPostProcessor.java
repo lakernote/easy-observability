@@ -80,8 +80,7 @@ public final class RedissonTraceConnectionFactoryPostProcessor implements BeanPo
             if (method.getDeclaringClass() == Object.class || !isCommand(method)) return invokeTarget(method, delegate, args);
             // Redis is always a dependency operation. Only an inbound HTTP, job, or Kafka
             // consumer observation may create a trace root.
-            boolean generatedId = !TraceIdContext.isValidTraceId(TraceIdContext.currentTraceId());
-            String traceId = TraceIdContext.getOrCreateTraceId();
+            String traceId = TraceIdContext.currentTraceId();
             String name = method.getName();
             long threadId = Thread.currentThread().getId();
             long startedNanos = System.nanoTime();
@@ -96,13 +95,13 @@ public final class RedissonTraceConnectionFactoryPostProcessor implements BeanPo
                 failure = error;
                 throw error;
             } finally {
-                finish(name, traceId, generatedId, threadId, startedNanos, before, span, failure,
+                finish(name, traceId, threadId, startedNanos, before, span, failure,
                         recorder, properties);
             }
         }
     }
 
-    private void finish(String name, String traceId, boolean generatedId, long threadId,
+    private void finish(String name, String traceId, long threadId,
                         long startedNanos, ThreadResourceSnapshot before, TraceContext.DetachedSpan span,
                         Throwable failure, OperationRecorder recorder, EasyObservabilityProperties properties) {
         long durationMs = Math.max(0, TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedNanos));
@@ -124,8 +123,6 @@ public final class RedissonTraceConnectionFactoryPostProcessor implements BeanPo
                     "", Map.of(), Instant.now(), span.spanId(), span.parentSpanId()));
         } catch (Throwable ignored) {
             // Instrumentation must never change the application's Redis result.
-        } finally {
-            if (generatedId) TraceIdContext.clear();
         }
     }
 

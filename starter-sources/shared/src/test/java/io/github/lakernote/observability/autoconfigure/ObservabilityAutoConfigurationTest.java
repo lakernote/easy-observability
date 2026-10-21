@@ -84,7 +84,7 @@ class ObservabilityAutoConfigurationTest {
     }
 
     @Test
-    void bridgesFrameworkObservationsIntoRecentOperations() {
+    void bridgesFrameworkObservationsIntoOperationMetrics() {
         ObservationRegistry registry = ObservationRegistry.create();
         contextRunner.withBean(ObservationRegistry.class, () -> registry).run(context -> {
             registry.observationConfig().observationHandler(context.getBean(
@@ -94,9 +94,8 @@ class ObservabilityAutoConfigurationTest {
                     .lowCardinalityKeyValue("db.operation", "GET")
                     .start().stop();
 
-            assertThat(context.getBean(io.github.lakernote.observability.trace.store.RecentTraceStore.class)
-                    .recentOperations(10, null)).singleElement()
-                    .satisfies(operation -> assertThat(operation.type()).isEqualTo("REDIS"));
+            assertThat(context.getBean(MeterRegistry.class).find("easy.operations.duration").timers())
+                    .singleElement().satisfies(timer -> assertThat(timer.getId().getTag("source")).isEqualTo("REDIS"));
         });
     }
 }

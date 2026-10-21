@@ -3,9 +3,7 @@ package io.github.lakernote.observability.web;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.lakernote.observability.trace.store.RecentTraceStore;
-import io.github.lakernote.observability.trace.OperationRecord;
 import io.github.lakernote.observability.metrics.OperationRecorder;
-import io.github.lakernote.observability.trace.store.IncidentOperationStore;
 import io.github.lakernote.observability.trace.store.IncidentTraceStore;
 import io.github.lakernote.observability.metrics.history.MetricHistoryStore;
 import io.github.lakernote.observability.metrics.history.MetricHistoryPoint;
@@ -25,6 +23,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Comparator;
 import java.util.HashMap;
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -36,7 +35,6 @@ import java.util.concurrent.TimeUnit;
 public class ObservabilityController {
     private final MeterRegistry meterRegistry;
     private final RecentTraceStore recentTraces;
-    private final IncidentOperationStore incidentOperations;
     private final MetricHistoryStore metricHistoryStore;
     private final IncidentTraceStore incidentTraces;
     private final ObjectMapper objectMapper;
@@ -44,12 +42,11 @@ public class ObservabilityController {
 
     @Autowired
     public ObservabilityController(MeterRegistry meterRegistry, RecentTraceStore recentTraces,
-                                  IncidentOperationStore incidentOperations, MetricHistoryStore metricHistoryStore,
+                                  MetricHistoryStore metricHistoryStore,
                                   IncidentTraceStore incidentTraces, ObjectMapper objectMapper,
                                   ObservabilityAccessPolicy accessPolicy) {
         this.meterRegistry = meterRegistry;
         this.recentTraces = recentTraces;
-        this.incidentOperations = incidentOperations;
         this.metricHistoryStore = metricHistoryStore;
         this.incidentTraces = incidentTraces;
         this.objectMapper = objectMapper;
@@ -58,7 +55,7 @@ public class ObservabilityController {
 
     public ObservabilityController(MeterRegistry meterRegistry, RecentTraceStore recentTraces,
                                   ObservabilityAccessPolicy accessPolicy) {
-        this(meterRegistry, recentTraces, null, null, null, new ObjectMapper(), accessPolicy);
+        this(meterRegistry, recentTraces, null, null, new ObjectMapper(), accessPolicy);
     }
 
     @GetMapping("/metrics")
@@ -159,11 +156,16 @@ public class ObservabilityController {
     }
 
     private List<RecentTraceStore.TraceRecord> allTraces(int limit) {
-        Map<String, RecentTraceStore.TraceRecord> merged = new LinkedHashMap<>();
-        if (incidentTraces != null) incidentTraces.recent(limit).forEach(trace -> merged.put(trace.traceId(), trace));
-        recentTraces.recent(limit).forEach(trace -> merged.putIfAbsent(trace.traceId(), trace));
+        Map<TraceIdentity, RecentTraceStore.TraceRecord> merged = new LinkedHashMap<>();
+        if (incidentTraces != null) incidentTraces.recent(limit)
+                .forEach(trace -> merged.put(traceIdentity(trace), trace));
+        recentTraces.recent(limit).forEach(trace -> merged.putIfAbsent(traceIdentity(trace), trace));
         return merged.values().stream().sorted(Comparator.comparing(RecentTraceStore.TraceRecord::finishedAt).reversed())
                 .limit(Math.max(1, Math.min(limit, 500))).toList();
+    }
+
+    private static TraceIdentity traceIdentity(RecentTraceStore.TraceRecord trace) {
+        return new TraceIdentity(trace.traceId(), trace.sourceType(), trace.finishedAt());
     }
 
     @GetMapping("/traces/{traceId}")
@@ -171,33 +173,12 @@ public class ObservabilityController {
                                               @RequestParam(defaultValue = "") String source) {
         requireAccess();
         RecentTraceStore.TraceRecord trace = recentTraces.find(traceId, source);
-        return trace != null || incidentTraces == null ? trace : incidentTraces.find(traceId);
+        return trace != null || incidentTraces == null ? trace : incidentTraces.find(traceId, source);
     }
 
     /** Preserves the direct Java caller signature used by integrations and tests. */
     public RecentTraceStore.TraceRecord trace(String traceId) {
         return trace(traceId, "");
-    }
-
-    @GetMapping("/operations")
-    public List<OperationRecord> operations(@RequestParam(defaultValue = "") String kind,
-                                            @RequestParam(defaultValue = "200") int limit) {
-        requireAccess();
-        return recentTraces.recentOperations(limit, kind);
-    }
-
-    @GetMapping("/slow")
-    public List<OperationRecord> slowOperations(@RequestParam(defaultValue = "100") int limit) {
-        requireAccess();
-        return incidentOperations == null ? recentTraces.recentOperations(limit, "slow")
-                : incidentOperations.recent(limit, "slow");
-    }
-
-    @GetMapping("/errors")
-    public List<OperationRecord> errorOperations(@RequestParam(defaultValue = "100") int limit) {
-        requireAccess();
-        return incidentOperations == null ? recentTraces.recentOperations(limit, "error")
-                : incidentOperations.recent(limit, "error");
     }
 
     @GetMapping("/metrics/series")
@@ -249,6 +230,8 @@ public class ObservabilityController {
                                    double maxDurationMs, double meanCpuTimeMs, double meanAllocatedBytes) { }
 
     private record StatisticKey(String source, String operation) { }
+
+    private record TraceIdentity(String traceId, String sourceType, Instant finishedAt) { }
 
     private static final class MutableStatistic {
         private long count;

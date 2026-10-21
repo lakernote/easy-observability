@@ -13,6 +13,8 @@ public record ThreadResourceSnapshot(long threadId, long cpuNanos, long allocate
     private static final ThreadMXBean THREADS = ManagementFactory.getThreadMXBean();
     private static final com.sun.management.ThreadMXBean HOTSPOT =
             THREADS instanceof com.sun.management.ThreadMXBean bean ? bean : null;
+    private static volatile boolean resourceCountersInitialized;
+    private static volatile boolean contentionCountersInitialized;
 
     /**
      * 采集线程 CPU 和分配字节；阻塞/等待信息需要额外查询 ThreadInfo，默认由调用方选择是否启用。
@@ -24,6 +26,8 @@ public record ThreadResourceSnapshot(long threadId, long cpuNanos, long allocate
         long allocated = -1;
         ThreadInfo info = null;
         try {
+            enableResourceCounters();
+            if (contentionSamplingEnabled) enableContentionCounters();
             if (THREADS.isThreadCpuTimeSupported() && THREADS.isThreadCpuTimeEnabled()) {
                 cpu = THREADS.getThreadCpuTime(threadId);
             }
@@ -31,12 +35,50 @@ public record ThreadResourceSnapshot(long threadId, long cpuNanos, long allocate
                     && HOTSPOT.isThreadAllocatedMemoryEnabled()) {
                 allocated = HOTSPOT.getThreadAllocatedBytes(threadId);
             }
-            if (contentionSamplingEnabled) info = THREADS.getThreadInfo(threadId);
+            if (contentionSamplingEnabled && THREADS.isThreadContentionMonitoringSupported()
+                    && THREADS.isThreadContentionMonitoringEnabled()) {
+                info = THREADS.getThreadInfo(threadId);
+            }
         } catch (RuntimeException ignored) {
         }
         return new ThreadResourceSnapshot(threadId, cpu, allocated,
                 info == null ? -1 : info.getBlockedCount(), info == null ? -1 : info.getBlockedTime(),
                 info == null ? -1 : info.getWaitedCount(), info == null ? -1 : info.getWaitedTime());
+    }
+
+    /** Enable JVM-wide counters only after the user opts into per-operation resource sampling. */
+    private static void enableResourceCounters() {
+        if (resourceCountersInitialized) return;
+        synchronized (THREADS) {
+            if (resourceCountersInitialized) return;
+            try {
+                if (THREADS.isThreadCpuTimeSupported() && !THREADS.isThreadCpuTimeEnabled()) {
+                    THREADS.setThreadCpuTimeEnabled(true);
+                }
+            } catch (RuntimeException ignored) { }
+            try {
+                if (HOTSPOT != null && HOTSPOT.isThreadAllocatedMemorySupported()
+                        && !HOTSPOT.isThreadAllocatedMemoryEnabled()) {
+                    HOTSPOT.setThreadAllocatedMemoryEnabled(true);
+                }
+            } catch (RuntimeException ignored) { }
+            resourceCountersInitialized = true;
+        }
+    }
+
+    /** Contention monitoring is off by default in many JVMs; this flag is an explicit opt-in. */
+    private static void enableContentionCounters() {
+        if (contentionCountersInitialized) return;
+        synchronized (THREADS) {
+            if (contentionCountersInitialized) return;
+            try {
+                if (THREADS.isThreadContentionMonitoringSupported()
+                        && !THREADS.isThreadContentionMonitoringEnabled()) {
+                    THREADS.setThreadContentionMonitoringEnabled(true);
+                }
+            } catch (RuntimeException ignored) { }
+            contentionCountersInitialized = true;
+        }
     }
 
     public long cpuTimeMsSince(ThreadResourceSnapshot start) {

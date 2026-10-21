@@ -1,6 +1,7 @@
 package io.github.lakernote.observability.autoconfigure;
 
 import io.github.lakernote.observability.integration.kafka.TraceIdProducerInterceptor;
+import io.github.lakernote.observability.config.EasyObservabilityProperties;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerInterceptor;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -23,7 +24,7 @@ import java.util.Map;
 public class KafkaProducerTraceAutoConfiguration {
 
     @Bean
-    DefaultKafkaProducerFactoryCustomizer easyObservabilityProducerTraceInstaller() {
+    DefaultKafkaProducerFactoryCustomizer easyObservabilityProducerTraceInstaller(EasyObservabilityProperties properties) {
         String interceptorClass = TraceIdProducerInterceptor.class.getName();
         return factory -> {
             Object configured = factory.getConfigurationProperties().get(ProducerConfig.INTERCEPTOR_CLASSES_CONFIG);
@@ -31,7 +32,9 @@ public class KafkaProducerTraceAutoConfiguration {
             if (interceptors.stream().noneMatch(value -> interceptorClass.equals(className(value)))) {
                 // 幂等追加，避免重复注册同一个拦截器，也不覆盖宿主配置。
                 interceptors.add(interceptorClass);
-                factory.updateConfigs(Map.of(ProducerConfig.INTERCEPTOR_CLASSES_CONFIG, List.copyOf(interceptors)));
+                factory.updateConfigs(Map.of(
+                        ProducerConfig.INTERCEPTOR_CLASSES_CONFIG, List.copyOf(interceptors),
+                        TraceIdProducerInterceptor.TRACE_ID_HEADER_CONFIG, properties.getTrace().getHeaderName()));
             }
         };
     }

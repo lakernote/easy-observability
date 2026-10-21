@@ -96,14 +96,28 @@ public final class IncidentTraceStore {
     }
 
     public RecentTraceStore.TraceRecord find(String traceId) {
+        return find(traceId, "");
+    }
+
+    public RecentTraceStore.TraceRecord find(String traceId, String sourceType) {
         if (traceId == null) return null;
-        return records.stream().filter(trace -> traceId.equals(trace.traceId())
-                && RecentTraceStore.isEntrySource(trace.sourceType())).findFirst().orElse(null);
+        var matches = records.stream().filter(trace -> traceId.equals(trace.traceId())
+                && RecentTraceStore.isEntrySource(trace.sourceType())
+                && (sourceType == null || sourceType.isBlank()
+                || sourceType.equalsIgnoreCase(trace.sourceType())));
+        if (sourceType == null || sourceType.isBlank()) {
+            return matches.filter(trace -> "HTTP".equals(trace.sourceType())).findFirst()
+                    .orElseGet(() -> records.stream().filter(trace -> traceId.equals(trace.traceId())
+                            && RecentTraceStore.isEntrySource(trace.sourceType())).findFirst().orElse(null));
+        }
+        return matches.findFirst().orElse(null);
     }
 
     private void add(RecentTraceStore.TraceRecord trace) {
         if (trace == null || !RecentTraceStore.isEntrySource(trace.sourceType())) return;
-        records.removeIf(item -> trace.traceId().equals(item.traceId()));
+        records.removeIf(item -> trace.traceId().equals(item.traceId())
+                && trace.sourceType().equalsIgnoreCase(item.sourceType())
+                && trace.finishedAt().equals(item.finishedAt()));
         records.addFirst(trace);
         while (records.size() > capacity) records.pollLast();
     }
