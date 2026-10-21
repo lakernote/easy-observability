@@ -39,10 +39,15 @@ public final class OperationRecorder {
 
     /** 监控记录失败不向外抛出，不影响被观测的业务操作。 */
     public void record(OperationRecord operation) {
+        record(operation, TraceContext.active());
+    }
+
+    /** Records operation details when their owning trace is active, even if completion runs on another thread. */
+    public void record(OperationRecord operation, boolean traceActive) {
         if (operation == null) return;
         // 指标和近期 Trace 分别处理，单一存储故障不阻断其他记录路径。
         if (properties.getMetrics().isEnabled()) safely("记录操作指标", () -> recordMetrics(operation));
-        if (properties.getTrace().isEnabled() && TraceContext.active()) {
+        if (properties.getTrace().isEnabled() && traceActive) {
             safely("保留 Trace 操作", () -> recentTraces.addOperation(operation));
         }
     }
@@ -69,10 +74,6 @@ public final class OperationRecorder {
                 .record(operation.durationMs(), TimeUnit.MILLISECONDS);
         record("easy.operations.cpu.time", "milliseconds", type, source, name, outcome, operation.cpuTimeMs());
         record("easy.operations.allocated", "bytes", type, source, name, outcome, operation.allocatedBytes());
-        record("easy.operations.blocked.count", "events", type, source, name, outcome, operation.blockedCount());
-        record("easy.operations.blocked.time", "milliseconds", type, source, name, outcome, operation.blockedTimeMs());
-        record("easy.operations.waited.count", "events", type, source, name, outcome, operation.waitedCount());
-        record("easy.operations.waited.time", "milliseconds", type, source, name, outcome, operation.waitedTimeMs());
     }
 
     /** 返回入口指标使用的聚合名称，供统计下钻按相同维度匹配当前进程 Trace。 */

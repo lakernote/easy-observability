@@ -384,16 +384,18 @@ class MetricHistoryStoreTest {
     }
 
     @Test
-    void writesCoreSeriesBeforeOptionalSeriesEvenWhenSnapshotArrivesInReversePriorityOrder() {
-        MetricHistoryStore store = store(64 * MEBIBYTE, 8 * MEBIBYTE, 1);
+    void reservesCoreCapacityWhilePrioritizingHttpRedOverOptionalSeries() {
+        MetricHistoryStore store = store(64 * MEBIBYTE, 8 * MEBIBYTE, 2);
         store.restore();
 
         store.recordMetricsSnapshot(List.of(
                 metric("http.server.requests", 1, "COUNT"),
-                metric("process.cpu.usage", 2, "VALUE")));
+                metric("process.cpu.usage", 2, "VALUE"),
+                metric("optional.custom.metric", 3, "VALUE")));
 
         assertThat(store.queryHistory("process.cpu.usage", defaultTags(), 10)).hasSize(1);
-        assertThat(store.queryHistory("http.server.requests", defaultTags(), 10)).isEmpty();
+        assertThat(store.queryHistory("http.server.requests", defaultTags(), 10)).hasSize(1);
+        assertThat(store.queryHistory("optional.custom.metric", defaultTags(), 10)).isEmpty();
         assertThat(store.getStatus().rejectedSeries()).isEqualTo(1);
         assertThat(store.getStatus().evictedSeries()).isZero();
     }

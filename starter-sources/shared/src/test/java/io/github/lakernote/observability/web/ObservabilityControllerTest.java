@@ -49,9 +49,9 @@ class ObservabilityControllerTest {
         history.add("job-error", "NightlyJob#run", "nightly-job", "JOB",
                 500, 120, false, true, "job tree");
         history.addOperation(new OperationRecord("DATABASE", "http-slow", "OrderMapper#select", "worker",
-                7, "failure", 800, 10, 100, 0, 0, 0, 0, "SELECT orders", "", "",
+                7, "failure", 800, 10, 100, "SELECT orders", "", "",
                 true, true, java.util.List.of("SLOW_DATABASE"), "SQLException", "query failed",
-                java.util.Map.of(), java.time.Instant.now()));
+                java.util.Map.of(), java.time.Instant.now(), "2", "1"));
         ObservabilityController controller = new ObservabilityController(new SimpleMeterRegistry(), history, () -> true);
 
         var slow = controller.incidents("slow", "", 100);
@@ -135,7 +135,7 @@ class ObservabilityControllerTest {
         RecentTraceStore history = new RecentTraceStore(10);
         history.add("job-trace", "nightly cleanup", "", "JOB", 200, 120, true, false, "tree");
         history.addOperation(new OperationRecord("JOB", "job-trace", "tasks.scheduled.execution", "worker-1",
-                7, "success", 120, 3, 4096, -1, -1, -1, -1, "", "", "", true, false,
+                7, "success", 120, 3, 4096, "", "", "", true, false,
                 java.util.List.of(), "", "", java.util.Map.of(), java.time.Instant.now(), "1", ""));
         ObservabilityController controller = new ObservabilityController(registry, history, () -> true);
 

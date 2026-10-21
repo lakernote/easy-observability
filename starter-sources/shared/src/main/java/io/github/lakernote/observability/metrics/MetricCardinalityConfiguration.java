@@ -31,11 +31,7 @@ public class MetricCardinalityConfiguration {
                 Map.entry("easy.transactions", new SeriesRule(4, "result", "read_only")),
                 Map.entry("easy.operations.duration", operationSeriesRule()),
                 Map.entry("easy.operations.cpu.time", operationSeriesRule()),
-                Map.entry("easy.operations.allocated", operationSeriesRule()),
-                Map.entry("easy.operations.blocked.count", operationSeriesRule()),
-                Map.entry("easy.operations.blocked.time", operationSeriesRule()),
-                Map.entry("easy.operations.waited.count", operationSeriesRule()),
-                Map.entry("easy.operations.waited.time", operationSeriesRule())
+                Map.entry("easy.operations.allocated", operationSeriesRule())
         ));
     }
 

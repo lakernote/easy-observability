@@ -25,4 +25,12 @@ public class DemoScheduledJob {
             return heartbeat;
         });
     }
+
+    /** 第二个独立任务用于让任务指标区展示多条原生 Observation 曲线。 */
+    @Scheduled(initialDelayString = "${easy.observability.demo.schedule-metrics-initial-delay:10000}",
+            fixedDelayString = "${easy.observability.demo.schedule-metrics-delay:45000}")
+    public void countMetricsHeartbeat() {
+        TraceBlock.call("Redis INCR metrics heartbeat", SpanKind.REDIS, "redis localhost:16379", () ->
+                redis.opsForValue().increment("easy-observability:demo:scheduled-metrics-heartbeats"));
+    }
 }

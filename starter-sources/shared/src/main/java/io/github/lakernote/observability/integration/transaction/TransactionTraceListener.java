@@ -55,8 +55,10 @@ public final class TransactionTraceListener implements TransactionExecutionListe
             boolean ownsTraceId = needsTraceId && !TraceIdContext.isValidTraceId(currentId);
             String traceId = ownsTraceId ? TraceIdContext.getOrCreateTraceId()
                     : currentId == null ? "" : currentId;
+            Thread currentThread = Thread.currentThread();
             State state = new State(traceId, ownsTraceId, tracing,
-                    safeName(execution.getTransactionName()), execution.isReadOnly(), nanoTime.getAsLong());
+                    safeName(execution.getTransactionName()), execution.isReadOnly(), nanoTime.getAsLong(),
+                    currentThread.getId(), currentThread.getName());
             if (tracing && TraceContext.active()) {
                 // Begin before the transaction manager acquires its connection so connection work is nested here.
                 state.span = TraceContext.startScopedSpan(state.name, SpanKind.TRANSACTION,
@@ -81,8 +83,7 @@ public final class TransactionTraceListener implements TransactionExecutionListe
             state.threadId = Thread.currentThread().getId();
             state.threadName = Thread.currentThread().getName();
             state.resources = ThreadResourceSnapshot.capture(state.threadId,
-                    properties.getTrace().isResourceSamplingEnabled(),
-                    properties.getTrace().isThreadContentionSamplingEnabled());
+                    properties.getTrace().isResourceSamplingEnabled());
             state.started = true;
             state.countedActive = true;
             activeTransactions.incrementAndGet();
@@ -119,19 +120,18 @@ public final class TransactionTraceListener implements TransactionExecutionListe
             if (state.tracing && sameThread && !success) {
                 TraceContext.markError("TRANSACTION_ERROR", error);
             }
-            if (sameThread && state.span != null) state.span.run();
+            if (sameThread && state.span != null) state.span.close();
 
             ThreadResourceSnapshot end = transactionStarted && sameThread
                     ? ThreadResourceSnapshot.capture(state.threadId,
-                    properties.getTrace().isResourceSamplingEnabled(),
-                    properties.getTrace().isThreadContentionSamplingEnabled())
+                    properties.getTrace().isResourceSamplingEnabled())
                     : null;
+            long cpuTimeMs = end == null || state.resources == null ? -1 : end.cpuTimeMsSince(state.resources);
+            long allocatedBytes = end == null || state.resources == null
+                    ? -1 : end.allocatedBytesSince(state.resources);
             recorder.record(new OperationRecord("TRANSACTION", state.traceId, state.name,
                     state.threadName == null ? Thread.currentThread().getName() : state.threadName,
-                    state.threadId, success ? "success" : "failure", durationMs,
-                    delta(end, state.resources, Resource.CPU), delta(end, state.resources, Resource.ALLOCATED),
-                    delta(end, state.resources, Resource.BLOCKED_COUNT), delta(end, state.resources, Resource.BLOCKED_TIME),
-                    delta(end, state.resources, Resource.WAITED_COUNT), delta(end, state.resources, Resource.WAITED_TIME),
+                    state.threadId, success ? "success" : "failure", durationMs, cpuTimeMs, allocatedBytes,
                     state.readOnly ? "read-only" : "write", "", error == null ? "" : error.stackTrace(),
                     slow, !success, slow ? List.of("LONG_TRANSACTION") : List.of(),
                     error == null ? "" : error.type(), error == null ? "" : error.message(), Map.of(), Instant.now(),
@@ -147,18 +147,6 @@ public final class TransactionTraceListener implements TransactionExecutionListe
             if (state.ownsTraceId && state.traceId.equals(TraceIdContext.currentTraceId())) TraceIdContext.clear();
             if (states.get().isEmpty()) states.remove();
         }
-    }
-
-    private static long delta(ThreadResourceSnapshot end, ThreadResourceSnapshot start, Resource resource) {
-        if (end == null || start == null) return -1;
-        return switch (resource) {
-            case CPU -> end.cpuTimeMsSince(start);
-            case ALLOCATED -> end.allocatedBytesSince(start);
-            case BLOCKED_COUNT -> end.blockedCountSince(start);
-            case BLOCKED_TIME -> end.blockedTimeMsSince(start);
-            case WAITED_COUNT -> end.waitedCountSince(start);
-            case WAITED_TIME -> end.waitedTimeMsSince(start);
-        };
     }
 
     private static String safeName(String name) {
@@ -184,8 +172,6 @@ public final class TransactionTraceListener implements TransactionExecutionListe
     private record TransactionMetricKey(boolean success, boolean readOnly) {
     }
 
-    private enum Resource {CPU, ALLOCATED, BLOCKED_COUNT, BLOCKED_TIME, WAITED_COUNT, WAITED_TIME}
-
     private static final class State {
         private final String traceId;
         private final boolean ownsTraceId;
@@ -202,13 +188,15 @@ public final class TransactionTraceListener implements TransactionExecutionListe
         private boolean countedActive;
 
         private State(String traceId, boolean ownsTraceId, boolean tracing, String name, boolean readOnly,
-                      long createdNanos) {
+                      long createdNanos, long threadId, String threadName) {
             this.traceId = traceId;
             this.ownsTraceId = ownsTraceId;
             this.tracing = tracing;
             this.name = name;
             this.readOnly = readOnly;
             this.createdNanos = createdNanos;
+            this.threadId = threadId;
+            this.threadName = threadName;
         }
     }
 }

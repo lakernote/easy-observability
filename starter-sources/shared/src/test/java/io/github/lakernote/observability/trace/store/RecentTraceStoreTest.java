@@ -43,7 +43,7 @@ class RecentTraceStoreTest {
         RecentTraceStore history = new RecentTraceStore(10);
         history.add("job-trace", "nightly cleanup", "", "JOB", 200, 120, true, false, "tree");
         history.addOperation(new OperationRecord("JOB", "job-trace", "tasks.scheduled.execution", "worker-1",
-                7, "success", 120, 3, 4096, -1, -1, -1, -1, "", "", "", true, false,
+                7, "success", 120, 3, 4096, "", "", "", true, false,
                 List.of(), "", "", Map.of(), Instant.now(), "1", ""));
 
         RecentTraceStore.TraceRecord recent = history.recent(10).get(0);
@@ -87,14 +87,14 @@ class RecentTraceStoreTest {
 
     private static OperationRecord operation(String type, String name, String spanId, String parentSpanId) {
         return new OperationRecord(type, "shared-trace", name, "worker-1", 1, "success", 1,
-                1, 1, -1, -1, -1, -1, "", "", "", false, false, List.of(), "", "", Map.of(),
+                1, 1, "", "", "", false, false, List.of(), "", "", Map.of(),
                 Instant.now(), spanId, parentSpanId);
     }
 
     private static OperationRecord operation(String type, String name, long threadId, long durationMs,
                                              Instant finishedAt, String spanId, String parentSpanId) {
         return new OperationRecord(type, "shared-trace", name, "worker-" + threadId, threadId, "success", durationMs,
-                1, 1, -1, -1, -1, -1, "", "", "", false, false, List.of(), "", "", Map.of(),
+                1, 1, "", "", "", false, false, List.of(), "", "", Map.of(),
                 finishedAt, spanId, parentSpanId);
     }
 }

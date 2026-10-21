@@ -6,7 +6,7 @@ import io.micrometer.observation.ObservationRegistry;
 import java.util.Objects;
 import java.util.function.Supplier;
 
-/** Records one executor task as an independent observable entry, including duration and failures. */
+/** Records executor task duration and failures as an operation, without creating a Trace entry root. */
 public final class ExecutorTaskObservation {
     public static final String OBSERVATION_NAME = "tasks.executor.execution";
     private final ObservationRegistry registry;

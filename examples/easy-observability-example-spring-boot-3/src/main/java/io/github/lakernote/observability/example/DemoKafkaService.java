@@ -77,7 +77,7 @@ public class DemoKafkaService {
         }
     }
 
-    @KafkaListener(topics = TOPIC, groupId = "easy-observability-demo")
+    @KafkaListener(id = "demo-primary-listener", topics = TOPIC, groupId = "easy-observability-demo")
     public void consume(ConsumerRecord<String, String> record) {
         // TraceIdRecordInterceptor 从消息头恢复 ID；这里读取的是消费者当前 Trace 上下文。
             String payload = record.value();
@@ -87,6 +87,12 @@ public class DemoKafkaService {
                     "traceId", TraceIdContext.currentTraceId(), "partition", record.partition(), "offset", record.offset(),
                     "outcome", failed ? "error" : payload.startsWith("slow:") ? "slow" : "success"));
             if (failed) throw new IllegalStateException("Example Kafka consumer failure");
+    }
+
+    /** 独立 Consumer Group 消费相同演示主题，提供第二条 Listener/客户端指标曲线。 */
+    @KafkaListener(id = "demo-metrics-listener", topics = TOPIC, groupId = "easy-observability-demo-metrics")
+    public void consumeForMetrics(ConsumerRecord<String, String> record) {
+        if (record.value().startsWith("slow:")) pauseForSlowConsumer();
     }
 
     public Map<String, Object> lastConsumed() {

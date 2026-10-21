@@ -23,7 +23,7 @@ class HistoryPersistenceTest {
         Path tracesFile = directory.resolve("traces.jsonl");
         BoundedHistoryWriter writer = new BoundedHistoryWriter();
         OperationRecord operation = new OperationRecord("HTTP", "trace-123", "GET /orders/{id}",
-                "http-nio-8080-exec-7", 77, "failure", 845, 51, 2048, 0, 0, 0, 0,
+                "http-nio-8080-exec-7", 77, "failure", 845, 51, 2048,
                 "GET /orders/{id}", "", "", true, true, List.of("SLOW_HTTP"),
                 "HTTP_5XX", "500", Map.of(), Instant.parse("2026-10-15T10:00:00Z"), "1", "");
         RecentTraceStore.TraceRecord trace = new RecentTraceStore.TraceRecord(1, "trace-123", "GET /orders/{id}",

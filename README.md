@@ -57,12 +57,14 @@ Boot 3 示例页面在 `http://localhost:8083/`；Boot 4 示例用 `easy-observa
 | Spring HTTP clients | 记录 Boot/Micrometer 已接入 Observation 的客户端调用 | 自建客户端按需安装 Observation 或拦截器 |
 | OkHttp | 自动增强 Spring 容器中的 `OkHttpClient` Bean，并传播 Trace ID | 容器外创建的客户端不自动增强；可用 `easy.observability.http.okhttp.enabled=false` 关闭 |
 | JDBC、事务、MyBatis | DataSource 记录 SQL 执行；Spring 事务记录耗时和提交/回滚；MyBatis 插件补充 Mapper 节点 | 自建 DataSource/事务边界需自行接入；ResultSet 每次读取的 FETCH 细节默认关闭 |
-| Kafka、Redis | 有条件自动；取决于客户端、Spring 集成和 Observation 配置 | 自定义工厂、非 Spring 消费者或自定义消息头策略需自行组合拦截器 |
-| `@Scheduled` | 启用 Spring Scheduling 后自动记录任务 Observation | Quartz、自建调度器和批处理入口可调用 `JobObservation` |
-| 线程池任务 | 自动记录 Spring 线程池池状态 | 单个任务的 Trace 需要调用 `ExecutorTaskObservation`；自建线程池需设置 `TraceContextTaskDecorator` 传播 Trace ID/MDC |
+| Kafka Consumer | Spring Kafka Listener Observation 生成原生 Timer；绑定 `MicrometerConsumerListener` 后同时采集 `kafka.consumer.*` 客户端指标 | 需设置 `spring.kafka.listener.observation-enabled: true`；自定义工厂或非 Spring 消费者需自行接入 |
+| `@Scheduled` | 启用 Spring Scheduling 后连接 Spring 原生 Observation；保存 `tasks.scheduled.execution` Timer 和可用的调度线程池指标 | Quartz、自建调度器和批处理入口可调用 `JobObservation` |
+| 线程池任务 | 自动记录 Spring 线程池状态 | 可调用 `ExecutorTaskObservation` 记录单个任务的操作指标；它不创建独立入口 Trace。自建线程池需设置 `TraceContextTaskDecorator` 传播 Trace 执行上下文和 MDC |
 | 业务方法与业务指标 | 不扫描所有 Service | 使用 `TraceBlock` 显式记录调用；自建指标使用 Micrometer API；`@TraceSpan` 需要应用提供 Spring AOP |
 
-HTTP、Job、线程池任务和 Kafka consumer 可生成 Trace 入口。HTTP client、Kafka producer、Redis、JDBC/MyBatis 和事务会作为当前入口下的调用节点；没有入口上下文时只记录操作指标，不会虚构请求 Trace。
+自动创建 Trace 的入口只有 HTTP 请求、Spring 定时任务和 Kafka consumer。HTTP client、Kafka producer、Redis、JDBC/MyBatis、事务和线程池任务作为当前入口下的操作；没有入口上下文时只记录操作指标，不会虚构请求 Trace。
+
+HTTP、Spring 定时任务和 Kafka Consumer 的耗时趋势读取 Spring/Micrometer 注册的原生 Timer；本地历史采集器定期保存这些 Meter，图表按 URI、任务或监听器标签绘制多条曲线。Kafka 客户端指标通过 Spring Kafka 提供的 `MicrometerConsumerListener` 注册后也会进入独立的 Kafka 指标分组。Actuator 提供当前 Meter 查询与导出能力，本地趋势由历史采集器保留。
 
 JDBC 代理默认观测连接、SQL 执行和 generated keys，不记录 SQL 参数。SQL 字面量和注释会被清理后用于诊断。需要逐次 ResultSet 读取数据时，显式设置：
 
@@ -92,7 +94,6 @@ easy:
         max-series: 256
     trace:
       resource-sampling-enabled: false
-      thread-contention-sampling-enabled: false
       slow-error-history-limit: 1000
       slow-error-max-bytes: 8MB
     web:
@@ -120,14 +121,13 @@ easy:
 | `easy.observability.trace.dependency-slow-threshold-ms` | `250` | HTTP client、JDBC 等依赖调用慢阈值 |
 | `easy.observability.transaction.slow-threshold-ms` | `1000` | Spring 事务慢阈值 |
 | `easy.observability.trace.resource-sampling-enabled` | `false` | 采集线程 CPU 时间和分配字节；逐操作查询 JVM 管理接口 |
-| `easy.observability.trace.thread-contention-sampling-enabled` | `false` | 额外采集线程阻塞和等待信息 |
 | `easy.observability.trace.slow-error-history-limit` | `1000` | 慢错事件与 Trace 的内存历史上限 |
 | `easy.observability.trace.slow-error-max-bytes` | `8MB` | 慢错事件文件和 Trace 文件各自的容量上限 |
 | `easy.observability.web.allow-anonymous` | `false` | 是否允许匿名访问监控 API；生产保持关闭 |
 
 `slow-error-history-limit` 对事件列表和 Trace 列表分别生效。Redis、Kafka、MyBatis、事务、定时任务和 OkHttp 可分别通过 `easy.observability.redis.enabled`、`kafka.enabled`、`mybatis.enabled`、`transaction.enabled`、`scheduling.enabled` 和 `http.okhttp.enabled` 关闭。JDBC DataSource 代理使用上游开关 `jdbc.datasource-proxy.enabled`。
 
-按需诊断时可开启 `easy.observability.trace.resource-sampling-enabled`；只有还需要线程阻塞/等待计数时才开启 `thread-contention-sampling-enabled`。CPU 和分配数据受 JVM 支持情况及线程切换影响，异步跨线程时可能为空。
+按需诊断时可开启 `easy.observability.trace.resource-sampling-enabled`，采集操作线程的 CPU 时间和分配字节。分配量表示这次调用在线程上累计分配的内存，不是调用结束后仍存活的堆内存，也不代表峰值堆占用；它适合发现高分配调用，OOM 还需结合堆转储、GC 和堆使用趋势分析。数据受 JVM 支持情况影响，异步跨线程结束时线程级差值可能为空。
 
 Metrics 历史默认每分钟采样，最多保留 15 天、256 个系列和 64 MiB 数据。慢错事件和 Trace 文件各自最多 8 MiB，进程内慢错历史默认最多 1,000 条；单棵 Trace 最多 512 个节点。关闭历史趋势可设置 `easy.observability.metrics.history.enabled=false`，关闭整个 Starter 可设置 `easy.observability.enabled=false`。
 
@@ -171,4 +171,4 @@ executor.execute(() -> executorTaskObservation.observe(
         "billingExecutor", "invoice.reconcile", () -> invoiceService.reconcile()));
 ```
 
-`TraceContextTaskDecorator` 负责线程池间 Trace ID/MDC 传播。项目提供本地调用树和有界事件历史，不是分布式 Trace 后端。
+`TraceContextTaskDecorator` 在提交任务时捕获 Trace ID、当前父 Span 和 MDC，在工作线程中按作用域恢复，并在任务结束后恢复工作线程原有上下文。项目提供本地调用树和有界事件历史，不是分布式 Trace 后端。

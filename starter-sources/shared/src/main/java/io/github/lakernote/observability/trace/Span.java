@@ -14,10 +14,6 @@ final class Span {
     private List<Span> children;
     private long endNanos;
 
-    Span(String spanId, String name, SpanKind kind) {
-        this(spanId, name, kind, "", null);
-    }
-
     Span(String spanId, String name, SpanKind kind, String tag, Span parent) {
         this.spanId = spanId == null ? "" : spanId;
         this.name = normalizeName(name);
@@ -43,10 +39,6 @@ final class Span {
         }
     }
 
-    Span parent() {
-        return parent;
-    }
-
     String spanId() {
         return spanId;
     }
@@ -65,9 +57,18 @@ final class Span {
         return size;
     }
 
-    void stop() {
+    synchronized void stop() {
         if (endNanos == 0) {
             endNanos = System.nanoTime();
+        }
+    }
+
+    void stopOpenDescendants() {
+        if (children != null) {
+            for (Span child : children) {
+                child.stopOpenDescendants();
+                child.stop();
+            }
         }
     }
 
@@ -76,7 +77,7 @@ final class Span {
         if (endNanos == 0) startNanos = System.nanoTime();
     }
 
-    long costMs() {
+    synchronized long costMs() {
         long end = endNanos == 0 ? System.nanoTime() : endNanos;
         return (end - startNanos) / 1_000_000;
     }

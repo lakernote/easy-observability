@@ -50,8 +50,7 @@ public final class MybatisTraceInterceptor implements Interceptor {
         long threadId = Thread.currentThread().getId();
         String threadName = Thread.currentThread().getName();
         boolean sample = properties.getTrace().isResourceSamplingEnabled();
-        boolean sampleContention = properties.getTrace().isThreadContentionSamplingEnabled();
-        ThreadResourceSnapshot before = ThreadResourceSnapshot.capture(threadId, sample, sampleContention);
+        ThreadResourceSnapshot before = ThreadResourceSnapshot.capture(threadId, sample);
         TraceContext.ScopedSpan span = TraceContext.active()
                 ? TraceContext.startScopedSpan(name, SpanKind.DATABASE, command) : null;
         long started = System.nanoTime();
@@ -64,19 +63,17 @@ public final class MybatisTraceInterceptor implements Interceptor {
         } finally {
             long durationNanos = Math.max(0, System.nanoTime() - started);
             long durationMs = TimeUnit.NANOSECONDS.toMillis(durationNanos);
-            ThreadResourceSnapshot after = ThreadResourceSnapshot.capture(threadId, sample, sampleContention);
+            ThreadResourceSnapshot after = ThreadResourceSnapshot.capture(threadId, sample);
             boolean failed = failure != null;
             long threshold = properties.getMybatis().getSlowThresholdMs();
             boolean slow = threshold > 0 && durationMs >= threshold;
             try {
                 if (slow) TraceContext.markSlow("SLOW_SQL");
                 if (failed) TraceContext.markError("SQL_ERROR", failure);
-                if (span != null) span.run();
+                if (span != null) span.close();
                 recorder.record(new OperationRecord("SQL", traceId, name, threadName, threadId,
                         failed ? "failure" : "success", durationMs, after.cpuTimeMsSince(before),
-                        after.allocatedBytesSince(before), after.blockedCountSince(before),
-                        after.blockedTimeMsSince(before), after.waitedCountSince(before),
-                        after.waitedTimeMsSince(before), command, "", "", slow, failed,
+                        after.allocatedBytesSince(before), command, "", "", slow, failed,
                         slow ? List.of("SLOW_SQL") : List.of(),
                         failure == null ? "" : failure.getClass().getName(), "", Map.of(), Instant.now(),
                         span == null ? "" : span.spanId(), span == null ? "" : span.parentSpanId()));

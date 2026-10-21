@@ -16,6 +16,7 @@ final class TraceTree {
     private final int maxDepth;
     private final int maxNodes;
     private final long minNodeCostMs;
+    private final long ownerThreadId = Thread.currentThread().getId();
     /** 正常 Trace 完成后会丢弃；只有慢、错或截断时才分配事件原因集合。 */
     private Set<String> incidentReasons;
     private boolean slow;
@@ -26,11 +27,8 @@ final class TraceTree {
     private String errorStackTrace = "";
     private int recordedNodes = 1;
     private long omittedSpans;
-    /** 已调用 addSpan、但尚未配对调用 stopSpan 的层数。 */
-    private int callDepth;
-    /** 当前记录到的最深节点；因深度或节点上限跳过的调用不会改变它。 */
-    private Span currentSpan;
-    private int currentSpanDepth = 1;
+    private boolean completed;
+    private String ownedTraceId = "";
 
     TraceTree(String rootName, SpanKind rootKind) {
         this(rootName, rootKind, "", 8, 0, DEFAULT_MAX_NODES);
@@ -42,121 +40,115 @@ final class TraceTree {
 
     TraceTree(String rootName, SpanKind rootKind, String rootTag, int maxDepth, long minNodeCostMs, int maxNodes) {
         this.root = new Span("1", rootName, rootKind, rootTag, null);
-        this.currentSpan = root;
         this.maxDepth = Math.max(1, maxDepth);
         this.minNodeCostMs = Math.max(0, minNodeCostMs);
         this.maxNodes = Math.max(1, maxNodes);
     }
 
-    String addSpan(String name, SpanKind kind, String tag) {
-        int nextDepth = callDepth + 2;
-        callDepth++;
-        Span parent = currentSpan;
-        if (parent == null || nextDepth > maxDepth) {
-            if (nextDepth > maxDepth) recordOmittedSpan();
-            return "";
-        }
-        if (recordedNodes >= maxNodes) {
+    synchronized Span rootSpan() {
+        return root;
+    }
+
+    synchronized Span addChild(Span parent, int parentDepth, String name, SpanKind kind, String tag) {
+        if (completed) return null;
+        int childDepth = parentDepth + 1;
+        if (parent == null || childDepth > maxDepth) {
             recordOmittedSpan();
-            return "";
+            return null;
         }
-        Span child = new Span(nextSpanId(), name, kind, tag, parent);
-        parent.addChild(child);
-        recordedNodes++;
-        currentSpan = child;
-        currentSpanDepth = nextDepth;
-        return child.spanId();
-    }
-
-    void requireExplicitTree() {
-        explicitTreeRequired = true;
-    }
-
-    boolean explicitTreeRequired() {
-        return explicitTreeRequired;
-    }
-
-    /** Starts a synchronous child scope and returns the recorded span, if the tree limits allow it. */
-    Span addScopedSpan(String name, SpanKind kind, String tag) {
-        String parentId = currentSpan == null ? "" : currentSpan.spanId();
-        addSpan(name, kind, tag);
-        return currentSpan != null && !currentSpan.spanId().equals(parentId) ? currentSpan : null;
-    }
-
-    Span addDetachedSpan(String name, SpanKind kind, String tag) {
         if (recordedNodes >= maxNodes) {
             recordOmittedSpan();
             return null;
         }
-        Span parent = currentSpan == null ? root : currentSpan;
-        Span span = new Span(nextSpanId(), name, kind, tag, parent);
-        parent.addChild(span);
+        Span child = new Span(nextSpanId(), name, kind, tag, parent);
+        parent.addChild(child);
         recordedNodes++;
-        return span;
+        return child;
     }
 
-    String rootSpanId() {
-        return root.spanId();
+    synchronized void requireExplicitTree() {
+        if (completed) return;
+        explicitTreeRequired = true;
     }
 
-    void updateRootIdentity(String name, String tag) {
+    synchronized boolean explicitTreeRequired() {
+        return explicitTreeRequired;
+    }
+
+    synchronized void updateRootIdentity(String name, String tag) {
+        if (completed) return;
         root.updateIdentity(name, tag);
-    }
-
-    String currentSpanId() {
-        return currentSpan == null ? "" : currentSpan.spanId();
     }
 
     private String nextSpanId() {
         return Long.toHexString(++nextSpanId);
     }
 
-    void stopSpan() {
-        if (callDepth <= 0) {
-            return;
-        }
-        int stoppingDepth = callDepth + 1;
-        callDepth--;
-        if (currentSpan == null || currentSpan == root || currentSpanDepth != stoppingDepth) {
-            return;
-        }
-        Span span = currentSpan;
-        currentSpan = span.parent();
-        currentSpanDepth--;
+    synchronized void stopSpan(Span span) {
+        if (completed) return;
+        if (span == null || span == root) return;
         span.stop();
-        if (span.costMs() < minNodeCostMs) {
-            recordedNodes = Math.max(1, recordedNodes - span.subtreeSize());
+        int subtreeSize = span.subtreeSize();
+        if (span.costMs() < minNodeCostMs && subtreeSize == 1) {
+            recordedNodes = Math.max(1, recordedNodes - subtreeSize);
             span.removeFromParent();
         }
     }
 
-    void beginCurrentSpanBoundary() {
-        if (currentSpan != null) currentSpan.beginBusinessBoundary();
+    synchronized void beginBusinessBoundary(Span span) {
+        if (completed) return;
+        if (span != null) span.beginBusinessBoundary();
     }
 
-    long stopRoot() {
-        while (callDepth > 0) {
-            stopSpan();
-        }
+    synchronized long freezeRoot() {
+        if (completed) return root.costMs();
+        return stopRoot();
+    }
+
+    synchronized long stopRoot() {
+        if (completed) return root.costMs();
+        root.stopOpenDescendants();
         root.stop();
-        currentSpan = null;
-        currentSpanDepth = 0;
         return root.costMs();
     }
 
-    void markSlow(String reason) {
+    synchronized long completeRoot(long slowThresholdMs, Throwable throwable) {
+        if (completed) return root.costMs();
+        long costMs = stopRoot();
+        if (slowThresholdMs > 0 && costMs >= slowThresholdMs && !slow) {
+            markSlow("SLOW_ROOT");
+        }
+        if (throwable != null && !error) markError("ROOT_ERROR", throwable);
+        completed = true;
+        return costMs;
+    }
+
+    synchronized void markCompleted() {
+        completed = true;
+    }
+
+    synchronized void discard() {
+        if (completed) return;
+        stopRoot();
+        completed = true;
+    }
+
+    synchronized void markSlow(String reason) {
+        if (completed) return;
         slow = true;
         addReason(reason);
     }
 
-    void markError(String reason, Throwable failure) {
+    synchronized void markError(String reason, Throwable failure) {
+        if (completed) return;
         error = true;
         addReason(reason);
         if (failure == null || !errorType.isBlank()) return;
         applyFailure(BoundedThrowableFormatter.capture(failure));
     }
 
-    void markError(String reason, BoundedThrowableFormatter.FailureEvidence failure) {
+    synchronized void markError(String reason, BoundedThrowableFormatter.FailureEvidence failure) {
+        if (completed) return;
         error = true;
         addReason(reason);
         if (failure == null || !failure.present() || !errorType.isBlank()) return;
@@ -169,28 +161,42 @@ final class TraceTree {
         errorStackTrace = failure.stackTrace();
     }
 
-    boolean slow() {
+    synchronized boolean slow() {
         return slow;
     }
 
-    boolean error() {
+    synchronized boolean error() {
         return error;
     }
 
-    List<String> incidentReasons() {
+    synchronized List<String> incidentReasons() {
         return incidentReasons == null ? List.of() : List.copyOf(incidentReasons);
     }
 
-    String errorType() {
+    synchronized String errorType() {
         return errorType;
     }
 
-    String errorMessage() {
+    synchronized String errorMessage() {
         return errorMessage;
     }
 
-    String errorStackTrace() {
+    synchronized String errorStackTrace() {
         return errorStackTrace;
+    }
+
+    synchronized boolean completed() {
+        return completed;
+    }
+
+    synchronized void rememberOwnedTraceId(String traceId) {
+        if (!completed && ownerThreadId == Thread.currentThread().getId()) {
+            ownedTraceId = traceId == null ? "" : traceId;
+        }
+    }
+
+    synchronized String ownedTraceIdForCurrentThread() {
+        return ownerThreadId == Thread.currentThread().getId() ? ownedTraceId : "";
     }
 
     private void addReason(String reason) {
@@ -204,7 +210,7 @@ final class TraceTree {
         addReason(TRUNCATED_REASON);
     }
 
-    String renderTree() {
+    synchronized String renderTree() {
         RenderBuffer builder = new RenderBuffer(MAX_RENDER_CHARS, OUTPUT_TRUNCATED_MARKER);
         root.appendTree(builder, "", true);
         if (omittedSpans > 0 && !builder.truncated()) {

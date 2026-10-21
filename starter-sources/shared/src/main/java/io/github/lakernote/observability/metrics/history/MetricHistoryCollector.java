@@ -100,6 +100,8 @@ public final class MetricHistoryCollector implements SmartLifecycle {
         if (!MetricHistoryStore.shouldPersistMetric(name)) return false;
         return name.startsWith("easy.") || name.startsWith("jvm.") || name.startsWith("process.")
                 || name.startsWith("system.") || name.startsWith("http.server.requests")
+                || name.equals("tasks.scheduled.execution") || name.equals("spring.kafka.listener")
+                || name.startsWith("spring.kafka.container.") || name.startsWith("kafka.consumer.")
                 || name.startsWith("hikaricp.") || name.startsWith("jdbc.connections.")
                 || name.startsWith("tomcat.") || name.startsWith("logback.") || name.startsWith("executor.");
     }

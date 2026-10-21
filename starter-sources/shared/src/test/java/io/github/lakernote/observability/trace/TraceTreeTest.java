@@ -10,10 +10,10 @@ class TraceTreeTest {
     void shouldRenderTagAndLimitMaxDepth() {
         TraceTree trace = new TraceTree("HTTP", SpanKind.HTTP, "GET /api/users", 2, 0);
 
-        trace.addSpan("service", SpanKind.SERVICE, "userId=1");
-        trace.addSpan("mapper", SpanKind.DATABASE, "deptId=2");
-        trace.stopSpan();
-        trace.stopSpan();
+        Span service = trace.addChild(trace.rootSpan(), 1, "service", SpanKind.SERVICE, "userId=1");
+        Span mapper = trace.addChild(service, 2, "mapper", SpanKind.DATABASE, "deptId=2");
+        trace.stopSpan(mapper);
+        trace.stopSpan(service);
         trace.stopRoot();
 
         String tree = trace.renderTree();
@@ -28,12 +28,12 @@ class TraceTreeTest {
     void shouldResumeRecordingAfterReturningFromSkippedDepth() {
         TraceTree trace = new TraceTree("HTTP", SpanKind.HTTP, "GET /api/users", 2, 0);
 
-        trace.addSpan("first", SpanKind.SERVICE, "");
-        trace.addSpan("too-deep", SpanKind.DATABASE, "");
-        trace.stopSpan();
-        trace.stopSpan();
-        trace.addSpan("second", SpanKind.SERVICE, "");
-        trace.stopSpan();
+        Span first = trace.addChild(trace.rootSpan(), 1, "first", SpanKind.SERVICE, "");
+        Span skipped = trace.addChild(first, 2, "too-deep", SpanKind.DATABASE, "");
+        assertThat(skipped).isNull();
+        trace.stopSpan(first);
+        Span second = trace.addChild(trace.rootSpan(), 1, "second", SpanKind.SERVICE, "");
+        trace.stopSpan(second);
         trace.stopRoot();
 
         assertThat(trace.renderTree())
@@ -46,8 +46,8 @@ class TraceTreeTest {
     void shouldDropChildNodeBelowMinCost() {
         TraceTree trace = new TraceTree("HTTP", SpanKind.HTTP, "GET /api/users", 8, Long.MAX_VALUE);
 
-        trace.addSpan("too-fast", SpanKind.SERVICE, "skip=true");
-        trace.stopSpan();
+        Span tooFast = trace.addChild(trace.rootSpan(), 1, "too-fast", SpanKind.SERVICE, "skip=true");
+        trace.stopSpan(tooFast);
         trace.stopRoot();
 
         assertThat(trace.renderTree())
@@ -59,16 +59,16 @@ class TraceTreeTest {
     void shouldAggregateOnlyConsecutiveDuplicateLeafSpans() throws Exception {
         TraceTree trace = new TraceTree("HTTP", SpanKind.HTTP, "GET /api/users", 8, 0);
 
-        trace.addSpan("SysUserMapper#selectById", SpanKind.DATABASE, "");
+        Span first = trace.addChild(trace.rootSpan(), 1, "SysUserMapper#selectById", SpanKind.DATABASE, "");
         Thread.sleep(1);
-        trace.stopSpan();
-        trace.addSpan("SysUserMapper#selectById", SpanKind.DATABASE, "");
+        trace.stopSpan(first);
+        Span second = trace.addChild(trace.rootSpan(), 1, "SysUserMapper#selectById", SpanKind.DATABASE, "");
         Thread.sleep(2);
-        trace.stopSpan();
-        trace.addSpan("SysRoleMapper#selectList", SpanKind.DATABASE, "");
-        trace.stopSpan();
-        trace.addSpan("SysUserMapper#selectById", SpanKind.DATABASE, "");
-        trace.stopSpan();
+        trace.stopSpan(second);
+        Span role = trace.addChild(trace.rootSpan(), 1, "SysRoleMapper#selectList", SpanKind.DATABASE, "");
+        trace.stopSpan(role);
+        Span third = trace.addChild(trace.rootSpan(), 1, "SysUserMapper#selectById", SpanKind.DATABASE, "");
+        trace.stopSpan(third);
         trace.stopRoot();
 
         String tree = trace.renderTree();
@@ -87,7 +87,7 @@ class TraceTreeTest {
     void shouldKeepLongTransactionAsRootLinkedTransactionSpan() {
         TraceTree trace = new TraceTree("HTTP", SpanKind.HTTP, "GET /orders", 8, Long.MAX_VALUE);
 
-        Span transaction = trace.addDetachedSpan("OrderService#create", SpanKind.TRANSACTION, "write");
+        Span transaction = trace.addChild(trace.rootSpan(), 1, "OrderService#create", SpanKind.TRANSACTION, "write");
         transaction.stop();
         trace.markSlow("LONG_TRANSACTION");
         trace.stopRoot();
@@ -102,10 +102,10 @@ class TraceTreeTest {
         TraceTree trace = new TraceTree("HTTP", SpanKind.HTTP, "GET /loop", 8, 0, 3);
 
         for (int index = 0; index < 10; index++) {
-            trace.addSpan("loop-" + index, SpanKind.SERVICE, "");
-            trace.stopSpan();
+            Span loop = trace.addChild(trace.rootSpan(), 1, "loop-" + index, SpanKind.SERVICE, "");
+            trace.stopSpan(loop);
         }
-        Span detached = trace.addDetachedSpan("transaction", SpanKind.TRANSACTION, "write");
+        Span detached = trace.addChild(trace.rootSpan(), 1, "transaction", SpanKind.TRANSACTION, "write");
         trace.stopRoot();
 
         assertThat(detached).isNull();
@@ -119,10 +119,10 @@ class TraceTreeTest {
     void shouldReleaseNodeBudgetAfterDroppingShortSpan() {
         TraceTree trace = new TraceTree("HTTP", SpanKind.HTTP, "GET /fast", 8, Long.MAX_VALUE, 2);
 
-        trace.addSpan("first", SpanKind.SERVICE, "");
-        trace.stopSpan();
-        trace.addSpan("second", SpanKind.SERVICE, "");
-        trace.stopSpan();
+        Span first = trace.addChild(trace.rootSpan(), 1, "first", SpanKind.SERVICE, "");
+        trace.stopSpan(first);
+        Span second = trace.addChild(trace.rootSpan(), 1, "second", SpanKind.SERVICE, "");
+        trace.stopSpan(second);
         trace.stopRoot();
 
         assertThat(trace.renderTree())
@@ -133,8 +133,8 @@ class TraceTreeTest {
     @Test
     void shouldStopRenderingAtHardCharacterLimitAndAppendMarker() {
         TraceTree trace = new TraceTree("x".repeat(TraceTree.MAX_RENDER_CHARS * 2), SpanKind.HTTP, "", 8, 0);
-        trace.addSpan("must-not-be-rendered-after-budget", SpanKind.SERVICE, "");
-        trace.stopSpan();
+        Span child = trace.addChild(trace.rootSpan(), 1, "must-not-be-rendered-after-budget", SpanKind.SERVICE, "");
+        trace.stopSpan(child);
         trace.stopRoot();
 
         String tree = trace.renderTree();

@@ -48,7 +48,19 @@ function formatMetricValue(name, value, measurement = 'VALUE') {
   if (name.startsWith('jvm.memory.') || ['jvm.gc.live.data.size', 'jvm.gc.max.data.size', 'jvm.buffer.memory.used'].includes(name)) return formatBytes(value)
   if (name === 'jvm.gc.overhead') return `${(Number(value) * 100).toLocaleString(undefined, { maximumFractionDigits: 2 })}%`
   if (measurement === 'COUNT') return `${compactAxisValue(value)} 次`
-  if (measurement === 'RATE') return isByteCounter(name) ? `${formatBytes(value)}/分钟` : `${compactAxisValue(value)} 次/分钟`
+  if (measurement === 'RATE') {
+    if (isByteCounter(name)) return `${formatBytes(value)}/分钟`
+    if (isNanosecondCounter(name)) return `${formatNumber(Number(value) / 1_000_000)} ms/分钟`
+    return `${compactAxisValue(value)} 次/分钟`
+  }
+  const nativeRateUnit = kafkaNativeRateUnit(name)
+  if (nativeRateUnit === 'bytes/second') return `${formatBytes(value)}/秒`
+  if (nativeRateUnit === 'events/second') return `${compactAxisValue(value)} 次/秒`
+  if (nativeRateUnit === 'events/hour') return `${compactAxisValue(value)} 次/小时`
+  if (name.startsWith('kafka.consumer.') && name.endsWith('.ratio')) {
+    return `${(Number(value) * 100).toLocaleString(undefined, { maximumFractionDigits: 2 })}%`
+  }
+  if (name.startsWith('kafka.consumer.') && name.endsWith('.seconds.ago')) return `${formatNumber(value)} 秒`
   if (measurement === 'INTERVAL_AVG') return `${formatNumber(value)} ms`
   if (measurement === 'TOTAL_TIME' || measurement === 'MAX') return `${formatNumber(value)} ms`
   if (name === 'process.uptime') return `${formatNumber(value)} 秒`
@@ -61,7 +73,17 @@ function metricAxisUnit(name, measurement) {
   if (name.startsWith('jvm.memory.') || ['jvm.gc.live.data.size', 'jvm.gc.max.data.size', 'jvm.buffer.memory.used'].includes(name)) return '内存'
   if (name.startsWith('jvm.classes.') || name.startsWith('tomcat.sessions.') || name === 'logback.events') return '数量'
   if (measurement === 'COUNT') return '调用数（次）'
-  if (measurement === 'RATE') return isByteCounter(name) ? '增量（B/分钟）' : '新增（次/分钟）'
+  if (measurement === 'RATE') {
+    if (isByteCounter(name)) return '增量（B/分钟）'
+    if (isNanosecondCounter(name)) return '耗时增量（ms/分钟）'
+    return '新增（次/分钟）'
+  }
+  const nativeRateUnit = kafkaNativeRateUnit(name)
+  if (nativeRateUnit === 'bytes/second') return '流量（B/s）'
+  if (nativeRateUnit === 'events/second') return '速率（次/s）'
+  if (nativeRateUnit === 'events/hour') return '速率（次/小时）'
+  if (name.startsWith('kafka.consumer.') && name.endsWith('.ratio')) return '%'
+  if (name.startsWith('kafka.consumer.') && name.endsWith('.seconds.ago')) return '秒'
   if (measurement === 'INTERVAL_AVG') return '平均耗时（ms）'
   if (measurement === 'TOTAL_TIME' || measurement === 'MAX') return '耗时（ms）'
   if (name === 'process.uptime') return '秒'
@@ -75,7 +97,19 @@ function metricAxisTick(name, value, measurement = 'VALUE') {
     return `${(Number(value) * 100).toLocaleString(undefined, { maximumFractionDigits: 2 })}%`
   }
   if (name.startsWith('jvm.memory.') || ['jvm.gc.live.data.size', 'jvm.gc.max.data.size', 'jvm.buffer.memory.used'].includes(name)) return formatBytes(value)
-  if (measurement === 'RATE') return isByteCounter(name) ? `${formatBytes(value)}/分` : `${compactAxisValue(value)}/分`
+  if (measurement === 'RATE') {
+    if (isByteCounter(name)) return `${formatBytes(value)}/分`
+    if (isNanosecondCounter(name)) return `${formatNumber(Number(value) / 1_000_000)} ms/分`
+    return `${compactAxisValue(value)}/分`
+  }
+  const nativeRateUnit = kafkaNativeRateUnit(name)
+  if (nativeRateUnit === 'bytes/second') return `${formatBytes(value)}/秒`
+  if (nativeRateUnit === 'events/second') return `${compactAxisValue(value)}/秒`
+  if (nativeRateUnit === 'events/hour') return `${compactAxisValue(value)}/小时`
+  if (name.startsWith('kafka.consumer.') && name.endsWith('.ratio')) {
+    return `${(Number(value) * 100).toLocaleString(undefined, { maximumFractionDigits: 2 })}%`
+  }
+  if (name.startsWith('kafka.consumer.') && name.endsWith('.seconds.ago')) return `${compactAxisValue(value)} 秒`
   if (measurement === 'INTERVAL_AVG') return `${formatNumber(value)} ms`
   if (name === 'process.uptime') return `${compactAxisValue(value)} 秒`
   return compactAxisValue(value)
@@ -87,6 +121,17 @@ const intervalCounterNames = new Set([
 ])
 function isByteCounter(name) {
   return name === 'jvm.gc.memory.allocated' || name === 'jvm.gc.memory.promoted'
+    || /^kafka\.consumer\.(?:fetch\.manager\.bytes\.consumed|(?:node\.)?(?:incoming|outgoing)\.byte)\.total$/.test(name)
+}
+function isNanosecondCounter(name) {
+  return /^kafka\.consumer\..*\.time\.ns\.total$/.test(name)
+}
+function kafkaNativeRateUnit(name) {
+  if (!name.startsWith('kafka.consumer.')) return ''
+  if (/\.(?:bytes|byte)\.(?:consumed\.)?rate$/.test(name)) return 'bytes/second'
+  if (name.endsWith('.rate.per.hour')) return 'events/hour'
+  if (name.endsWith('.rate')) return 'events/second'
+  return ''
 }
 function formatTime(value) {
   const date = new Date(value)
@@ -306,7 +351,7 @@ async function openTrace(trace) {
   byId('trace-facts').replaceChildren()
   const facts = [
     `状态 ${trace.status ?? '—'}`, `耗时 ${formatNumber(trace.durationMs, ' ms')}`,
-    `CPU ${formatNumber(trace.cpuTimeMs, ' ms')}`, `分配内存 ${formatBytes(trace.allocatedBytes)}`,
+    `CPU ${formatNumber(trace.cpuTimeMs, ' ms')}`, `分配量 ${formatBytes(trace.allocatedBytes)}`,
     `线程 ${formatNumber(trace.threadId)}`, `Trace ID ${trace.traceId || '—'}`,
     `完成 ${formatTime(trace.finishedAt)}`
   ]
@@ -325,10 +370,10 @@ async function openTrace(trace) {
   const hasStructuredChild = (detail.operations || []).some(operation =>
     operation.type !== detail.sourceType || Boolean(operation.parentSpanId))
   if (treeNodeCount > 1 && detail.tree && hasStructuredChild) {
-    byId('trace-operations-note').textContent = '调用树展示执行层级；下表展示已采集的结构化操作。自定义代码段可能只出现在调用树中，CPU、内存等数值取决于对应集成。'
+    byId('trace-operations-note').textContent = '调用树展示执行层级；下表展示已采集的结构化操作。自定义代码段可能只出现在调用树中，CPU 和分配量取决于对应集成。'
     byId('trace-operations-note').hidden = false
   } else if (treeNodeCount > 1 && !hasStructuredChild) {
-    byId('trace-operations-note').textContent = '调用树包含下游节点，但当前集成只采集了入口级结构化明细；下游节点的独立 CPU、内存和线程数据尚未采集。'
+    byId('trace-operations-note').textContent = '调用树包含下游节点，但当前集成只采集了入口级结构化明细；下游节点的独立 CPU、分配量和线程数据尚未采集。'
     byId('trace-operations-note').hidden = false
   }
   const operationRows = byId('operation-rows'); operationRows.replaceChildren()
@@ -520,6 +565,8 @@ function metricLabel(series) {
     'tomcat.threads.busy': 'Tomcat 忙碌线程数',
     'tomcat.threads.current': 'Tomcat 当前线程数',
     'http.server.requests': 'HTTP 请求',
+    'tasks.scheduled.execution': '定时任务执行',
+    'spring.kafka.listener': 'Kafka 消费',
     'process.uptime': '进程运行时长',
     'system.load.average.1m': '系统 1 分钟负载'
   }
@@ -611,6 +658,16 @@ function seriesTitle(series) {
       DATABASE: '数据库', TRANSACTION: '事务', REMOTE: '远程调用', ELASTICSEARCH: 'Elasticsearch' })[series.tags?.source] || series.tags?.source || '应用'
     return `${source} · ${series.tags?.operation || '操作'}${series.tags?.outcome ? ` · ${series.tags.outcome}` : ''}`
   }
+  if (series.name === 'tasks.scheduled.execution' || series.name === 'spring.kafka.listener') {
+    const tags = Object.entries(series.tags || {})
+      .filter(([key]) => !['application', 'environment'].includes(key))
+      .map(([key, value]) => `${key}=${value}`).join(', ')
+    return `${metricLabel(series)}${tags ? ` · ${tags}` : ''}`
+  }
+  if (series.name.startsWith('kafka.consumer.') || series.name.startsWith('spring.kafka.container.')) {
+    const tags = Object.entries(series.tags || {}).map(([key, value]) => `${key}=${value}`).join(', ')
+    return `${metricLabel(series)}${tags ? ` · ${tags}` : ''}`
+  }
   if (series.name === 'logback.events' && series.tags?.level) {
     return ({ error: '错误日志', warn: '警告日志', info: '信息日志', debug: '调试日志', trace: '跟踪日志' })[series.tags.level] || `${series.tags.level} 日志`
   }
@@ -627,7 +684,10 @@ function seriesKey(series) {
 }
 function metricMeasurement(series) {
   const available = series.measurements || []
-  if (series.name === 'easy.operations.duration' && available.includes('COUNT') && available.includes('TOTAL_TIME')) return 'INTERVAL_AVG'
+  if (['easy.operations.duration', 'tasks.scheduled.execution', 'spring.kafka.listener'].includes(series.name)
+      && available.includes('COUNT') && available.includes('TOTAL_TIME')) return 'INTERVAL_AVG'
+  if (/^spring\.kafka\.container\..*\.count$/.test(series.name) && available.includes('COUNT')) return 'RATE'
+  if (series.name.startsWith('kafka.consumer.') && available.includes('COUNT')) return 'RATE'
   if (intervalCounterNames.has(series.name) && available.includes('COUNT')) return 'RATE'
   return ['VALUE', 'COUNT', 'TOTAL_TIME', 'MAX'].find(name => available.includes(name)) || available[0] || 'VALUE'
 }
@@ -694,6 +754,12 @@ function trendGroup(series, category, measurement) {
       TRANSACTION: '事务', REMOTE: '远程调用', ELASTICSEARCH: 'Elasticsearch' })[source] || source
     return { key: `${category}|easy-operation-duration|${source}|${measurement}`, title: `${sourceLabel} 操作耗时` }
   }
+  if (name === 'tasks.scheduled.execution') {
+    return { key: `${category}|scheduled-task-duration|${measurement}`, title: '定时任务执行耗时' }
+  }
+  if (name === 'spring.kafka.listener') {
+    return { key: `${category}|kafka-listener-duration|${measurement}`, title: 'Kafka 消费耗时' }
+  }
   if (['process.cpu.usage', 'system.cpu.usage'].includes(name)) {
     return { key: `${category}|cpu-usage|${name}|${measurement}`, title: name === 'process.cpu.usage' ? '进程 CPU 使用率' : '系统 CPU 使用率' }
   }
@@ -718,11 +784,14 @@ function trendGroup(series, category, measurement) {
   return { key: `${category}|${name}|${measurement}`, title: metricLabel(series) }
 }
 const metricCategoryLabels = {
-  HTTP: 'HTTP', CPU: 'CPU', JVM: 'JVM', TOMCAT: 'Tomcat', LOGGING: '日志', PROCESS: '进程', SYSTEM: '系统',
+  HTTP: 'HTTP', SCHEDULED: '定时任务', KAFKA_CONSUMER: 'Kafka 消费', CPU: 'CPU', JVM: 'JVM', TOMCAT: 'Tomcat', LOGGING: '日志', PROCESS: '进程', SYSTEM: '系统',
   DATABASE: '数据库', MIDDLEWARE: '中间件', THREADS: '线程池', APPLICATION: '应用指标'
 }
 function metricCategory(series) {
   const name = String(series.name || '')
+  if (name === 'tasks.scheduled.execution') return 'SCHEDULED'
+  if (name.startsWith('executor.') && /scheduler/i.test(series.tags?.name || '')) return 'SCHEDULED'
+  if (name === 'spring.kafka.listener' || name.startsWith('spring.kafka.container.') || name.startsWith('kafka.consumer.')) return 'KAFKA_CONSUMER'
   if (name === 'process.cpu.usage' || name === 'system.cpu.usage') return 'CPU'
   if (/^(http\.client\.|kafka\.|spring\.kafka\.|redis\.|lettuce\.|cache\.|elasticsearch\.)/.test(name)) return 'MIDDLEWARE'
   if (/^(http\.|tomcat\.global\.request)/.test(name)) return 'HTTP'
@@ -741,6 +810,7 @@ function metricCategoryOrder(category) {
   return Object.keys(metricCategoryLabels).indexOf(category)
 }
 const preferredMetricNames = [
+  'tasks.scheduled.execution', 'spring.kafka.listener',
   'process.cpu.usage', 'system.cpu.usage', 'system.load.average.1m',
   'jvm.memory.used', 'jvm.memory.committed', 'jvm.memory.max', 'jvm.gc.overhead',
   'jvm.gc.live.data.size', 'jvm.gc.max.data.size', 'jvm.gc.memory.allocated', 'jvm.gc.memory.promoted',
@@ -758,6 +828,8 @@ function isUsefulMetric(series) {
   const name = String(series.name || '')
   // HTTP 的入口请求时延已由 RED 面板按 URI 展示，避免同一数据在应用指标里重复出现。
   if (name === 'easy.operations.duration' && series.tags?.source === 'HTTP') return false
+  // Job 和 Kafka 的趋势直接读取 Spring 原生 Timer，避免同一次 Observation 重复绘图。
+  if (name === 'easy.operations.duration' && ['JOB', 'KAFKA_CONSUMER'].includes(series.tags?.source)) return false
   if (preferredMetricRank.has(name)) return true
   // 展示常见客户端依赖指标，但仍按指标名分图，避免把不同单位混在一起。
   return /^(http\.client\.requests|kafka\.(consumer|producer)\.|spring\.kafka\.|redis\.|lettuce\.|cache\.|elasticsearch\.)/.test(name)
@@ -1144,13 +1216,20 @@ async function renderTrends(timeRange = currentMetricTimeRange()) {
       const title = document.createElement('h3'); title.textContent = metricCategoryLabels[category]
       const count = document.createElement('span'); count.textContent = `${entries.length} 张图表`
       heading.append(title, count)
+      let categoryNote = null
       if (category === 'JVM') {
         const note = document.createElement('p'); note.className = 'trend-category-note'
         note.textContent = '内存按代和区域拆分；曲线分别表示已用、已提交和上限。新生代包含 Eden 与 Survivor，长期存活对象进入老年代。'
         section.append(heading, note)
       }
+      if (category === 'SCHEDULED' || category === 'KAFKA_CONSUMER') {
+        categoryNote = document.createElement('p'); categoryNote.className = 'trend-category-note'
+        categoryNote.textContent = category === 'SCHEDULED'
+          ? '执行耗时来自 Spring 定时任务 Observation；可用时同时展示调度线程池指标。'
+          : '展示 Spring Kafka Listener Observation 和已注册的 Kafka Consumer 客户端指标。'
+      }
       const categoryGrid = document.createElement('div'); categoryGrid.className = 'trend-category-grid'
-      if (category !== 'JVM') section.append(heading)
+      if (category !== 'JVM') section.append(heading, ...(categoryNote ? [categoryNote] : []))
       section.append(categoryGrid); grid.append(section)
       entries.sort((left, right) => {
         const memoryRank = group => {

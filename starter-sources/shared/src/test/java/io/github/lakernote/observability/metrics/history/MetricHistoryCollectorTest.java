@@ -29,18 +29,6 @@ class MetricHistoryCollectorTest {
         Counter.builder("easy.operations.allocated").tag("source", "HTTP")
                 .tag("operation", "GET /orders").tag("outcome", "success")
                 .register(registry).increment(4096);
-        Counter.builder("easy.operations.blocked.count").tag("source", "HTTP")
-                .tag("operation", "GET /orders").tag("outcome", "success")
-                .register(registry).increment(1);
-        Counter.builder("easy.operations.blocked.time").tag("source", "HTTP")
-                .tag("operation", "GET /orders").tag("outcome", "success")
-                .register(registry).increment(2);
-        Counter.builder("easy.operations.waited.count").tag("source", "HTTP")
-                .tag("operation", "GET /orders").tag("outcome", "success")
-                .register(registry).increment(1);
-        Counter.builder("easy.operations.waited.time").tag("source", "HTTP")
-                .tag("operation", "GET /orders").tag("outcome", "success")
-                .register(registry).increment(5);
         Counter.builder("jvm.memory.used").tag("area", "heap")
                 .register(registry).increment(1024);
         Counter.builder("logback.events").tag("level", "error")
@@ -56,9 +44,7 @@ class MetricHistoryCollectorTest {
 
         assertThat(store.listSeries()).extracting(MetricHistoryStore.MetricSeriesDescriptor::name)
                 .contains("easy.operations.duration", "jvm.memory.used", "logback.events", "tomcat.sessions.created")
-                .doesNotContain("easy.operations.cpu.time", "easy.operations.allocated",
-                        "easy.operations.blocked.count", "easy.operations.blocked.time",
-                        "easy.operations.waited.count", "easy.operations.waited.time");
+                .doesNotContain("easy.operations.cpu.time", "easy.operations.allocated");
         assertThat(registry.getMeters()).extracting(meter -> meter.getId().getName())
                 .as("filtering applies only to persisted history; existing Micrometer meters stay registered")
                 .contains("easy.operations.cpu.time", "easy.operations.allocated");

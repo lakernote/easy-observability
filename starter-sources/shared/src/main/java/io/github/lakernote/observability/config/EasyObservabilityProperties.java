@@ -323,7 +323,6 @@ public class EasyObservabilityProperties {
         private long dependencySlowThresholdMs = 250;
         // CPU and allocation counters require JVM management calls for every observed operation; keep opt-in.
         private boolean resourceSamplingEnabled;
-        private boolean threadContentionSamplingEnabled;
         private String slowErrorTraceFile = "./data/easy-observability/traces.jsonl";
         private int slowErrorHistoryLimit = 1_000;
         private DataSize slowErrorMaxBytes = DataSize.ofMegabytes(8);
@@ -422,14 +421,6 @@ public class EasyObservabilityProperties {
 
         public void setResourceSamplingEnabled(boolean resourceSamplingEnabled) {
             this.resourceSamplingEnabled = resourceSamplingEnabled;
-        }
-
-        public boolean isThreadContentionSamplingEnabled() {
-            return threadContentionSamplingEnabled;
-        }
-
-        public void setThreadContentionSamplingEnabled(boolean enabled) {
-            this.threadContentionSamplingEnabled = enabled;
         }
 
         public String getSlowErrorTraceFile() {

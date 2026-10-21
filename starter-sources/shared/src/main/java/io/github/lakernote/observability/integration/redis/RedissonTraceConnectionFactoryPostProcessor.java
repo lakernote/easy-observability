@@ -85,8 +85,7 @@ public final class RedissonTraceConnectionFactoryPostProcessor implements BeanPo
             long threadId = Thread.currentThread().getId();
             long startedNanos = System.nanoTime();
             ThreadResourceSnapshot before = ThreadResourceSnapshot.capture(threadId,
-                    properties.getTrace().isResourceSamplingEnabled(),
-                    properties.getTrace().isThreadContentionSamplingEnabled());
+                    properties.getTrace().isResourceSamplingEnabled());
             TraceContext.DetachedSpan span = TraceContext.startDetachedSpan("Redis " + name, SpanKind.REDIS, name);
             Throwable failure = null;
             try {
@@ -106,19 +105,16 @@ public final class RedissonTraceConnectionFactoryPostProcessor implements BeanPo
                         Throwable failure, OperationRecorder recorder, EasyObservabilityProperties properties) {
         long durationMs = Math.max(0, TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedNanos));
         ThreadResourceSnapshot after = ThreadResourceSnapshot.capture(threadId,
-                properties.getTrace().isResourceSamplingEnabled(),
-                properties.getTrace().isThreadContentionSamplingEnabled());
+                properties.getTrace().isResourceSamplingEnabled());
         long threshold = properties.getTrace().getRedisSlowThresholdMs();
         boolean slow = threshold > 0 && durationMs >= threshold;
         try {
-            span.run();
+            span.close();
             if (slow) TraceContext.markSlow("SLOW_REDIS");
             if (failure != null) TraceContext.markError("REDIS_ERROR", failure);
             recorder.record(new OperationRecord("REDIS", traceId, name, Thread.currentThread().getName(), threadId,
                     failure == null ? "success" : "failure", durationMs, after.cpuTimeMsSince(before),
-                    after.allocatedBytesSince(before), after.blockedCountSince(before),
-                    after.blockedTimeMsSince(before), after.waitedCountSince(before),
-                    after.waitedTimeMsSince(before), "Redis command", "", "", slow, failure != null,
+                    after.allocatedBytesSince(before), "Redis command", "", "", slow, failure != null,
                     slow ? List.of("SLOW_REDIS") : List.of(), failure == null ? "" : failure.getClass().getName(),
                     "", Map.of(), Instant.now(), span.spanId(), span.parentSpanId()));
         } catch (Throwable ignored) {

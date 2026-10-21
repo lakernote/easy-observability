@@ -1,10 +1,13 @@
 package io.github.lakernote.observability.trace;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
 /** A completed HTTP, database, Redis, Kafka, transaction, or remote operation. */
+@JsonIgnoreProperties(ignoreUnknown = true)
 public record OperationRecord(
         String type,
         String traceId,
@@ -15,10 +18,6 @@ public record OperationRecord(
         long durationMs,
         long cpuTimeMs,
         long allocatedBytes,
-        long blockedCount,
-        long blockedTimeMs,
-        long waitedCount,
-        long waitedTimeMs,
         String detail,
         String lockInfo,
         String stackTrace,
@@ -50,18 +49,6 @@ public record OperationRecord(
         finishedAt = finishedAt == null ? Instant.now() : finishedAt;
         spanId = safe(spanId, 128);
         parentSpanId = safe(parentSpanId, 128);
-    }
-
-    /** Keeps source compatibility for integrations that do not yet provide span relationships. */
-    public OperationRecord(String type, String traceId, String name, String threadName, long threadId,
-                           String outcome, long durationMs, long cpuTimeMs, long allocatedBytes,
-                           long blockedCount, long blockedTimeMs, long waitedCount, long waitedTimeMs,
-                           String detail, String lockInfo, String stackTrace, boolean slow, boolean error,
-                           List<String> reasons, String errorType, String errorMessage,
-                           Map<String, OperationSummary> childSummaries, Instant finishedAt) {
-        this(type, traceId, name, threadName, threadId, outcome, durationMs, cpuTimeMs, allocatedBytes,
-                blockedCount, blockedTimeMs, waitedCount, waitedTimeMs, detail, lockInfo, stackTrace,
-                slow, error, reasons, errorType, errorMessage, childSummaries, finishedAt, "", "");
     }
 
     private static String safe(String value, int limit) {

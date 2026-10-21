@@ -77,13 +77,9 @@ public class MetricHistoryStore {
     private static final int MAX_NEW_SERIES_ATTEMPTS_PER_BATCH = 64;
     private static final Set<String> NON_PERSISTED_OPERATION_RESOURCE_METRICS = Set.of(
             "easy.operations.cpu.time",
-            "easy.operations.allocated",
-            "easy.operations.blocked.count",
-            "easy.operations.blocked.time",
-            "easy.operations.waited.count",
-            "easy.operations.waited.time");
-    private static final int REQUEST_PRIORITY = 0;
-    private static final int CORE_PRIORITY = 1;
+            "easy.operations.allocated");
+    private static final int CORE_PRIORITY = 0;
+    private static final int REQUEST_PRIORITY = 1;
     private static final int PLATFORM_PRIORITY = 2;
     private static final int OPTIONAL_PRIORITY = 3;
 
@@ -1207,9 +1203,15 @@ public class MetricHistoryStore {
     /** Entry summaries stay ahead of dependency details while a fixed share remains reserved for JVM metrics. */
     public static int metricPriority(String name, Map<String, String> tags) {
         String source = tags == null ? null : tags.get("source");
+        if ("http.server.requests".equals(name)) return REQUEST_PRIORITY;
+        if ("tasks.scheduled.execution".equals(name) || "spring.kafka.listener".equals(name)
+                || name != null && name.startsWith("spring.kafka.container.")) {
+            return REQUEST_PRIORITY;
+        }
+        if (name != null && name.startsWith("kafka.consumer.")) return PLATFORM_PRIORITY;
         if (List.of("easy.operations.duration", "easy.operations.cpu.time", "easy.operations.allocated").contains(name)
                 && source != null
-                && List.of("HTTP", "JOB", "EXECUTOR_TASK", "KAFKA_CONSUMER").contains(source)) {
+                && List.of("HTTP", "JOB", "KAFKA_CONSUMER").contains(source)) {
             return REQUEST_PRIORITY;
         }
         return metricPriority(name);

@@ -71,8 +71,8 @@ class ObservationTraceHandlerTest {
 
         assertThat(history.recent(10)).isEmpty();
         recorder.record(new OperationRecord("REDIS", "orphan-trace", "GET", "worker", 7,
-                "success", 1, -1, -1, -1, -1, -1, -1, "Redis command", "", "",
-                false, false, java.util.List.of(), "", "", java.util.Map.of(), java.time.Instant.now()));
+                "success", 1, -1, -1, "Redis command", "", "",
+                false, false, java.util.List.of(), "", "", java.util.Map.of(), java.time.Instant.now(), "", ""));
         history.add("orphan-trace", "GET /cache", "GET", "HTTP", 200, 10,
                 false, false, "tree");
 
@@ -226,7 +226,7 @@ class ObservationTraceHandlerTest {
     }
 
     @Test
-    void asyncStopDoesNotFinishTraceOwnedByAnotherThread() {
+    void asyncStopFinishesItsTraceWithoutEndingAnotherThreadsTrace() {
         EasyObservabilityProperties properties = new EasyObservabilityProperties();
         RecentTraceStore history = new RecentTraceStore(10, 10);
         OperationRecorder recorder = new OperationRecorder(new SimpleMeterRegistry(), history, properties);
@@ -246,7 +246,10 @@ class ObservationTraceHandlerTest {
         }).join();
 
         assertThat(unrelatedTraceWasPreserved).isTrue();
-        assertThat(TraceContext.active()).isTrue();
-        assertThat(history.recent(10)).isEmpty();
+        assertThat(TraceContext.active()).isFalse();
+        assertThat(history.recent(10)).singleElement().satisfies(trace -> {
+            assertThat(trace.name()).isEqualTo("/async · GET");
+            assertThat(trace.sourceType()).isEqualTo("HTTP");
+        });
     }
 }

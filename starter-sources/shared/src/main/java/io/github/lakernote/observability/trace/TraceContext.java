@@ -5,12 +5,13 @@ import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 
 /**
- * 管理当前线程上的入口 Trace 和调用节点。
- * <p>上下文使用 ThreadLocal 隔离并发请求；线程池切换时只传播 Trace ID/MDC，Trace 树本身不跨线程共享。</p>
+ * 管理 Trace 树和当前执行位置。
+ * <p>ThreadLocal 只保存本线程当前的不可变执行帧；异步任务通过 Snapshot 显式继承树和父 Span。</p>
  */
 public final class TraceContext {
     private static final Logger log = LoggerFactory.getLogger(TraceContext.class);
@@ -18,7 +19,7 @@ public final class TraceContext {
     static final long INCIDENT_LOG_WINDOW_NANOS = TimeUnit.MINUTES.toNanos(1);
     private static final int MAX_LOG_DESCRIPTION_CHARS = 256;
     private static final int MAX_LOG_REASON_CHARS = 256;
-    private static final ThreadLocal<TraceTree> LOCAL_TRACE = new ThreadLocal<>();
+    private static final ThreadLocal<ExecutionFrame> CURRENT_FRAME = new ThreadLocal<>();
     /** 错误和慢调用使用独立日志额度，避免慢调用风暴挤掉所有错误摘要。 */
     private static final IncidentLogLimiter ERROR_LOG_LIMITER =
             new IncidentLogLimiter(MAX_INCIDENT_LOGS_PER_WINDOW, INCIDENT_LOG_WINDOW_NANOS);
@@ -30,7 +31,7 @@ public final class TraceContext {
 
     /** 当前线程是否存在尚未结束的 Trace。 */
     public static boolean active() {
-        return LOCAL_TRACE.get() != null;
+        return currentTrace() != null;
     }
 
     /** 当前没有 Trace 时创建根节点；已有 Trace 时只追加子节点。 */
@@ -44,12 +45,83 @@ public final class TraceContext {
 
     /** 创建根节点并返回 Span ID，供集成适配器记录明确的父子关系。 */
     public static String startRootSpan(String name, SpanKind kind, String tag, int maxDepth, long minNodeCostMs) {
-        if (LOCAL_TRACE.get() == null) {
+        ExecutionFrame current = currentFrame();
+        if (current == null) {
             TraceTree trace = new TraceTree(name, kind, tag, maxDepth, minNodeCostMs);
-            LOCAL_TRACE.set(trace);
-            return trace.rootSpanId();
+            Span root = trace.rootSpan();
+            CURRENT_FRAME.set(new ExecutionFrame(trace, root, 1, null, null, TraceIdContext.currentTraceId()));
+            return root.spanId();
         }
-        return LOCAL_TRACE.get().addSpan(name, kind, tag);
+        Span child = addChild(current, name, kind, tag);
+        CURRENT_FRAME.set(new ExecutionFrame(current.trace, child == null ? current.span : child,
+                child == null ? current.depth : current.depth + 1, child, current, current.traceId));
+        return child == null ? "" : child.spanId();
+    }
+
+    /** Captures the current Trace ID and parent Span for propagation across an async boundary. */
+    public static Snapshot capture() {
+        return new Snapshot(currentFrame(), TraceIdContext.currentTraceId());
+    }
+
+    /** Makes a captured context current and restores the previous thread context when closed. */
+    public static Scope makeCurrent(Snapshot snapshot) {
+        ExecutionFrame previous = CURRENT_FRAME.get();
+        String previousTraceId = TraceIdContext.currentTraceId();
+        ExecutionFrame captured = snapshot == null ? null : snapshot.frame;
+        boolean completed = captured != null && captured.trace.completed();
+        if (completed) captured = null;
+        if (captured == null) CURRENT_FRAME.remove();
+        else CURRENT_FRAME.set(captured);
+        String traceId = snapshot == null || completed ? null : snapshot.traceId;
+        MdcContext.putOrRemove(TraceIdContext.MDC_KEY,
+                TraceIdContext.isValidTraceId(traceId) ? traceId : null);
+        return new Scope(previous, previousTraceId);
+    }
+
+    public static final class Snapshot {
+        private final ExecutionFrame frame;
+        private final String traceId;
+
+        private Snapshot(ExecutionFrame frame, String traceId) {
+            this.frame = frame;
+            this.traceId = TraceIdContext.isValidTraceId(traceId) ? traceId : null;
+        }
+    }
+
+    public static final class Scope implements AutoCloseable {
+        private final ExecutionFrame previous;
+        private final String previousTraceId;
+        private final long ownerThreadId = Thread.currentThread().getId();
+        private boolean closed;
+
+        private Scope(ExecutionFrame previous, String previousTraceId) {
+            this.previous = previous;
+            this.previousTraceId = previousTraceId;
+        }
+
+        @Override
+        public void close() {
+            if (closed) return;
+            if (ownerThreadId != Thread.currentThread().getId()) {
+                throw new IllegalStateException("Trace context scope must close on its owner thread");
+            }
+            if (previous == null) CURRENT_FRAME.remove();
+            else CURRENT_FRAME.set(previous);
+            MdcContext.putOrRemove(TraceIdContext.MDC_KEY, previousTraceId);
+            closed = true;
+        }
+    }
+
+    /** Returns a handle to the active tree so an Observation can update or finish it on another thread. */
+    public static RootTraceHandle currentRootTraceHandle() {
+        TraceTree trace = currentTrace();
+        return trace == null ? null : new RootTraceHandle(trace);
+    }
+
+    /** Detaches an active tree from this thread while preserving its handle for asynchronous finalization. */
+    public static void detach(RootTraceHandle handle) {
+        ExecutionFrame current = CURRENT_FRAME.get();
+        if (handle != null && current != null && current.trace == handle.trace) CURRENT_FRAME.remove();
     }
 
     /** 向当前 Trace 添加子节点；没有活动 Trace 时不做处理。 */
@@ -58,143 +130,182 @@ public final class TraceContext {
     }
 
     public static void addSpan(String name, SpanKind kind, String tag) {
-        TraceTree trace = LOCAL_TRACE.get();
-        if (trace != null) {
-            trace.addSpan(name, kind, tag);
-        }
+        ExecutionFrame current = currentFrame();
+        if (current == null) return;
+        Span child = addChild(current, name, kind, tag);
+        CURRENT_FRAME.set(new ExecutionFrame(current.trace, child == null ? current.span : child,
+                child == null ? current.depth : current.depth + 1, child, current, current.traceId));
     }
 
     /** Adds a user-declared code span and retains its tree even when the request is otherwise successful. */
     public static void addExplicitSpan(String name, SpanKind kind, String tag) {
-        TraceTree trace = LOCAL_TRACE.get();
+        TraceTree trace = currentTrace();
         if (trace != null) {
             trace.requireExplicitTree();
-            trace.addSpan(name, kind, tag);
+            addSpan(name, kind, tag);
         }
     }
 
     /** 返回当前节点的 Span ID；没有活动 Trace 时返回空字符串。 */
     public static String currentSpanId() {
-        TraceTree trace = LOCAL_TRACE.get();
-        return trace == null ? "" : trace.currentSpanId();
+        ExecutionFrame current = currentFrame();
+        return current == null ? "" : current.span.spanId();
     }
 
     /** 框架解析出路由和方法后，补全根节点的展示名称与标签。 */
     public static void updateRootIdentity(String name, String tag) {
-        TraceTree trace = LOCAL_TRACE.get();
+        TraceTree trace = currentTrace();
         if (trace != null) trace.updateRootIdentity(name, tag);
     }
 
     public static void stopSpan() {
-        TraceTree trace = LOCAL_TRACE.get();
-        if (trace != null) {
-            trace.stopSpan();
-        }
+        ExecutionFrame current = currentFrame();
+        if (current == null || current.previous == null) return;
+        if (current.openedSpan != null) current.trace.stopSpan(current.openedSpan);
+        CURRENT_FRAME.set(current.previous);
     }
 
     /** 在监控初始化完成、业务代码开始前重置当前节点的计时边界。 */
     public static void beginCurrentSpanBoundary() {
-        TraceTree trace = LOCAL_TRACE.get();
-        if (trace != null) trace.beginCurrentSpanBoundary();
+        ExecutionFrame current = currentFrame();
+        if (current != null) current.trace.beginBusinessBoundary(current.span);
     }
 
     /** 固定根节点和仍未结束子节点的耗时，但不生成树文本，也不清理上下文。 */
     public static void freezeRootBoundary() {
-        TraceTree trace = LOCAL_TRACE.get();
-        if (trace != null) trace.stopRoot();
+        TraceTree trace = currentTrace();
+        if (trace != null) trace.freezeRoot();
     }
 
     /** 即使根节点未达到慢阈值，也可因内部慢节点将整条 Trace 标记为慢调用。 */
     public static void markSlow(String reason) {
-        TraceTree trace = LOCAL_TRACE.get();
+        TraceTree trace = currentTrace();
         if (trace != null) trace.markSlow(reason);
     }
 
     /** 将当前 Trace 标记为错误，并保留首次获得的异常证据。 */
     public static void markError(String reason, Throwable failure) {
-        TraceTree trace = LOCAL_TRACE.get();
+        TraceTree trace = currentTrace();
         if (trace != null) trace.markError(reason, failure);
     }
 
     /** 复用操作结束时已截取的异常摘要，避免再次格式化异常堆栈。 */
     public static void markError(String reason, BoundedThrowableFormatter.FailureEvidence failure) {
-        TraceTree trace = LOCAL_TRACE.get();
+        TraceTree trace = currentTrace();
         if (trace != null) trace.markError(reason, failure);
     }
 
     /**
      * 创建由外部生命周期结束的子节点，例如事务完成回调。
-     * 调用返回的 DetachedSpan.run() 结束节点；没有活动 Trace 时返回空操作对象。
+     * 调用返回的 DetachedSpan.close() 结束节点；没有活动 Trace 时返回空操作对象。
      */
     public static DetachedSpan startDetachedSpan(String name, SpanKind kind, String tag) {
-        TraceTree trace = LOCAL_TRACE.get();
-        if (trace == null) return DetachedSpan.NOOP;
-        Span span = trace.addDetachedSpan(name, kind, tag);
-        return span == null ? DetachedSpan.NOOP : new DetachedSpan(span);
+        ExecutionFrame current = currentFrame();
+        if (current == null) return DetachedSpan.NOOP;
+        Span span = current.trace.addChild(current.span, current.depth, name, kind, tag);
+        return span == null ? DetachedSpan.NOOP : new DetachedSpan(current.trace, span);
     }
 
     /** Starts a synchronous child span that remains current until its scope closes. */
     public static ScopedSpan startScopedSpan(String name, SpanKind kind, String tag) {
-        TraceTree trace = LOCAL_TRACE.get();
-        if (trace == null) return ScopedSpan.NOOP;
-        Span span = trace.addScopedSpan(name, kind, tag);
-        return new ScopedSpan(trace, Thread.currentThread().getId(), span);
+        ExecutionFrame current = currentFrame();
+        if (current == null) return ScopedSpan.NOOP;
+        Span span = addChild(current, name, kind, tag);
+        ExecutionFrame installed = new ExecutionFrame(current.trace, span == null ? current.span : span,
+                span == null ? current.depth : current.depth + 1, span, current, current.traceId);
+        CURRENT_FRAME.set(installed);
+        return new ScopedSpan(current.trace, Thread.currentThread().getId(), span, current, installed);
     }
 
-    public static final class ScopedSpan implements Runnable {
-        private static final ScopedSpan NOOP = new ScopedSpan(null, -1, null);
+    public interface SpanHandle extends AutoCloseable {
+        String spanId();
+
+        String parentSpanId();
+
+        @Override
+        void close();
+    }
+
+    public static final class ScopedSpan implements SpanHandle, Runnable {
+        private static final ScopedSpan NOOP = new ScopedSpan(null, -1, null, null, null);
         private final TraceTree trace;
         private final long threadId;
         private final Span span;
-        private boolean stopped;
+        private final ExecutionFrame previous;
+        private final ExecutionFrame installed;
+        private final AtomicBoolean stopped = new AtomicBoolean();
 
-        private ScopedSpan(TraceTree trace, long threadId, Span span) {
+        private ScopedSpan(TraceTree trace, long threadId, Span span,
+                           ExecutionFrame previous, ExecutionFrame installed) {
             this.trace = trace;
             this.threadId = threadId;
             this.span = span;
+            this.previous = previous;
+            this.installed = installed;
         }
 
+        @Override
         public String spanId() {
             return span == null ? "" : span.spanId();
         }
 
+        @Override
         public String parentSpanId() {
             return span == null ? "" : span.parentSpanId();
         }
 
         @Override
-        public void run() {
-            if (stopped) return;
-            stopped = true;
-            if (trace != null && threadId == Thread.currentThread().getId() && LOCAL_TRACE.get() == trace) {
-                trace.stopSpan();
+        public void close() {
+            if (!stopped.compareAndSet(false, true)) return;
+            if (trace != null) {
+                if (span != null) trace.stopSpan(span);
+                if (threadId == Thread.currentThread().getId() && CURRENT_FRAME.get() == installed) {
+                    CURRENT_FRAME.set(previous);
+                }
             }
+        }
+
+        /** Compatibility for callers that previously used Runnable as a span handle. */
+        @Override
+        public void run() {
+            close();
         }
     }
 
-    public static final class DetachedSpan implements Runnable {
-        private static final DetachedSpan NOOP = new DetachedSpan(null);
+    public static final class DetachedSpan implements SpanHandle, Runnable {
+        private static final DetachedSpan NOOP = new DetachedSpan(null, null);
+        private final TraceTree trace;
         private final Span span;
+        private final AtomicBoolean stopped = new AtomicBoolean();
 
-        private DetachedSpan(Span span) {
+        private DetachedSpan(TraceTree trace, Span span) {
+            this.trace = trace;
             this.span = span;
         }
 
         public void beginBusinessBoundary() {
-            if (span != null) span.beginBusinessBoundary();
+            if (span != null) trace.beginBusinessBoundary(span);
         }
 
+        @Override
         public String spanId() {
             return span == null ? "" : span.spanId();
         }
 
+        @Override
         public String parentSpanId() {
             return span == null ? "" : span.parentSpanId();
         }
 
         @Override
+        public void close() {
+            if (span != null && stopped.compareAndSet(false, true)) trace.stopSpan(span);
+        }
+
+        /** Compatibility for callers that previously used Runnable as a span handle. */
+        @Override
         public void run() {
-            if (span != null) span.stop();
+            close();
         }
     }
 
@@ -214,31 +325,76 @@ public final class TraceContext {
 
     public static void stopRoot(long slowThresholdMs, String description, Throwable throwable,
                                 Consumer<Completion> completion) {
-        TraceTree trace = LOCAL_TRACE.get();
+        TraceTree trace = currentTrace();
         if (trace == null) {
             return;
         }
+        completeRoot(trace, slowThresholdMs, description, throwable, completion);
+    }
+
+    private static void completeRoot(TraceTree trace, long slowThresholdMs, String description, Throwable throwable,
+                                     Consumer<Completion> completion) {
         try {
-            long costMs = trace.stopRoot();
-            if (slowThresholdMs > 0 && costMs >= slowThresholdMs && !trace.slow()) {
-                trace.markSlow("SLOW_ROOT");
+            Completion result;
+            long costMs;
+            synchronized (trace) {
+                if (trace.completed()) return;
+                costMs = trace.completeRoot(slowThresholdMs, throwable);
+                String tree = trace.explicitTreeRequired() || trace.slow() || trace.error()
+                        ? trace.renderTree() : "";
+                result = new Completion(tree, costMs, trace.slow(), trace.error(), trace.incidentReasons(),
+                        trace.errorType(), trace.errorMessage(), trace.errorStackTrace());
             }
-            if (throwable != null && !trace.error()) {
-                trace.markError("ROOT_ERROR", throwable);
-            }
-            String tree = trace.explicitTreeRequired() || trace.slow() || trace.error()
-                    ? trace.renderTree() : "";
-            completion.accept(new Completion(tree, costMs, trace.slow(), trace.error(),
-                    trace.incidentReasons(), trace.errorType(), trace.errorMessage(), trace.errorStackTrace()));
+            completion.accept(result);
             if (throwable != null) {
                 logIncidentSummary(ERROR_LOG_LIMITER, true, description, costMs, slowThresholdMs,
-                        throwable.getClass().getName(), trace.incidentReasons());
+                        throwable.getClass().getName(), result.reasons());
             } else if (slowThresholdMs > 0 && costMs >= slowThresholdMs) {
                 logIncidentSummary(SLOW_LOG_LIMITER, false, description, costMs, slowThresholdMs,
-                        "", trace.incidentReasons());
+                        "", result.reasons());
             }
         } finally {
-            clear();
+            ExecutionFrame current = CURRENT_FRAME.get();
+            if (current != null && current.trace == trace) CURRENT_FRAME.remove();
+        }
+    }
+
+    /** A root-tree reference retained by an Observation until its request finishes. */
+    public static final class RootTraceHandle {
+        private final TraceTree trace;
+
+        private RootTraceHandle(TraceTree trace) {
+            this.trace = trace;
+        }
+
+        public void updateRootIdentity(String name, String tag) {
+            trace.updateRootIdentity(name, tag);
+        }
+
+        public void markSlow(String reason) {
+            trace.markSlow(reason);
+        }
+
+        public void markError(String reason, Throwable failure) {
+            trace.markError(reason, failure);
+        }
+
+        public void markError(String reason, BoundedThrowableFormatter.FailureEvidence failure) {
+            trace.markError(reason, failure);
+        }
+
+        public void rememberOwnedTraceId(String traceId) {
+            trace.rememberOwnedTraceId(traceId);
+        }
+
+        public void stop(long slowThresholdMs, String description, Throwable failure,
+                         Consumer<Completion> completion) {
+            completeRoot(trace, slowThresholdMs, description, failure, completion);
+        }
+
+        public void discard() {
+            trace.discard();
+            TraceContext.detach(this);
         }
     }
 
@@ -248,11 +404,12 @@ public final class TraceContext {
      * or failed.
      */
     public static void stopRootDeferred(Throwable throwable, Consumer<DeferredCompletion> completion) {
-        TraceTree trace = LOCAL_TRACE.get();
+        TraceTree trace = currentTrace();
         if (trace == null) return;
         try {
             long costMs = trace.stopRoot();
             if (throwable != null && !trace.error()) trace.markError("ROOT_ERROR", throwable);
+            trace.markCompleted();
             completion.accept(new DeferredCompletion(trace, costMs));
         } finally {
             clear();
@@ -261,7 +418,38 @@ public final class TraceContext {
 
 
     public static void clear() {
-        LOCAL_TRACE.remove();
+        CURRENT_FRAME.remove();
+    }
+
+    private static TraceTree currentTrace() {
+        ExecutionFrame context = currentFrame();
+        return context == null ? null : context.trace;
+    }
+
+    private static ExecutionFrame currentFrame() {
+        ExecutionFrame context = CURRENT_FRAME.get();
+        if (context != null && context.trace.completed()) {
+            String contextTraceId = context.traceId;
+            if (contextTraceId != null && contextTraceId.equals(TraceIdContext.currentTraceId())) {
+                TraceIdContext.clear();
+            } else {
+                String ownedTraceId = context.trace.ownedTraceIdForCurrentThread();
+                if (!ownedTraceId.isBlank() && ownedTraceId.equals(TraceIdContext.currentTraceId())) {
+                    TraceIdContext.clear();
+                }
+            }
+            CURRENT_FRAME.remove();
+            return null;
+        }
+        return context;
+    }
+
+    private static Span addChild(ExecutionFrame parent, String name, SpanKind kind, String tag) {
+        return parent.trace.addChild(parent.span, parent.depth, name, kind, tag);
+    }
+
+    private record ExecutionFrame(TraceTree trace, Span span, int depth, Span openedSpan,
+                                    ExecutionFrame previous, String traceId) {
     }
 
     private static void logIncidentSummary(IncidentLogLimiter limiter, boolean error, String description,

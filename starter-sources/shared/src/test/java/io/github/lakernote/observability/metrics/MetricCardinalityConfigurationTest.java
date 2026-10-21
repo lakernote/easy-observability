@@ -1,6 +1,7 @@
 package io.github.lakernote.observability.metrics;
 
 import io.micrometer.core.instrument.Timer;
+import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 

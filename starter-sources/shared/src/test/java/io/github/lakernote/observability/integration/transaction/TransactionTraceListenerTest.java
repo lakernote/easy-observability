@@ -86,6 +86,31 @@ class TransactionTraceListenerTest {
         verify(recorder).record(any(OperationRecord.class));
     }
 
+    @Test
+    void closesTransactionSpanWhenBeginFails() {
+        OperationRecorder recorder = mock(OperationRecorder.class);
+        SimpleMeterRegistry meters = new SimpleMeterRegistry();
+        EasyObservabilityProperties properties = new EasyObservabilityProperties();
+        TransactionTraceListener listener = new TransactionTraceListener(recorder, meters, properties, () -> 0L);
+        TransactionExecution execution = execution("OrderService#create", false);
+        io.github.lakernote.observability.trace.TraceContext.startRoot("POST /orders",
+                io.github.lakernote.observability.trace.SpanKind.HTTP, "", 8, 0);
+        String rootSpanId = io.github.lakernote.observability.trace.TraceContext.currentSpanId();
+
+        listener.beforeBegin(execution);
+        assertThat(io.github.lakernote.observability.trace.TraceContext.currentSpanId()).isNotEqualTo(rootSpanId);
+        listener.afterBegin(execution, new IllegalStateException("connection unavailable"));
+
+        assertThat(io.github.lakernote.observability.trace.TraceContext.currentSpanId()).isEqualTo(rootSpanId);
+        java.util.concurrent.atomic.AtomicReference<io.github.lakernote.observability.trace.TraceContext.Completion> completion =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        io.github.lakernote.observability.trace.TraceContext.stopRoot(0, "test", null, completion::set);
+        assertThat(completion.get().tree()).contains("OrderService#create");
+        assertThat(completion.get().error()).isTrue();
+        assertThat(completion.get().errorMessage()).isEqualTo("connection unavailable");
+        verify(recorder).record(any(OperationRecord.class));
+    }
+
     private static TransactionExecution execution(String name, boolean readOnly) {
         TransactionExecution execution = mock(TransactionExecution.class);
         when(execution.getTransactionName()).thenReturn(name);

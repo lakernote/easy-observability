@@ -99,7 +99,7 @@ public class ObservabilityController {
             String operationSource = id.getTag("source");
             String operation = id.getTag("operation");
             if (operationSource == null || operation == null || operation.isBlank()) continue;
-            if (!List.of("HTTP", "JOB", "EXECUTOR_TASK", "KAFKA_CONSUMER").contains(operationSource)) continue;
+            if (!List.of("HTTP", "JOB", "KAFKA_CONSUMER").contains(operationSource)) continue;
             if (!source.isBlank() && !"ALL".equalsIgnoreCase(source)
                     && !source.equalsIgnoreCase(operationSource)) continue;
             StatisticKey key = new StatisticKey(operationSource, operation);
