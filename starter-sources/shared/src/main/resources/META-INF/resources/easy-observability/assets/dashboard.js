@@ -188,6 +188,20 @@ function isDashboardHttpTraffic(source, value) {
 function isDashboardTrace(trace) {
   return isDashboardHttpTraffic(trace.sourceType, `${trace.method || ''} ${trace.name || ''}`)
 }
+function requestStatisticLabel(item) {
+  return item.source === 'HTTP'
+    ? String(item.operation || '').replace(/\s*·\s*http\.server\.requests$/i, '')
+    : item.operation
+}
+function traceOperationLabel(trace) {
+  if (trace.sourceType === 'HTTP') {
+    if (trace.method && (trace.name === 'http.server.requests' || /\s·\s(?:GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD)\b/i.test(trace.method))) {
+      return trace.method
+    }
+    return trace.name || trace.method || ''
+  }
+  return [trace.method, trace.name].filter(Boolean).join(' ')
+}
 
 function renderStats() {
   const visible = requestStats.filter(item => !isDashboardHttpTraffic(item.source, item.operation)
@@ -204,8 +218,8 @@ function renderStats() {
   for (const item of visible) {
     const row = document.createElement('tr')
     row.title = '查看保留的单次调用'
-    makeClickable(row, `查看 ${labels[item.source] || item.source} ${item.operation} 的调用记录`, () => openEntryDetails(item))
-    td(row, `${labels[item.source] || item.source} · ${item.operation}`)
+    makeClickable(row, `查看 ${labels[item.source] || item.source} ${requestStatisticLabel(item)} 的调用记录`, () => openEntryDetails(item))
+    td(row, `${labels[item.source] || item.source} · ${requestStatisticLabel(item)}`)
     td(row, formatNumber(item.count), 'number')
     const shareCell = td(row, `${sumDuration ? (item.totalDurationMs / sumDuration * 100).toFixed(1) : '0.0'}%`, 'share')
     const bar = document.createElement('div'); bar.className = 'share-line'
@@ -222,7 +236,7 @@ function renderStats() {
 }
 
 async function openEntryDetails(item) {
-  byId('entry-dialog-title').textContent = `${labels[item.source] || item.source} · ${item.operation}`
+  byId('entry-dialog-title').textContent = `${labels[item.source] || item.source} · ${requestStatisticLabel(item)}`
   const rows = byId('entry-trace-rows'); rows.replaceChildren()
   const loadingRow = document.createElement('tr'); const loadingCell = document.createElement('td')
   loadingCell.colSpan = 5; loadingCell.className = 'empty'; loadingCell.textContent = '正在读取当前进程保留的调用…'
@@ -265,7 +279,7 @@ async function openEntryDetails(item) {
 }
 
 async function openTrace(trace) {
-  byId('dialog-title').textContent = `${labels[trace.sourceType] || trace.sourceType || 'Trace'} · ${trace.method || ''} ${trace.name || ''}`.trim()
+  byId('dialog-title').textContent = `${labels[trace.sourceType] || trace.sourceType || 'Trace'} · ${traceOperationLabel(trace)}`.trim()
   byId('trace-facts').replaceChildren()
   const facts = [
     `状态 ${trace.status ?? '—'}`, `耗时 ${formatNumber(trace.durationMs, ' ms')}`,
@@ -295,7 +309,10 @@ async function openTrace(trace) {
   for (const { operation, depth } of orderOperations(detail.operations || [])) {
     const row = document.createElement('tr')
     td(row, labels[operation.type] || operation.type)
-    const operationName = `${depth ? `${'　'.repeat(depth)}↳ ` : ''}${operation.name || ''}${operation.detail ? ` · ${operation.detail}` : ''}`
+    const displayName = ['http.server.requests', 'http.client.requests'].includes(operation.name) && operation.detail
+      ? operation.detail
+      : `${operation.name || ''}${operation.detail ? ` · ${operation.detail}` : ''}`
+    const operationName = `${depth ? `${'　'.repeat(depth)}↳ ` : ''}${displayName}`
     td(row, operationName)
     td(row, formatNumber(operation.durationMs, ' ms'), 'number')
     td(row, formatNumber(operation.cpuTimeMs, ' ms'), 'number')
@@ -369,7 +386,7 @@ function orderOperations(operations) {
 function traceRow(trace, target) {
   const row = document.createElement('tr')
   makeClickable(row, `查看 Trace ${trace.traceId}`, () => openTrace(trace))
-  td(row, `${labels[trace.sourceType] || trace.sourceType || '入口'} · ${trace.method || ''} ${trace.name || ''}`.trim())
+  td(row, `${labels[trace.sourceType] || trace.sourceType || '入口'} · ${traceOperationLabel(trace)}`.trim())
   if (target === 'slow') {
     td(row, formatNumber(trace.durationMs, ' ms'), 'number')
     td(row, formatNumber(trace.cpuTimeMs, ' ms'), 'number')
@@ -453,7 +470,7 @@ function renderIncidentTables() {
     const row = document.createElement('tr')
     makeClickable(row, `查看 Trace ${trace.traceId}`, () => openTrace(trace))
     const result = td(row, trace.error ? '错误' : trace.slow ? '慢' : '正常', `status ${trace.error ? 'error' : trace.slow ? 'slow' : 'ok'}`)
-    td(row, `${labels[trace.sourceType] || trace.sourceType || '入口'} · ${trace.method || ''} ${trace.name || ''}`.trim())
+    td(row, `${labels[trace.sourceType] || trace.sourceType || '入口'} · ${traceOperationLabel(trace)}`.trim())
     td(row, formatNumber(trace.status), 'number'); td(row, formatNumber(trace.durationMs, ' ms'), 'number')
     td(row, trace.traceId, 'mono'); td(row, formatTime(trace.finishedAt)); rows.append(row)
   }
@@ -886,9 +903,9 @@ function isHttpError(tags) {
 }
 
 const redMetricOptions = {
-  requests: { label: '请求速率', field: 'requests', unit: ' 次/分钟', totalUnit: ' 次' },
-  errors: { label: '错误速率', field: 'errors', unit: ' 次/分钟', totalUnit: ' 次' },
-  duration: { label: '平均耗时', field: 'duration', unit: ' ms', totalUnit: ' ms' }
+  requests: { label: '请求速率', summaryLabel: '请求总数', field: 'requests', unit: ' 次/分钟', totalUnit: ' 次', summaryUnit: ' 次' },
+  errors: { label: '错误速率', summaryLabel: '错误总数', field: 'errors', unit: ' 次/分钟', totalUnit: ' 次', summaryUnit: ' 次' },
+  duration: { label: '平均耗时', summaryLabel: '平均耗时', field: 'duration', unit: ' ms', totalUnit: ' ms', summaryUnit: ' ms' }
 }
 function redMetricCurrent(groups, metric) {
   if (metric.field === 'duration') {
@@ -896,9 +913,8 @@ function redMetricCurrent(groups, metric) {
     const count = points.reduce((sum, point) => sum + point.durationCount, 0)
     return count ? points.reduce((sum, point) => sum + point.durationTotalMs, 0) / count : null
   }
-  const latest = groups.map(group => group.points.at(-1)).filter(Boolean)
-  if (!latest.length) return null
-  return latest.reduce((sum, point) => sum + (point[metric.field] || 0), 0)
+  const countField = metric.field === 'requests' ? 'requestCount' : 'errorCount'
+  return groups.reduce((total, group) => total + group.points.reduce((sum, point) => sum + point[countField], 0), 0)
 }
 function redMetricStats(group, metric) {
   const samples = group.points.filter(point => metric.field !== 'duration' || point.durationCount > 0)
@@ -919,10 +935,10 @@ function renderHttpRedDashboard(grid, groups, timeRange) {
     const button = document.createElement('button'); button.type = 'button'
     button.className = `red-summary-card${key === selectedRedMetric ? ' selected' : ''}`
     button.dataset.redMetric = key; button.setAttribute('aria-pressed', String(key === selectedRedMetric))
-    const label = document.createElement('span'); label.textContent = option.label
+    const label = document.createElement('span'); label.textContent = option.summaryLabel
     const value = document.createElement('strong'); const current = redMetricCurrent(groups, option)
-    value.textContent = Number.isFinite(current) ? `${formatNumber(current)}${option.unit}` : '暂无数据'
-    const hint = document.createElement('small'); hint.textContent = key === 'duration' ? '所选范围加权平均' : '最近采样速率'
+    value.textContent = Number.isFinite(current) ? `${formatNumber(current)}${option.summaryUnit}` : '暂无数据'
+    const hint = document.createElement('small'); hint.textContent = key === 'duration' ? '所选范围加权平均' : '所选范围累计'
     button.append(label, value, hint); summary.append(button)
   })
   dashboard.append(summary)
@@ -1004,6 +1020,18 @@ async function loadHttpRedHistoryUncached(timeRange) {
     selectedGroups.push(group)
     selectedSeriesCount += group.series.length
   }
+  const processStartByTimestamp = new Map()
+  const processStartSeries = seriesCatalog.find(item => item.name === 'process.start.time')
+  if (processStartSeries) {
+    try {
+      const params = new URLSearchParams({ name: processStartSeries.name, tags: JSON.stringify(processStartSeries.tags || {}), limit: '5000' })
+      const history = await getHistoryJson(`/metrics/history?${params}`)
+      history.forEach(point => {
+        const value = Number(point.measurements?.VALUE)
+        if (Number.isFinite(value)) processStartByTimestamp.set(point.capturedAt, value)
+      })
+    } catch { /* 没有进程启动时间序列时，仍按计数器自身的递减识别重启。 */ }
+  }
   let covered = 0
   // 先按 URI 保留完整分组，再逐条串行读取；同一 URI 的状态码/结果序列会合并到一条曲线。
   for (const group of selectedGroups) {
@@ -1021,8 +1049,11 @@ async function loadHttpRedHistoryUncached(timeRange) {
           if (!Number.isFinite(count) || !Number.isFinite(total)) continue
           if (previous) {
             const elapsedMinutes = Math.max(1, (new Date(point.capturedAt).getTime() - new Date(previous.at).getTime()) / 60000)
-            const deltaCount = count >= previous.count ? count - previous.count : count
-            const deltaTime = total >= previous.total ? total - previous.total : total
+            const processStartTime = processStartByTimestamp.get(point.capturedAt)
+            const processRestarted = Number.isFinite(processStartTime) && Number.isFinite(previous.processStartTime)
+              && processStartTime !== previous.processStartTime
+            const deltaCount = processRestarted ? count : count >= previous.count ? count - previous.count : count
+            const deltaTime = processRestarted ? total : total >= previous.total ? total - previous.total : total
             const key = point.capturedAt
             const bucket = bins.get(key) || { capturedAt: key, requests: 0, errors: 0, requestCount: 0, errorCount: 0, durationTotalMs: 0, durationCount: 0 }
             const requestRate = deltaCount / elapsedMinutes
@@ -1035,7 +1066,7 @@ async function loadHttpRedHistoryUncached(timeRange) {
             }
             bins.set(key, bucket)
           }
-          previous = { at: point.capturedAt, count, total }
+          previous = { at: point.capturedAt, count, total, processStartTime: processStartByTimestamp.get(point.capturedAt) }
         }
       } catch { /* 单条历史序列不可读时，保留同组其他状态的趋势。 */ }
     }

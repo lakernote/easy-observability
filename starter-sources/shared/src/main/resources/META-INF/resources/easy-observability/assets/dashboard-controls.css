@@ -34,6 +34,7 @@
 .red-detail-scroll { overflow-x: auto; margin: 0 14px 13px; border: 1px solid #e8edf3; border-radius: 8px; }
 .red-detail-table { width: 100%; min-width: 0; table-layout: fixed; font-size: 10px; }
 .red-detail-table th { padding: 8px 9px; font-size: 9px; }
+.red-detail-table th.number, .red-detail-table th:not(:first-child) { text-align: right; }
 .red-detail-table td { overflow: hidden; padding: 6px 9px; text-overflow: ellipsis; white-space: nowrap; }
 .red-detail-table th:first-child, .red-detail-table td:first-child { width: 56%; }
 .red-detail-table th:not(:first-child), .red-detail-table td:not(:first-child) { width: 14.66%; }

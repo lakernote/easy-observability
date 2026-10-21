@@ -8,7 +8,7 @@
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%234774df'/%3E%3Cpath d='M5 17h5l3-8 5 15 3-9h6' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
   <title>Easy Observability · 应用运行诊断</title>
   <link rel="stylesheet" href="/easy-observability/assets/dashboard.css?v=20261020.3">
-  <link rel="stylesheet" href="/easy-observability/assets/dashboard-controls.css?v=20261020.13">
+  <link rel="stylesheet" href="/easy-observability/assets/dashboard-controls.css?v=20261021.1">
 </head>
 <body>
   <a class="skip-link" href="#main-content">跳到主要内容</a>
@@ -85,6 +85,6 @@
   <dialog id="entry-dialog" aria-labelledby="entry-dialog-title"><div class="dialog-head"><div><p class="eyebrow">ENTRY STATISTIC</p><h2 id="entry-dialog-title">入口执行记录</h2></div><button id="close-entry-dialog" class="dialog-close" aria-label="关闭">×</button></div><p id="entry-dialog-note" class="dialog-note"></p><div class="table-scroll"><table><thead><tr><th>结果</th><th>状态</th><th>耗时</th><th>Trace ID</th><th>完成时间</th></tr></thead><tbody id="entry-trace-rows"></tbody></table></div></dialog>
   <dialog id="trace-dialog" aria-labelledby="dialog-title"><div class="dialog-head"><div><p class="eyebrow">TRACE DETAIL</p><h2 id="dialog-title">请求详情</h2></div><button id="close-dialog" class="dialog-close" aria-label="关闭">×</button></div><div id="trace-facts" class="trace-facts"></div><h3>调用树</h3><pre id="trace-tree"></pre><p id="trace-operations-note" class="dialog-note" hidden></p><h3>调用明细</h3><div class="table-scroll"><table id="operation-table"><thead><tr><th>类型</th><th>操作</th><th>耗时</th><th>CPU</th><th>分配内存</th><th>线程</th><th>结果</th><th>错误</th></tr></thead><tbody id="operation-rows"></tbody></table></div></dialog>
   <script defer src="/easy-observability/assets/vendor/echarts.min.js?v=6.1.0"></script>
-  <script type="module" src="/easy-observability/assets/dashboard.js?v=20261020.21"></script>
+  <script type="module" src="/easy-observability/assets/dashboard.js?v=20261021.2"></script>
 </body>
 </html>
