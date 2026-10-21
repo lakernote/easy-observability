@@ -3,8 +3,8 @@ const byId = id => document.getElementById(id)
 const labels = { HTTP: 'HTTP', JOB: 'Job', EXECUTOR_TASK: '线程池任务', KAFKA_CONSUMER: 'Kafka 消费', REDIS: 'Redis', DATABASE: '数据库', SQL: '数据库', TRANSACTION: '事务', REMOTE: '远程调用', ELASTICSEARCH: 'Elasticsearch', KAFKA_PRODUCER: 'Kafka 生产' }
 let requestStats = []
 let traces = []
-let slowOperations = []
-let errorOperations = []
+let slowIncidents = []
+let errorIncidents = []
 let selectedSource = 'ALL'
 let seriesCatalog = []
 let liveMetrics = []
@@ -450,52 +450,12 @@ function traceRow(trace, target) {
   td(row, formatTime(trace.finishedAt))
   return row
 }
-function operationIncident(operation) {
-  return {
-    traceId: operation.traceId,
-    name: operation.name || operation.detail,
-    method: operation.detail,
-    status: operation.error ? 500 : 200,
-    durationMs: operation.durationMs,
-    slow: operation.slow,
-    error: operation.error,
-    finishedAt: operation.finishedAt,
-    threadId: operation.threadId,
-    cpuTimeMs: operation.cpuTimeMs,
-    allocatedBytes: operation.allocatedBytes,
-    sourceType: operation.type,
-    operations: [operation]
-  }
-}
-function incidentOperationKey(operation) {
-  return operation.spanId
-    ? `${operation.traceId}|${operation.type}|${operation.spanId}`
-    : `${operation.traceId}|${operation.type}|${operation.name}|${operation.detail}|${operation.finishedAt}`
-}
 function renderIncidentTables() {
   const visibleTraces = traces.filter(trace => !isDashboardTrace(trace))
-  const selected = visibleTraces.filter(inSelectedPeriod)
-  const slowMatches = selected.filter(trace => trace.slow)
-  const errorMatches = selected.filter(trace => trace.error)
-  const slowRootKeys = new Set(selected.map(trace => `${trace.traceId}|${trace.sourceType}`))
-  const errorRootKeys = new Set(selected.map(trace => `${trace.traceId}|${trace.sourceType}`))
-  const slowSeen = new Set()
-  const errorSeen = new Set()
-  const filterOperations = (operations, roots, seen) => operations
-    .filter(operation => inSelectedPeriod({ finishedAt: operation.finishedAt }))
-    .filter(operation => !roots.has(`${operation.traceId}|${operation.type}`))
-    .filter(operation => {
-      const key = incidentOperationKey(operation)
-      if (seen.has(key)) return false
-      seen.add(key)
-      return true
-    })
-    .map(operationIncident)
-  const slowOperationMatches = filterOperations(slowOperations, slowRootKeys, slowSeen)
-  const errorOperationMatches = filterOperations(errorOperations, errorRootKeys, errorSeen)
-  const slowItems = [...slowMatches, ...slowOperationMatches]
+  // Incident rows represent entry roots; downstream spans stay inside the Trace detail.
+  const slowItems = slowIncidents.filter(trace => !isDashboardTrace(trace) && trace.slow && inSelectedPeriod(trace))
     .sort((left, right) => new Date(right.finishedAt).getTime() - new Date(left.finishedAt).getTime())
-  const errorItems = [...errorMatches, ...errorOperationMatches]
+  const errorItems = errorIncidents.filter(trace => !isDashboardTrace(trace) && trace.error && inSelectedPeriod(trace))
     .sort((left, right) => new Date(right.finishedAt).getTime() - new Date(left.finishedAt).getTime())
   const slow = slowItems.slice(0, 50)
   const errors = errorItems.slice(0, 50)
@@ -1311,7 +1271,7 @@ async function refresh() {
     const metricsViewActive = !byId('metrics-section').hidden
     const [statsResult, tracesResult, slowResult, errorResult, storageResult] = await Promise.allSettled([
       getJson('/request-statistics?source=ALL&limit=200'), getJson('/traces?limit=100'),
-      getJson('/slow?limit=100'), getJson('/errors?limit=100'), getJson('/metrics/storage')
+      getJson('/incidents?kind=slow&limit=100'), getJson('/incidents?kind=error&limit=100'), getJson('/metrics/storage')
     ])
     const failed = []
     if (metricsViewActive) {
@@ -1327,10 +1287,10 @@ async function refresh() {
     if (statsResult.status === 'fulfilled') { requestStats = statsResult.value; renderStats() } else failed.push(statsResult.reason?.message)
     if (tracesResult.status === 'fulfilled') traces = tracesResult.value
     else failed.push(tracesResult.reason?.message)
-    if (slowResult.status === 'fulfilled') slowOperations = slowResult.value
-    else { slowOperations = []; failed.push(slowResult.reason?.message) }
-    if (errorResult.status === 'fulfilled') errorOperations = errorResult.value
-    else { errorOperations = []; failed.push(errorResult.reason?.message) }
+    if (slowResult.status === 'fulfilled') slowIncidents = slowResult.value
+    else { slowIncidents = []; failed.push(slowResult.reason?.message) }
+    if (errorResult.status === 'fulfilled') errorIncidents = errorResult.value
+    else { errorIncidents = []; failed.push(errorResult.reason?.message) }
     if (tracesResult.status === 'fulfilled' || slowResult.status === 'fulfilled' || errorResult.status === 'fulfilled') {
       renderIncidentTables()
     }

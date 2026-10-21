@@ -52,7 +52,7 @@
     </section>
 
     <section id="incidents-section" class="report-section" aria-labelledby="incidents-title" hidden>
-      <div class="section-heading"><div><p class="eyebrow">SLOW &amp; ERRORS</p><h2 id="incidents-title">需要关注的调用</h2><p>展示慢入口、异步任务及失败操作；点击记录可查看关联 Trace，表格最多展示前 50 条。</p></div><span class="source-badge">按所选时间范围</span></div>
+      <div class="section-heading"><div><p class="eyebrow">SLOW &amp; ERRORS</p><h2 id="incidents-title">需要关注的调用</h2><p>展示较慢或失败的入口请求与异步任务；点击可查看关联 Trace，下游操作在 Trace 详情中展开。表格最多展示前 50 条。</p></div><span class="source-badge">按所选时间范围</span></div>
       <div class="incident-columns">
         <section class="incident-panel slow-panel" aria-labelledby="slow-title"><div class="incident-heading"><span class="incident-symbol" aria-hidden="true">!</span><h3 id="slow-title">慢调用</h3><b id="slow-total">0</b></div><div class="table-scroll"><table><thead><tr><th>调用</th><th>耗时</th><th>CPU</th><th>分配内存</th><th>线程</th><th>完成时间</th></tr></thead><tbody id="slow-rows"></tbody></table></div><p id="slow-empty" class="empty" hidden>当前范围内没有慢调用</p></section>
         <section class="incident-panel error-panel" aria-labelledby="error-title"><div class="incident-heading"><span class="incident-symbol" aria-hidden="true">×</span><h3 id="error-title">失败调用</h3><b id="error-total">0</b></div><div class="table-scroll"><table><thead><tr><th>调用</th><th>状态</th><th>错误</th><th>耗时</th><th>线程</th><th>完成时间</th></tr></thead><tbody id="error-rows"></tbody></table></div><p id="error-empty" class="empty" hidden>当前范围内没有失败调用</p></section>
@@ -70,6 +70,6 @@
   <dialog id="entry-dialog" aria-labelledby="entry-dialog-title"><div class="dialog-head"><div><p class="eyebrow">ENTRY STATISTIC</p><h2 id="entry-dialog-title">入口执行记录</h2></div><button id="close-entry-dialog" class="dialog-close" aria-label="关闭">×</button></div><p id="entry-dialog-note" class="dialog-note"></p><div class="table-scroll"><table><thead><tr><th>结果</th><th>状态</th><th>耗时</th><th>Trace ID</th><th>完成时间</th></tr></thead><tbody id="entry-trace-rows"></tbody></table></div></dialog>
   <dialog id="trace-dialog" aria-labelledby="dialog-title"><div class="dialog-head"><div><p class="eyebrow">TRACE DETAIL</p><h2 id="dialog-title">请求详情</h2></div><button id="close-dialog" class="dialog-close" aria-label="关闭">×</button></div><div id="trace-facts" class="trace-facts"></div><h3>调用树</h3><pre id="trace-tree"></pre><p id="trace-operations-note" class="dialog-note" hidden></p><h3>调用明细</h3><div class="table-scroll"><table id="operation-table"><thead><tr><th>类型</th><th>操作</th><th>耗时</th><th>CPU</th><th>分配内存</th><th>线程</th><th>结果</th><th>错误</th></tr></thead><tbody id="operation-rows"></tbody></table></div></dialog>
   <script defer src="/easy-observability/assets/vendor/echarts.min.js?v=6.1.0"></script>
-  <script type="module" src="/easy-observability/assets/dashboard.js?v=20261021.6"></script>
+  <script type="module" src="/easy-observability/assets/dashboard.js?v=20261021.7"></script>
 </body>
 </html>
