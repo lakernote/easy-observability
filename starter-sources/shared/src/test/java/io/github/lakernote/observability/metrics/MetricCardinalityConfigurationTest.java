@@ -1,6 +1,5 @@
 package io.github.lakernote.observability.metrics;
 
-import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
@@ -10,70 +9,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 class MetricCardinalityConfigurationTest {
 
     private final MetricCardinalityConfiguration configuration = new MetricCardinalityConfiguration();
-
-    @Test
-    void rejectsBusinessMetricWithoutItsRequiredTags() {
-        SimpleMeterRegistry registry = registryWithSeriesLimit();
-
-        Timer.builder(BusinessMetrics.API_ACCESS_TIMER)
-                .tag("controller", "SysUserController")
-                .tag("result", "success")
-                .register(registry)
-                .record(1, java.util.concurrent.TimeUnit.MILLISECONDS);
-
-        assertThat(registry.find(BusinessMetrics.API_ACCESS_TIMER).timer()).isNull();
-    }
-
-    @Test
-    void boundsCompleteTagCombinationsInsteadOfOnlyIndividualTagValues() {
-        SimpleMeterRegistry registry = registryWithSeriesLimit();
-        int attempts = BusinessMetrics.API_ACCESS_SERIES_LIMIT + 25;
-
-        for (int i = 0; i < attempts; i++) {
-            Timer.builder(BusinessMetrics.API_ACCESS_TIMER)
-                    .tags("controller", "Controller", "action", "action" + i, "result", "success")
-                    .register(registry);
-        }
-
-        long admitted = registry.getMeters().stream()
-                .filter(meter -> BusinessMetrics.API_ACCESS_TIMER.equals(meter.getId().getName()))
-                .count();
-        assertThat(admitted).isEqualTo(BusinessMetrics.API_ACCESS_SERIES_LIMIT);
-    }
-
-    @Test
-    void includesUnexpectedExtraTagsInTheTotalSeriesLimit() {
-        SimpleMeterRegistry registry = registryWithSeriesLimit();
-        int attempts = BusinessMetrics.RATE_LIMIT_SERIES_LIMIT + 20;
-
-        for (int i = 0; i < attempts; i++) {
-            Counter.builder(BusinessMetrics.RATE_LIMIT_BLOCKED_COUNTER)
-                    .tags("rule", "login", "type", "CLIENT_IP", "unexpected", "value-" + i)
-                    .register(registry);
-        }
-
-        assertThat(registry.find(BusinessMetrics.RATE_LIMIT_BLOCKED_COUNTER).counters())
-                .hasSize(BusinessMetrics.RATE_LIMIT_SERIES_LIMIT);
-    }
-
-    @Test
-    void appliesRequiredTagContractToCounterMetricsToo() {
-        SimpleMeterRegistry registry = registryWithSeriesLimit();
-
-        Counter.builder(BusinessMetrics.OUTBOX_MESSAGE_COUNTER)
-                .tag("operation", "workflow_notify")
-                .register(registry)
-                .increment();
-        Counter.builder(BusinessMetrics.OUTBOX_MESSAGE_COUNTER)
-                .tags("operation", "workflow_notify", "status", "SENT")
-                .register(registry)
-                .increment();
-
-        assertThat(registry.find(BusinessMetrics.OUTBOX_MESSAGE_COUNTER).counters()).hasSize(1);
-        assertThat(registry.find(BusinessMetrics.OUTBOX_MESSAGE_COUNTER)
-                .tags("operation", "workflow_notify", "status", "SENT")
-                .counter()).isNotNull();
-    }
 
     @Test
     void retainsSqlMapperDimensionLimitInsideTheCombinedGuard() {

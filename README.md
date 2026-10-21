@@ -52,7 +52,7 @@ Boot 3 示例页面在 `http://localhost:8083/`；Boot 4 示例用 `easy-observa
 
 | 能力 | 默认行为 | 需要手动处理的情况 |
 | --- | --- | --- |
-| JVM、进程、线程池指标 | 自动绑定；指标历史默认每分钟采样 | 自建指标调用 `BusinessMetrics` 或 Micrometer API；不需要本地趋势时关闭 `easy.observability.metrics.history.enabled` |
+| JVM、进程、线程池指标 | 自动绑定；指标历史默认每分钟采样 | 自建指标使用 Micrometer API；不需要本地趋势时关闭 `easy.observability.metrics.history.enabled` |
 | HTTP server Trace | Spring MVC Observation 创建入口 Trace，记录慢调用和错误 | 非 Spring MVC 或由应用管理生命周期的异步入口需自行接入 |
 | Spring HTTP clients | 记录 Boot/Micrometer 已接入 Observation 的客户端调用 | 自建客户端按需安装 Observation 或拦截器 |
 | OkHttp | 自动增强 Spring 容器中的 `OkHttpClient` Bean，并传播 Trace ID | 容器外创建的客户端不自动增强；可用 `easy.observability.http.okhttp.enabled=false` 关闭 |
@@ -60,7 +60,7 @@ Boot 3 示例页面在 `http://localhost:8083/`；Boot 4 示例用 `easy-observa
 | Kafka、Redis | 有条件自动；取决于客户端、Spring 集成和 Observation 配置 | 自定义工厂、非 Spring 消费者或自定义消息头策略需自行组合拦截器 |
 | `@Scheduled` | 启用 Spring Scheduling 后自动记录任务 Observation | Quartz、自建调度器和批处理入口可调用 `JobObservation` |
 | 线程池任务 | 自动记录 Spring 线程池池状态 | 单个任务的 Trace 需要调用 `ExecutorTaskObservation`；自建线程池需设置 `TraceContextTaskDecorator` 传播 Trace ID/MDC |
-| 业务方法与业务指标 | 不扫描所有 Service | 使用 `TraceBlock` 或 `BusinessMetrics` 显式记录；`@TraceSpan` 需要应用提供 Spring AOP |
+| 业务方法与业务指标 | 不扫描所有 Service | 使用 `TraceBlock` 显式记录调用；自建指标使用 Micrometer API；`@TraceSpan` 需要应用提供 Spring AOP |
 
 HTTP、Job、线程池任务和 Kafka consumer 可生成 Trace 入口。HTTP client、Kafka producer、Redis、JDBC/MyBatis 和事务会作为当前入口下的调用节点；没有入口上下文时只记录操作指标，不会虚构请求 Trace。
 
@@ -87,20 +87,20 @@ easy:
         enabled: true
         storage-dir: ./data/easy-observability/metrics
         retention-days: 15
-        max-storage-bytes: 64MiB
-        max-series-bytes: 8MiB
+        max-storage-bytes: 64MB
+        max-series-bytes: 8MB
         max-series: 256
     trace:
       resource-sampling-enabled: false
       thread-contention-sampling-enabled: false
       slow-error-history-limit: 1000
-      slow-error-max-bytes: 8MiB
+      slow-error-max-bytes: 8MB
     web:
       enabled: true
       allow-anonymous: false
 ```
 
-这些容量项使用 Spring `DataSize` 配置，支持 `KiB`、`MiB`、`GiB`、`TiB` 以及 `KB`、`MB`、`GB`、`TB` 单位。建议始终带单位填写，例如 `64MiB`，避免裸数字产生单位歧义。
+这些容量项使用 Spring Boot 内置的 `DataSize` 配置转换，支持 `B`、`KB`、`MB`、`GB`、`TB` 单位。建议始终带单位填写，例如 `64MB`，避免裸数字产生单位歧义。
 
 ### 常用配置
 
@@ -110,8 +110,8 @@ easy:
 | `easy.observability.metrics.enabled` | `true` | 开关 Starter 自身的 Micrometer 指标 |
 | `easy.observability.metrics.history.enabled` | `true` | 开关本地趋势存储；关闭后仍可由 Micrometer 注册表导出指标 |
 | `easy.observability.metrics.history.retention-days` | `15` | 趋势保留天数 |
-| `easy.observability.metrics.history.max-storage-bytes` | `64MiB` | 历史文件总容量上限 |
-| `easy.observability.metrics.history.max-series-bytes` | `8MiB` | 单个指标系列的容量上限 |
+| `easy.observability.metrics.history.max-storage-bytes` | `64MB` | 历史文件总容量上限 |
+| `easy.observability.metrics.history.max-series-bytes` | `8MB` | 单个指标系列的容量上限 |
 | `easy.observability.metrics.history.max-series` | `256` | 最多保存的指标系列数 |
 | `easy.observability.trace.http-slow-threshold-ms` | `250` | HTTP 入口慢阈值；设为 `0` 或负数关闭慢分类 |
 | `easy.observability.trace.job-slow-threshold-ms` | `1000` | 定时任务慢阈值 |
@@ -122,7 +122,7 @@ easy:
 | `easy.observability.trace.resource-sampling-enabled` | `false` | 采集线程 CPU 时间和分配字节；逐操作查询 JVM 管理接口 |
 | `easy.observability.trace.thread-contention-sampling-enabled` | `false` | 额外采集线程阻塞和等待信息 |
 | `easy.observability.trace.slow-error-history-limit` | `1000` | 慢错事件与 Trace 的内存历史上限 |
-| `easy.observability.trace.slow-error-max-bytes` | `8MiB` | 慢错事件文件和 Trace 文件各自的容量上限 |
+| `easy.observability.trace.slow-error-max-bytes` | `8MB` | 慢错事件文件和 Trace 文件各自的容量上限 |
 | `easy.observability.web.allow-anonymous` | `false` | 是否允许匿名访问监控 API；生产保持关闭 |
 
 `slow-error-history-limit` 对事件列表和 Trace 列表分别生效。Redis、Kafka、MyBatis、事务、定时任务和 OkHttp 可分别通过 `easy.observability.redis.enabled`、`kafka.enabled`、`mybatis.enabled`、`transaction.enabled`、`scheduling.enabled` 和 `http.okhttp.enabled` 关闭。JDBC DataSource 代理使用上游开关 `jdbc.datasource-proxy.enabled`。
@@ -169,13 +169,6 @@ jobObservation.observe("nightly-reconciliation", () -> reconciliation.run());
 ```java
 executor.execute(() -> executorTaskObservation.observe(
         "billingExecutor", "invoice.reconcile", () -> invoiceService.reconcile()));
-```
-
-手动写业务计时指标时，`BusinessMetrics` 对 API 时长使用毫秒，对远程调用使用纳秒：
-
-```java
-businessMetrics.recordApiAccess("OrderController", "create", true, elapsedMs);
-businessMetrics.recordRemoteCall("inventory", "reserve", true, elapsedNanos);
 ```
 
 `TraceContextTaskDecorator` 负责线程池间 Trace ID/MDC 传播。项目提供本地调用树和有界事件历史，不是分布式 Trace 后端。

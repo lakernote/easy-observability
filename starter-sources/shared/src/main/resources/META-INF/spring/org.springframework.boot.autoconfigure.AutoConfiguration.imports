@@ -15,4 +15,3 @@ io.github.lakernote.observability.autoconfigure.FeignTraceAutoConfiguration
 io.github.lakernote.observability.autoconfigure.OkHttpObservationAutoConfiguration
 io.github.lakernote.observability.autoconfigure.DruidPoolMetricsAutoConfiguration
 io.github.lakernote.observability.autoconfigure.JdbcObservationOverheadAutoConfiguration
-io.github.lakernote.observability.autoconfigure.DataSizeConfigurationAutoConfiguration

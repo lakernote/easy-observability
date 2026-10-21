@@ -1,6 +1,5 @@
 package io.github.lakernote.observability.autoconfigure;
 
-import io.github.lakernote.observability.metrics.BusinessMetrics;
 import io.github.lakernote.observability.trace.TraceSpanAspect;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -21,19 +20,15 @@ class ObservabilityAutoConfigurationTest {
             .withBean(MeterRegistry.class, SimpleMeterRegistry::new);
 
     @Test
-    void createsMetricsAndExplicitTraceAspectByDefault() {
+    void createsExplicitTraceAspectByDefault() {
         contextRunner.run(context -> {
-            assertThat(context).hasSingleBean(BusinessMetrics.class);
             assertThat(context).hasSingleBean(TraceSpanAspect.class);
         });
     }
 
     @Test
-    void supportsIndependentMetricsAndTraceSwitches() {
-        contextRunner.withPropertyValues(
-                "easy.observability.metrics.enabled=false",
-                "easy.observability.trace.enabled=false").run(context -> {
-            assertThat(context).hasSingleBean(BusinessMetrics.class);
+    void disablesTraceAspectWhenTraceIsDisabled() {
+        contextRunner.withPropertyValues("easy.observability.trace.enabled=false").run(context -> {
             assertThat(context).doesNotHaveBean(TraceSpanAspect.class);
         });
     }
@@ -41,7 +36,6 @@ class ObservabilityAutoConfigurationTest {
     @Test
     void masterSwitchDisablesStarterBeans() {
         contextRunner.withPropertyValues("easy.observability.enabled=false").run(context -> {
-            assertThat(context).doesNotHaveBean(BusinessMetrics.class);
             assertThat(context).doesNotHaveBean(TraceSpanAspect.class);
         });
     }
@@ -57,7 +51,6 @@ class ObservabilityAutoConfigurationTest {
                     assertThat(context.getBean(io.github.lakernote.observability.config.EasyObservabilityProperties.class)
                             .getMetrics().getHistory().getRetentionDays()).isEqualTo(15);
                     assertThat(context).hasSingleBean(io.github.lakernote.observability.trace.store.RecentTraceStore.class);
-                    assertThat(context).doesNotHaveBean(BusinessMetrics.class);
                     assertThat(context).doesNotHaveBean(io.github.lakernote.observability.metrics.OperationRecorder.class);
                     assertThat(context).doesNotHaveBean(MeterRegistry.class);
                 });
@@ -68,7 +61,6 @@ class ObservabilityAutoConfigurationTest {
         contextRunner.withClassLoader(new FilteredClassLoader("org.aspectj")).run(context -> {
             assertThat(context).hasNotFailed();
             assertThat(context).doesNotHaveBean(TraceSpanAspect.class);
-            assertThat(context).hasSingleBean(BusinessMetrics.class);
         });
     }
 
