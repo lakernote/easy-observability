@@ -88,7 +88,7 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
             ThreadResourceSnapshot resources = ThreadResourceSnapshot.capture(threadId,
                     properties.getTrace().isResourceSamplingEnabled(),
                     properties.getTrace().isThreadContentionSamplingEnabled());
-            TraceContext.DetachedSpan span = null;
+            Runnable span = null;
             String spanId;
             String parentSpanId;
             if (root) {
@@ -96,10 +96,17 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
                 spanId = TraceContext.startRootSpan(name, type.kind, detail, 8, 0);
                 rootStarted = true;
                 parentSpanId = "";
+            } else if (type == ObservationType.DATABASE || type == ObservationType.TRANSACTION) {
+                // JDBC 查询在事务方法中同步执行；用作用域 span 表达事务包住 SQL 的真实调用层级。
+                TraceContext.ScopedSpan scopedSpan = TraceContext.startScopedSpan(name, type.kind, detail);
+                span = scopedSpan;
+                spanId = scopedSpan.spanId();
+                parentSpanId = scopedSpan.parentSpanId();
             } else {
-                span = TraceContext.startDetachedSpan(name, type.kind, detail);
-                spanId = span.spanId();
-                parentSpanId = span.parentSpanId();
+                TraceContext.DetachedSpan detachedSpan = TraceContext.startDetachedSpan(name, type.kind, detail);
+                span = detachedSpan;
+                spanId = detachedSpan.spanId();
+                parentSpanId = detachedSpan.parentSpanId();
             }
             context.put(STATE_KEY, new State(type, name, detail, traceId, root, generatedTraceId,
                     System.nanoTime(), threadId, Thread.currentThread().getName(), resources, span,
@@ -311,7 +318,7 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
 
     private record State(ObservationType type, String name, String detail, String traceId, boolean root,
                          boolean generatedTraceId, long startedNanos, long threadId, String threadName,
-                         ThreadResourceSnapshot resources, TraceContext.DetachedSpan span,
+                         ThreadResourceSnapshot resources, Runnable span,
                          String spanId, String parentSpanId) {
         private boolean startedOnCurrentThread() {
             return threadId == Thread.currentThread().getId();

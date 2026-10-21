@@ -53,4 +53,30 @@ class RecentTraceStoreTest {
                 .containsExactly("tasks.scheduled.execution");
         assertThat(history.find("job-trace").operations()).hasSize(1);
     }
+
+    @Test
+    void selectsTheRequestedEntryWhenKafkaAndHttpSegmentsShareATraceId() {
+        RecentTraceStore history = new RecentTraceStore(10);
+        history.add("shared-trace", "/api/demo/real-flow", "GET", "HTTP", 200, 500,
+                true, false, "http-tree");
+        history.add("shared-trace", "receive", "", "KAFKA_CONSUMER", 200, 20,
+                false, false, "kafka-tree");
+        history.addOperation(operation("HTTP", "http.server.requests", "1", ""));
+        history.addOperation(operation("KAFKA_CONSUMER", "receive", "1", ""));
+
+        assertThat(history.find("shared-trace").sourceType()).isEqualTo("HTTP");
+        assertThat(history.find("shared-trace").tree()).isEqualTo("http-tree");
+        assertThat(history.find("shared-trace", "HTTP").operations())
+                .anySatisfy(operation -> assertThat(operation.name()).isEqualTo("http.server.requests"));
+        assertThat(history.find("shared-trace", "KAFKA_CONSUMER").tree()).isEqualTo("kafka-tree");
+        assertThat(history.recent(10)).extracting(RecentTraceStore.TraceRecord::sourceType)
+                .containsExactly("KAFKA_CONSUMER", "HTTP");
+        assertThat(history.recent(10).get(0).operations().get(0).type()).isEqualTo("KAFKA_CONSUMER");
+    }
+
+    private static OperationRecord operation(String type, String name, String spanId, String parentSpanId) {
+        return new OperationRecord(type, "shared-trace", name, "worker-1", 1, "success", 1,
+                1, 1, -1, -1, -1, -1, "", "", "", false, false, List.of(), "", "", Map.of(),
+                Instant.now(), spanId, parentSpanId);
+    }
 }

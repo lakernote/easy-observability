@@ -167,10 +167,16 @@ public class ObservabilityController {
     }
 
     @GetMapping("/traces/{traceId}")
-    public RecentTraceStore.TraceRecord trace(@PathVariable String traceId) {
+    public RecentTraceStore.TraceRecord trace(@PathVariable String traceId,
+                                              @RequestParam(defaultValue = "") String source) {
         requireAccess();
-        RecentTraceStore.TraceRecord trace = recentTraces.find(traceId);
+        RecentTraceStore.TraceRecord trace = recentTraces.find(traceId, source);
         return trace != null || incidentTraces == null ? trace : incidentTraces.find(traceId);
+    }
+
+    /** Preserves the direct Java caller signature used by integrations and tests. */
+    public RecentTraceStore.TraceRecord trace(String traceId) {
+        return trace(traceId, "");
     }
 
     @GetMapping("/operations")

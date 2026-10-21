@@ -24,4 +24,28 @@ class SpanRelationshipTest {
         assertThat(sql.spanId()).isNotBlank().isNotEqualTo(serviceId);
         assertThat(sql.parentSpanId()).isEqualTo(serviceId);
     }
+
+    @Test
+    void scopedOperationsNestAndRestoreTheirParentInCallOrder() {
+        String rootId = TraceContext.startRootSpan("GET /orders", SpanKind.HTTP, "", 8, 0);
+        TraceContext.ScopedSpan transaction = TraceContext.startScopedSpan(
+                "OrderService#create", SpanKind.TRANSACTION, "write");
+        TraceContext.ScopedSpan query = TraceContext.startScopedSpan(
+                "OrderMapper#insert", SpanKind.DATABASE, "INSERT");
+
+        assertThat(transaction.parentSpanId()).isEqualTo(rootId);
+        assertThat(query.parentSpanId()).isEqualTo(transaction.spanId());
+
+        query.run();
+        assertThat(TraceContext.currentSpanId()).isEqualTo(transaction.spanId());
+        transaction.run();
+        assertThat(TraceContext.currentSpanId()).isEqualTo(rootId);
+
+        TraceContext.markSlow("test");
+        var completion = new java.util.concurrent.atomic.AtomicReference<TraceContext.Completion>();
+        TraceContext.stopRoot(Long.MAX_VALUE, "test", null, completion::set);
+        assertThat(completion.get().tree()).contains("OrderService#create", "OrderMapper#insert");
+        assertThat(completion.get().tree().indexOf("OrderService#create"))
+                .isLessThan(completion.get().tree().indexOf("OrderMapper#insert"));
+    }
 }

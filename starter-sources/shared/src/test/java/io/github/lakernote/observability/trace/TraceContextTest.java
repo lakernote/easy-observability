@@ -35,6 +35,20 @@ class TraceContextTest {
     }
 
     @Test
+    void shouldRetainSuccessfulTreeWhenUserExplicitlyAddsCodeSpan() {
+        TraceContext.startRoot("GET /api/real-flow", SpanKind.HTTP, "", 8, 0);
+        TraceContext.addExplicitSpan("Redis SET/GET", SpanKind.REDIS, "order cache");
+        TraceContext.stopSpan();
+        AtomicReference<TraceContext.Completion> result = new AtomicReference<>();
+
+        TraceContext.stopRoot(Long.MAX_VALUE, "test", null, result::set);
+
+        assertThat(result.get().tree()).contains("GET /api/real-flow", "Redis SET/GET");
+        assertThat(result.get().slow()).isFalse();
+        assertThat(result.get().error()).isFalse();
+    }
+
+    @Test
     void shouldRenderTreeWhenChildMarksTraceSlow() {
         TraceContext.startRoot("GET /api/users", SpanKind.HTTP, "", 8, 0);
         TraceContext.addSpan("UserService#list", SpanKind.SERVICE);

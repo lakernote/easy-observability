@@ -64,6 +64,15 @@ public final class TraceContext {
         }
     }
 
+    /** Adds a user-declared code span and retains its tree even when the request is otherwise successful. */
+    public static void addExplicitSpan(String name, SpanKind kind, String tag) {
+        TraceTree trace = LOCAL_TRACE.get();
+        if (trace != null) {
+            trace.requireExplicitTree();
+            trace.addSpan(name, kind, tag);
+        }
+    }
+
     /** 返回当前节点的 Span ID；没有活动 Trace 时返回空字符串。 */
     public static String currentSpanId() {
         TraceTree trace = LOCAL_TRACE.get();
@@ -124,6 +133,45 @@ public final class TraceContext {
         return span == null ? DetachedSpan.NOOP : new DetachedSpan(span);
     }
 
+    /** Starts a synchronous child span that remains current until its scope closes. */
+    public static ScopedSpan startScopedSpan(String name, SpanKind kind, String tag) {
+        TraceTree trace = LOCAL_TRACE.get();
+        if (trace == null) return ScopedSpan.NOOP;
+        Span span = trace.addScopedSpan(name, kind, tag);
+        return new ScopedSpan(trace, Thread.currentThread().getId(), span);
+    }
+
+    public static final class ScopedSpan implements Runnable {
+        private static final ScopedSpan NOOP = new ScopedSpan(null, -1, null);
+        private final TraceTree trace;
+        private final long threadId;
+        private final Span span;
+        private boolean stopped;
+
+        private ScopedSpan(TraceTree trace, long threadId, Span span) {
+            this.trace = trace;
+            this.threadId = threadId;
+            this.span = span;
+        }
+
+        public String spanId() {
+            return span == null ? "" : span.spanId();
+        }
+
+        public String parentSpanId() {
+            return span == null ? "" : span.parentSpanId();
+        }
+
+        @Override
+        public void run() {
+            if (stopped) return;
+            stopped = true;
+            if (trace != null && threadId == Thread.currentThread().getId() && LOCAL_TRACE.get() == trace) {
+                trace.stopSpan();
+            }
+        }
+    }
+
     public static final class DetachedSpan implements Runnable {
         private static final DetachedSpan NOOP = new DetachedSpan(null);
         private final Span span;
@@ -178,7 +226,8 @@ public final class TraceContext {
             if (throwable != null && !trace.error()) {
                 trace.markError("ROOT_ERROR", throwable);
             }
-            String tree = trace.slow() || trace.error() ? trace.renderTree() : "";
+            String tree = trace.explicitTreeRequired() || trace.slow() || trace.error()
+                    ? trace.renderTree() : "";
             completion.accept(new Completion(tree, costMs, trace.slow(), trace.error(),
                     trace.incidentReasons(), trace.errorType(), trace.errorMessage(), trace.errorStackTrace()));
             if (throwable != null) {

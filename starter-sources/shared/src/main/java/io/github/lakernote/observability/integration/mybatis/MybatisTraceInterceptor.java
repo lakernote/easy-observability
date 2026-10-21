@@ -52,8 +52,8 @@ public final class MybatisTraceInterceptor implements Interceptor {
         boolean sample = properties.getTrace().isResourceSamplingEnabled();
         boolean sampleContention = properties.getTrace().isThreadContentionSamplingEnabled();
         ThreadResourceSnapshot before = ThreadResourceSnapshot.capture(threadId, sample, sampleContention);
-        TraceContext.DetachedSpan span = TraceContext.active()
-                ? TraceContext.startDetachedSpan(name, SpanKind.DATABASE, command) : null;
+        TraceContext.ScopedSpan span = TraceContext.active()
+                ? TraceContext.startScopedSpan(name, SpanKind.DATABASE, command) : null;
         long started = System.nanoTime();
         Throwable failure = null;
         try {

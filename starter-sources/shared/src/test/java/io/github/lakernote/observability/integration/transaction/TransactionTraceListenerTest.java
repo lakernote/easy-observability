@@ -67,7 +67,16 @@ class TransactionTraceListenerTest {
                 io.github.lakernote.observability.trace.SpanKind.HTTP, "", 8, 0);
 
         listener.beforeBegin(execution);
+        String transactionSpanId = io.github.lakernote.observability.trace.TraceContext.currentSpanId();
+        var connection = io.github.lakernote.observability.trace.TraceContext.startScopedSpan(
+                "getConnection", io.github.lakernote.observability.trace.SpanKind.DATABASE, "");
+        assertThat(connection.parentSpanId()).isEqualTo(transactionSpanId);
+        connection.run();
         listener.afterBegin(execution, null);
+        var query = io.github.lakernote.observability.trace.TraceContext.startScopedSpan(
+                "OrderMapper#insert", io.github.lakernote.observability.trace.SpanKind.DATABASE, "INSERT");
+        assertThat(query.parentSpanId()).isEqualTo(transactionSpanId);
+        query.run();
         clock.addAndGet(20_000_000L);
         listener.afterCommit(execution, null);
         java.util.concurrent.atomic.AtomicReference<io.github.lakernote.observability.trace.TraceContext.Completion> completion =
@@ -75,8 +84,11 @@ class TransactionTraceListenerTest {
         io.github.lakernote.observability.trace.TraceContext.markSlow("TEST_CAPTURE");
         io.github.lakernote.observability.trace.TraceContext.stopRoot(0, "test", null, completion::set);
 
-        assertThat(completion.get().tree()).contains("OrderService#create");
-        assertThat(completion.get().tree().split("OrderService#create", -1)).hasSize(2);
+        assertThat(completion.get().tree()).contains("OrderService#create", "getConnection", "OrderMapper#insert");
+        assertThat(completion.get().tree().indexOf("OrderService#create"))
+                .isLessThan(completion.get().tree().indexOf("getConnection"));
+        assertThat(completion.get().tree().indexOf("getConnection"))
+                .isLessThan(completion.get().tree().indexOf("OrderMapper#insert"));
         verify(recorder).record(any(OperationRecord.class));
     }
 

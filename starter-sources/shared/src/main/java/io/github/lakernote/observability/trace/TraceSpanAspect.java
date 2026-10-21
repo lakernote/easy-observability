@@ -49,7 +49,7 @@ public class TraceSpanAspect {
         }
         boolean spanStarted = false;
         try {
-            TraceContext.addSpan(descriptor.spanName(), descriptor.kind(), descriptor.tag());
+            TraceContext.addExplicitSpan(descriptor.spanName(), descriptor.kind(), descriptor.tag());
             spanStarted = true;
         } catch (Throwable monitoringFailure) {
             TraceContext.clear();

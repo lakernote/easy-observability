@@ -20,6 +20,7 @@ final class TraceTree {
     private Set<String> incidentReasons;
     private boolean slow;
     private boolean error;
+    private boolean explicitTreeRequired;
     private String errorType = "";
     private String errorMessage = "";
     private String errorStackTrace = "";
@@ -65,6 +66,21 @@ final class TraceTree {
         currentSpan = child;
         currentSpanDepth = nextDepth;
         return child.spanId();
+    }
+
+    void requireExplicitTree() {
+        explicitTreeRequired = true;
+    }
+
+    boolean explicitTreeRequired() {
+        return explicitTreeRequired;
+    }
+
+    /** Starts a synchronous child scope and returns the recorded span, if the tree limits allow it. */
+    Span addScopedSpan(String name, SpanKind kind, String tag) {
+        String parentId = currentSpan == null ? "" : currentSpan.spanId();
+        addSpan(name, kind, tag);
+        return currentSpan != null && !currentSpan.spanId().equals(parentId) ? currentSpan : null;
     }
 
     Span addDetachedSpan(String name, SpanKind kind, String tag) {

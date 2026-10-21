@@ -45,7 +45,7 @@ public final class TraceBlock {
 
     private static boolean startSpan(String spanName, SpanKind kind, String tag) {
         try {
-            TraceContext.addSpan(spanName, kind, tag);
+            TraceContext.addExplicitSpan(spanName, kind, tag);
             return true;
         } catch (Throwable monitoringFailure) {
             TraceContext.clear();

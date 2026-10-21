@@ -58,7 +58,7 @@ public class RecentTraceStore {
         for (TraceRecord record : records) {
             if (!isEntrySource(record.sourceType())) continue;
             if (result.size() == safeLimit) break;
-            OperationRecord root = firstRootOperation(record.traceId());
+            OperationRecord root = firstRootOperation(record.traceId(), record.sourceType());
             // 列表只附带根操作，供入口统计按实际指标维度下钻；完整子操作仍按需在详情接口读取。
             result.add(root == null ? record : record.withDetails(root, List.of(root)));
         }
@@ -74,9 +74,18 @@ public class RecentTraceStore {
     }
 
     public TraceRecord find(String traceId) {
+        return find(traceId, "");
+    }
+
+    public TraceRecord find(String traceId, String sourceType) {
         if (traceId == null || traceId.isBlank()) return null;
-        TraceRecord record = records.stream().filter(item -> traceId.equals(item.traceId())
-                && isEntrySource(item.sourceType())).findFirst().orElse(null);
+        var candidates = records.stream().filter(item -> traceId.equals(item.traceId())
+                && isEntrySource(item.sourceType()));
+        TraceRecord record = sourceType == null || sourceType.isBlank()
+                ? candidates.filter(item -> "HTTP".equals(item.sourceType())).findFirst()
+                    .orElseGet(() -> records.stream().filter(item -> traceId.equals(item.traceId())
+                            && isEntrySource(item.sourceType())).findFirst().orElse(null))
+                : candidates.filter(item -> sourceType.equalsIgnoreCase(item.sourceType())).findFirst().orElse(null);
         return record == null ? null : withOperations(record);
     }
 
@@ -132,10 +141,12 @@ public class RecentTraceStore {
         return List.copyOf(result);
     }
 
-    private OperationRecord firstRootOperation(String traceId) {
+    private OperationRecord firstRootOperation(String traceId, String sourceType) {
         ConcurrentLinkedDeque<OperationRecord> related = operationsByTraceId.get(traceId);
         if (related == null) return null;
-        return related.stream().filter(RecentTraceStore::isRootOperation).findFirst().orElse(null);
+        return related.stream().filter(operation -> isRootOperation(operation)
+                && sourceType.equalsIgnoreCase(operation.type())).findFirst()
+                .orElseGet(() -> related.stream().filter(RecentTraceStore::isRootOperation).findFirst().orElse(null));
     }
 
     private void removeIndexedOperation(OperationRecord operation) {
@@ -149,7 +160,9 @@ public class RecentTraceStore {
 
     private TraceRecord withOperations(TraceRecord record) {
         List<OperationRecord> related = operationsFor(record.traceId(), 500);
-        OperationRecord root = related.stream().filter(RecentTraceStore::isRootOperation).findFirst().orElse(null);
+        OperationRecord root = related.stream().filter(operation -> isRootOperation(operation)
+                && record.sourceType().equalsIgnoreCase(operation.type())).findFirst()
+                .orElseGet(() -> related.stream().filter(RecentTraceStore::isRootOperation).findFirst().orElse(null));
         return record.withDetails(root, related);
     }
 

@@ -294,7 +294,8 @@ async function openTrace(trace) {
   byId('trace-operations-note').textContent = ''
   byId('trace-dialog').showModal()
   let detail = trace
-  try { detail = await getJson(`/traces/${encodeURIComponent(trace.traceId)}`) || trace }
+  const sourceQuery = trace.sourceType ? `?source=${encodeURIComponent(trace.sourceType)}` : ''
+  try { detail = await getJson(`/traces/${encodeURIComponent(trace.traceId)}${sourceQuery}`) || trace }
   catch (error) { byId('trace-tree').textContent = error?.message || '读取 Trace 明细失败'; return }
   byId('trace-tree').textContent = detail.tree || renderOperationTree(detail)
   const treeNodeCount = String(detail.tree || '').split('\n').filter(line => line.trim()).length

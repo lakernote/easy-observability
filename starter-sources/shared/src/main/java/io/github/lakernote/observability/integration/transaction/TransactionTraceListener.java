@@ -57,8 +57,14 @@ public final class TransactionTraceListener implements TransactionExecutionListe
             boolean tracing = properties.getTrace().isEnabled();
             boolean ownsTraceId = tracing && (currentId == null || currentId.isBlank());
             String traceId = !tracing ? currentId : ownsTraceId ? TraceIdContext.getOrCreateTraceId() : currentId;
-            states.get().put(execution, new State(traceId, ownsTraceId, tracing,
-                    safeName(execution.getTransactionName()), execution.isReadOnly(), nanoTime.getAsLong()));
+            State state = new State(traceId, ownsTraceId, tracing,
+                    safeName(execution.getTransactionName()), execution.isReadOnly(), nanoTime.getAsLong());
+            if (tracing && TraceContext.active()) {
+                // Begin before the transaction manager acquires its connection so connection work is nested here.
+                state.span = TraceContext.startScopedSpan(state.name, SpanKind.TRANSACTION,
+                        state.readOnly ? "read-only" : "write");
+            }
+            states.get().put(execution, state);
         } catch (Throwable ignored) {
             states.get().remove(execution);
         }
@@ -79,11 +85,6 @@ public final class TransactionTraceListener implements TransactionExecutionListe
             state.resources = ThreadResourceSnapshot.capture(state.threadId,
                     properties.getTrace().isResourceSamplingEnabled(),
                     properties.getTrace().isThreadContentionSamplingEnabled());
-            if (state.tracing) {
-                // A transaction is an operation inside an entry trace, never an entry itself.
-                state.span = TraceContext.startDetachedSpan(state.name, SpanKind.TRANSACTION,
-                        state.readOnly ? "read-only" : "write");
-            }
             state.started = true;
             state.countedActive = true;
             activeTransactions.incrementAndGet();
@@ -197,7 +198,7 @@ public final class TransactionTraceListener implements TransactionExecutionListe
         private long threadId;
         private String threadName;
         private ThreadResourceSnapshot resources;
-        private TraceContext.DetachedSpan span;
+        private TraceContext.ScopedSpan span;
         private boolean started;
         private boolean countedActive;
         private State(String traceId, boolean ownsTraceId, boolean tracing, String name, boolean readOnly,
