@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
 
 /**
  * 将 Spring/Micrometer 发布的框架 Observation 接入统一操作记录和 Trace。
@@ -25,6 +26,9 @@ import java.util.concurrent.TimeUnit;
  */
 public final class ObservationTraceHandler implements ObservationHandler<Observation.Context> {
     private static final Object STATE_KEY = ObservationTraceHandler.class.getName() + ".state";
+    private static final Object FAILURE_KEY = ObservationTraceHandler.class.getName() + ".failure";
+    private static final Pattern SQL_LITERAL = Pattern.compile("'(?:''|[^'])*'|\\b[0-9]+(?:\\.[0-9]+)?\\b");
+    private static final Pattern SQL_COMMENT = Pattern.compile("(?s)/\\*.*?\\*/|--[^\\r\\n]*");
 
     private final OperationRecorder recorder;
     private final RecentTraceStore recentTraces;
@@ -111,7 +115,11 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
     public void onError(Observation.Context context) {
         State state = context.get(STATE_KEY);
         if (state == null || context.getError() == null || !state.startedOnCurrentThread()) return;
-        try { TraceContext.markError(state.type.name() + "_ERROR", context.getError()); }
+        try {
+            BoundedThrowableFormatter.FailureEvidence failure = BoundedThrowableFormatter.capture(context.getError());
+            context.put(FAILURE_KEY, failure);
+            TraceContext.markError(state.type.name() + "_ERROR", failure);
+        }
         catch (RuntimeException ignored) { }
     }
 
@@ -121,7 +129,8 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
         if (state == null) return;
         boolean sameThread = state.startedOnCurrentThread();
         try {
-            String currentDetail = safeTag(context);
+            // JDBC query text is fixed at observation start; avoid re-running sanitization regexes on completion.
+            String currentDetail = state.type == ObservationType.DATABASE ? state.detail : safeTag(context);
             // Spring MVC 的 URI 路由标签可能到 onStop 才补齐；此时再判断，避免诊断页轮询占满 Trace 保留区。
             if ("HTTP".equals(state.type.name()) && isDashboardPath(
                     currentDetail.isBlank() ? state.detail : currentDetail)) {
@@ -140,8 +149,9 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
             Throwable error = context.getError();
             int status = httpStatus(context);
             boolean failed = error != null || status >= 500;
-            BoundedThrowableFormatter.FailureEvidence failure = error == null
-                    ? BoundedThrowableFormatter.FailureEvidence.EMPTY
+            BoundedThrowableFormatter.FailureEvidence recordedFailure = context.get(FAILURE_KEY);
+            BoundedThrowableFormatter.FailureEvidence failure = recordedFailure != null ? recordedFailure
+                    : error == null ? BoundedThrowableFormatter.FailureEvidence.EMPTY
                     : BoundedThrowableFormatter.capture(error);
             if (sameThread && error == null && status >= 500) {
                 TraceContext.markError("HTTP_" + status,
@@ -184,6 +194,7 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
         } finally {
             if (sameThread && state.generatedTraceId) TraceIdContext.clear();
             context.remove(STATE_KEY);
+            context.remove(FAILURE_KEY);
         }
     }
 
@@ -245,6 +256,24 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
         if (!uri.isBlank()) return safe(uri, 256);
         String destination = lowCardinality(context, "messaging.destination.name");
         if (!destination.isBlank()) return safe(destination, 256);
+        String executor = lowCardinality(context, "executor.name");
+        if (!executor.isBlank()) return safe(executor, 256);
+        String dataSource = lowCardinality(context, "jdbc.datasource.name");
+        String sql = normalizedSql(context);
+        if (!sql.isBlank()) return safe(dataSource.isBlank() ? sql : dataSource + " · " + sql, 512);
+        return "";
+    }
+
+    /** SQL is useful for slow-query diagnosis; literal values and comments are removed before it is retained. */
+    private static String normalizedSql(Observation.Context context) {
+        for (KeyValue value : context.getHighCardinalityKeyValues()) {
+            if (value.getKey() != null && value.getKey().startsWith("jdbc.query[")
+                    && value.getValue() != null && !value.getValue().isBlank()) {
+                String withoutComments = SQL_COMMENT.matcher(value.getValue()).replaceAll(" ");
+                String withoutLiterals = SQL_LITERAL.matcher(withoutComments).replaceAll("?");
+                return withoutLiterals.replaceAll("\\s+", " ").trim();
+            }
+        }
         return "";
     }
 
@@ -296,6 +325,7 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
         HTTP(SpanKind.HTTP, true, MatchMode.EXACT, "http.server.requests"),
         KAFKA_CONSUMER(SpanKind.KAFKA, true, "spring.kafka.listener"),
         KAFKA_PRODUCER(SpanKind.KAFKA, false, "spring.kafka.template"),
+        EXECUTOR_TASK(SpanKind.CODE, true, MatchMode.EXACT, "tasks.executor.execution"),
         ELASTICSEARCH(SpanKind.REMOTE, false, "spring.data.elasticsearch", "elasticsearch"),
         DATABASE(SpanKind.DATABASE, false, "spring.jdbc", "jdbc."),
         TRANSACTION(SpanKind.TRANSACTION, false, "spring.transaction"),
@@ -343,6 +373,7 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
             return switch (this) {
                 case REDIS -> properties.getTrace().getRedisSlowThresholdMs();
                 case JOB -> properties.getTrace().getJobSlowThresholdMs();
+                case EXECUTOR_TASK -> properties.getTrace().getExecutorTaskSlowThresholdMs();
                 case HTTP -> properties.getTrace().getHttpSlowThresholdMs();
                 case KAFKA_CONSUMER -> properties.getTrace().getKafkaConsumerSlowThresholdMs();
                 default -> properties.getTrace().getDependencySlowThresholdMs();

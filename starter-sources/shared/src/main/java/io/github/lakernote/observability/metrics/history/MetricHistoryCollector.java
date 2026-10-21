@@ -24,7 +24,7 @@ import java.util.concurrent.TimeUnit;
 public final class MetricHistoryCollector implements SmartLifecycle {
     private static final Logger log = LoggerFactory.getLogger(MetricHistoryCollector.class);
     private final long intervalSeconds;
-    private static final int MAX_METERS = 512;
+    private static final int MAX_METERS = 256;
     private static final String COLLECTOR_PREFIX = "easy.observability.history.collector.";
     private final MeterRegistry registry;
     private final MetricHistoryStore store;

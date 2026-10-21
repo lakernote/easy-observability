@@ -12,6 +12,7 @@ import io.github.lakernote.observability.trace.TraceContextTaskDecorator;
 import io.github.lakernote.observability.metrics.history.MetricHistoryCollector;
 import io.github.lakernote.observability.metrics.history.MetricHistoryStore;
 import io.github.lakernote.observability.integration.job.JobObservation;
+import io.github.lakernote.observability.integration.executor.ExecutorTaskObservation;
 import io.github.lakernote.observability.integration.observation.ObservationTraceHandler;
 import io.github.lakernote.observability.integration.observation.ObservationTraceIdResolver;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -31,7 +32,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 @AutoConfiguration(afterName = {
         "org.springframework.boot.autoconfigure.jackson.JacksonAutoConfiguration",
         "org.springframework.boot.actuate.autoconfigure.observation.ObservationAutoConfiguration",
-        "org.springframework.boot.actuate.autoconfigure.metrics.MetricsAutoConfiguration"
+        "org.springframework.boot.micrometer.observation.autoconfigure.ObservationAutoConfiguration",
+        "org.springframework.boot.actuate.autoconfigure.metrics.MetricsAutoConfiguration",
+        "org.springframework.boot.micrometer.metrics.autoconfigure.MetricsAutoConfiguration"
 })
 @ConditionalOnProperty(prefix = "easy.observability", name = "enabled", havingValue = "true", matchIfMissing = true)
 @EnableConfigurationProperties(EasyObservabilityProperties.class)
@@ -70,7 +73,7 @@ public class ObservabilityAutoConfiguration {
                                     BoundedHistoryWriter writer) {
         EasyObservabilityProperties.Trace trace = properties.getTrace();
         return new IncidentOperationStore(objectMapper, trace.getSlowErrorOperationFile(), trace.getSlowErrorHistoryLimit(),
-                trace.getSlowErrorMaxBytes(), writer);
+                trace.getSlowErrorMaxBytes().toBytes(), writer);
     }
 
     @Bean
@@ -79,7 +82,7 @@ public class ObservabilityAutoConfiguration {
                               BoundedHistoryWriter writer) {
         EasyObservabilityProperties.Trace trace = properties.getTrace();
         return new IncidentTraceStore(objectMapper, trace.getSlowErrorTraceFile(), trace.getSlowErrorHistoryLimit(),
-                trace.getSlowErrorMaxBytes(), writer);
+                trace.getSlowErrorMaxBytes().toBytes(), writer);
     }
 
     @Bean
@@ -87,7 +90,8 @@ public class ObservabilityAutoConfiguration {
     MetricHistoryStore metricHistoryStore(ObjectMapper objectMapper, EasyObservabilityProperties properties) {
         EasyObservabilityProperties.Metrics.History history = properties.getMetrics().getHistory();
         return new MetricHistoryStore(objectMapper, history.getStorageDir(), history.getRetentionDays(),
-                history.getMaxStorageBytes(), history.getMaxSeriesBytes(), history.getMaxSeries(), history.isEnabled());
+                history.getMaxStorageBytes().toBytes(), history.getMaxSeriesBytes().toBytes(),
+                history.getMaxSeries(), history.isEnabled());
     }
 
     @Bean
@@ -114,6 +118,13 @@ public class ObservabilityAutoConfiguration {
     @ConditionalOnMissingBean
     JobObservation jobObservation(io.micrometer.observation.ObservationRegistry registry) {
         return new JobObservation(registry);
+    }
+
+    @Bean
+    @ConditionalOnBean(io.micrometer.observation.ObservationRegistry.class)
+    @ConditionalOnMissingBean
+    ExecutorTaskObservation executorTaskObservation(io.micrometer.observation.ObservationRegistry registry) {
+        return new ExecutorTaskObservation(registry);
     }
 
     @Bean

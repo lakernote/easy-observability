@@ -64,6 +64,19 @@ public class DemoKafkaService {
         }
     }
 
+    public Map<String, Object> publishOnly(String traceId, String orderId) {
+        try {
+            SendResult<String, String> sent = kafkaTemplate.send(TOPIC, orderId,
+                    "order-created:" + orderId + ":trace:" + traceId).get(8, TimeUnit.SECONDS);
+            return Map.of("traceId", traceId, "topic", TOPIC,
+                    "partition", sent.getRecordMetadata().partition(),
+                    "offset", sent.getRecordMetadata().offset(), "messageKey", orderId,
+                    "status", "published");
+        } catch (Exception failure) {
+            throw new IllegalStateException("Kafka order event publish failed", failure);
+        }
+    }
+
     @KafkaListener(topics = TOPIC, groupId = "easy-observability-demo")
     public void consume(ConsumerRecord<String, String> record) {
         // TraceIdRecordInterceptor 从消息头恢复 ID；这里读取的是消费者当前 Trace 上下文。

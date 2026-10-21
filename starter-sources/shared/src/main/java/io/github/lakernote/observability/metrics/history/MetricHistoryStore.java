@@ -69,7 +69,7 @@ public class MetricHistoryStore {
 
     private static final long DEFAULT_MAX_STORAGE_BYTES = 64L * 1024 * 1024;
     private static final long DEFAULT_MAX_SERIES_BYTES = 8L * 1024 * 1024;
-    private static final int DEFAULT_MAX_SERIES = 512;
+    private static final int DEFAULT_MAX_SERIES = 256;
     private static final long REJECTED_SERIES_CACHE_TTL_SECONDS = 5 * 60;
     private static final int MIN_REJECTED_SERIES_CACHE_ENTRIES = 256;
     private static final int MAX_REJECTED_SERIES_CACHE_ENTRIES = 8_192;
@@ -1209,7 +1209,7 @@ public class MetricHistoryStore {
         String source = tags == null ? null : tags.get("source");
         if (List.of("easy.operations.duration", "easy.operations.cpu.time", "easy.operations.allocated").contains(name)
                 && source != null
-                && List.of("HTTP", "JOB", "KAFKA_CONSUMER").contains(source)) {
+                && List.of("HTTP", "JOB", "EXECUTOR_TASK", "KAFKA_CONSUMER").contains(source)) {
             return REQUEST_PRIORITY;
         }
         return metricPriority(name);

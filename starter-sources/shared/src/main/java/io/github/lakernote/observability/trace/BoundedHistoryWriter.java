@@ -14,7 +14,7 @@ import java.util.concurrent.atomic.AtomicLong;
 /** 使用单线程有界队列写本地历史，避免请求线程和消息监听线程执行磁盘 I/O。 */
 public final class BoundedHistoryWriter implements AutoCloseable {
     private static final Logger log = LoggerFactory.getLogger(BoundedHistoryWriter.class);
-    private static final int QUEUE_CAPACITY = 2_048;
+    private static final int QUEUE_CAPACITY = 512;
 
     private final AtomicLong droppedTasks = new AtomicLong();
     private final AtomicBoolean dropWarningLogged = new AtomicBoolean();

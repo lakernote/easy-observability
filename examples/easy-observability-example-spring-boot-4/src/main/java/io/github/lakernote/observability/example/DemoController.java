@@ -26,11 +26,15 @@ public class DemoController {
                 <li><a href="/api/demo/error">错误请求（HTTP 500）</a></li>
                 <li><a href="/api/demo/trace">嵌套调用树（模拟调用）</a></li>
                 <li><a href="/api/demo/redis">真实 Redis 读写</a></li>
+                <li><a href="/api/demo/real-flow">真实业务链路（DB 写入/查询 → Redis → 远程 HTTP → Kafka producer）</a></li>
                 <li><a href="/api/demo/remote">真实远程调用（httpbingo，含 1 秒延迟）</a></li>
                 <li><a href="/api/demo/kafka">Kafka 正常消费并验证 Trace ID</a></li>
                 <li><a href="/api/demo/kafka/slow">Kafka 慢消费（约 650 ms）</a></li>
                 <li><a href="/api/demo/kafka/error">Kafka 消费异常（验证错误 Trace）</a></li>
-                <li><a href="/api/demo/kafka/status">查看最近消费的 Trace ID</a></li></ul>
+                <li><a href="/api/demo/kafka/status">查看最近消费的 Trace ID</a></li>
+                <li><a href="/api/demo/executor?mode=normal">线程池正常任务</a></li>
+                <li><a href="/api/demo/executor?mode=slow">线程池慢任务</a></li>
+                <li><a href="/api/demo/executor?mode=error">线程池失败任务</a></li></ul>
                 <p class="note">真实 Redis 和 Kafka 示例需要先启动 examples/docker-compose.yml 中的依赖。定时任务每 30 秒自动执行一次 Redis 计数。</p></html>
                 """;
     }

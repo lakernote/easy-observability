@@ -5,7 +5,7 @@ import java.util.List;
 import java.util.Set;
 
 final class TraceTree {
-    static final int DEFAULT_MAX_NODES = 2_048;
+    static final int DEFAULT_MAX_NODES = 512;
     /** 单棵调用树的文本上限；与节点数上限分开，防止超长名称或标签在渲染时额外占用大量内存。 */
     static final int MAX_RENDER_CHARS = 8_000;
     private static final String TRUNCATED_REASON = "TRACE_TRUNCATED";

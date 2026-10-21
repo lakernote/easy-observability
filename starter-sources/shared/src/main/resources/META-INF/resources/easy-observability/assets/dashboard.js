@@ -1,8 +1,10 @@
 const api = '/api/easy-observability'
 const byId = id => document.getElementById(id)
-const labels = { HTTP: 'HTTP', JOB: 'Job', KAFKA_CONSUMER: 'Kafka 消费', REDIS: 'Redis', DATABASE: '数据库', SQL: '数据库', TRANSACTION: '事务', REMOTE: '远程调用', ELASTICSEARCH: 'Elasticsearch', KAFKA_PRODUCER: 'Kafka 生产' }
+const labels = { HTTP: 'HTTP', JOB: 'Job', EXECUTOR_TASK: '线程池任务', KAFKA_CONSUMER: 'Kafka 消费', REDIS: 'Redis', DATABASE: '数据库', SQL: '数据库', TRANSACTION: '事务', REMOTE: '远程调用', ELASTICSEARCH: 'Elasticsearch', KAFKA_PRODUCER: 'Kafka 生产' }
 let requestStats = []
 let traces = []
+let slowOperations = []
+let errorOperations = []
 let selectedSource = 'ALL'
 let seriesCatalog = []
 let liveMetrics = []
@@ -10,6 +12,7 @@ let usefulSeriesLimit = 64
 let seriesCache = new Map()
 let redHistoryCache = null
 let redLoading = null
+let metricTimeRange = null
 let selectedRedMetric = 'requests'
 let visibleRedUris = null
 let redUriCatalog = new Set()
@@ -146,6 +149,14 @@ function makeClickable(row, label, action) {
   })
 }
 function periodStart() { return Date.now() - Number(byId('period').value) * 3600000 }
+function captureMetricTimeRange() {
+  const end = Date.now()
+  return { start: end - Number(byId('period').value) * 3600000, end }
+}
+function currentMetricTimeRange() {
+  if (!metricTimeRange) metricTimeRange = captureMetricTimeRange()
+  return metricTimeRange
+}
 function inSelectedPeriod(trace) { return new Date(trace.finishedAt).getTime() >= periodStart() }
 let metricRetentionDays = null
 function updateMetricRangeNote() {
@@ -374,24 +385,65 @@ function traceRow(trace, target) {
   td(row, formatTime(trace.finishedAt))
   return row
 }
+function operationIncident(operation) {
+  return {
+    traceId: operation.traceId,
+    name: operation.name || operation.detail,
+    method: operation.detail,
+    status: operation.error ? 500 : 200,
+    durationMs: operation.durationMs,
+    slow: operation.slow,
+    error: operation.error,
+    finishedAt: operation.finishedAt,
+    threadId: operation.threadId,
+    cpuTimeMs: operation.cpuTimeMs,
+    allocatedBytes: operation.allocatedBytes,
+    sourceType: operation.type,
+    operations: [operation]
+  }
+}
+function incidentOperationKey(operation) {
+  return operation.spanId
+    ? `${operation.traceId}|${operation.type}|${operation.spanId}`
+    : `${operation.traceId}|${operation.type}|${operation.name}|${operation.detail}|${operation.finishedAt}`
+}
 function renderIncidentTables() {
   const visibleTraces = traces.filter(trace => !isDashboardTrace(trace))
   const selected = visibleTraces.filter(inSelectedPeriod)
   const slowMatches = selected.filter(trace => trace.slow)
   const errorMatches = selected.filter(trace => trace.error)
-  const slow = slowMatches.slice(0, 50)
-  const errors = errorMatches.slice(0, 50)
-  const cappedTraceList = visibleTraces.length >= 500
-  const slowCountLabel = cappedTraceList && slowMatches.length >= 500 ? '500+' : formatNumber(slowMatches.length)
-  const errorCountLabel = cappedTraceList && errorMatches.length >= 500 ? '500+' : formatNumber(errorMatches.length)
+  const slowRootKeys = new Set(selected.map(trace => `${trace.traceId}|${trace.sourceType}`))
+  const errorRootKeys = new Set(selected.map(trace => `${trace.traceId}|${trace.sourceType}`))
+  const slowSeen = new Set()
+  const errorSeen = new Set()
+  const filterOperations = (operations, roots, seen) => operations
+    .filter(operation => inSelectedPeriod({ finishedAt: operation.finishedAt }))
+    .filter(operation => !roots.has(`${operation.traceId}|${operation.type}`))
+    .filter(operation => {
+      const key = incidentOperationKey(operation)
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+    .map(operationIncident)
+  const slowOperationMatches = filterOperations(slowOperations, slowRootKeys, slowSeen)
+  const errorOperationMatches = filterOperations(errorOperations, errorRootKeys, errorSeen)
+  const slowItems = [...slowMatches, ...slowOperationMatches]
+    .sort((left, right) => new Date(right.finishedAt).getTime() - new Date(left.finishedAt).getTime())
+  const errorItems = [...errorMatches, ...errorOperationMatches]
+    .sort((left, right) => new Date(right.finishedAt).getTime() - new Date(left.finishedAt).getTime())
+  const slow = slowItems.slice(0, 50)
+  const errors = errorItems.slice(0, 50)
+  const slowCountLabel = slowItems.length >= 500 ? '500+' : formatNumber(slowItems.length)
+  const errorCountLabel = errorItems.length >= 500 ? '500+' : formatNumber(errorItems.length)
   byId('slow-count').textContent = slowCountLabel
   byId('failure-count').textContent = errorCountLabel
-  byId('slow-total').textContent = `(${slowCountLabel}${slowMatches.length > 50 ? '，列表显示前 50 条' : ''})`
-  byId('error-total').textContent = `(${errorCountLabel}${errorMatches.length > 50 ? '，列表显示前 50 条' : ''})`
+  byId('slow-total').textContent = `(${slowCountLabel}${slowItems.length > 50 ? '，列表显示前 50 条' : ''})`
+  byId('error-total').textContent = `(${errorCountLabel}${errorItems.length > 50 ? '，列表显示前 50 条' : ''})`
   byId('slow-rows').replaceChildren(...slow.map(trace => traceRow(trace, 'slow')))
   byId('error-rows').replaceChildren(...errors.map(trace => traceRow(trace, 'error')))
-  byId('slow-empty').hidden = slowMatches.length > 0
-  byId('error-empty').hidden = errorMatches.length > 0
+  byId('slow-empty').hidden = slowItems.length > 0
+  byId('error-empty').hidden = errorItems.length > 0
   const pageCount = Math.max(1, Math.ceil(visibleTraces.length / recentPageSize))
   recentPage = Math.min(recentPage, pageCount - 1)
   const start = recentPage * recentPageSize
@@ -470,11 +522,52 @@ function memoryPoolLabel(id) {
   if (id.startsWith("CodeHeap '")) return `JIT 代码缓存 · ${id.slice(10, -1)}`
   return known[id] || id
 }
+function memoryPoolShortLabel(id) {
+  const short = {
+    'G1 Eden Space': 'Eden', 'PS Eden Space': 'Eden', 'Par Eden Space': 'Eden',
+    'G1 Survivor Space': 'Survivor', 'PS Survivor Space': 'Survivor', 'Par Survivor Space': 'Survivor',
+    'G1 Old Gen': 'Old', 'PS Old Gen': 'Old', 'Par Old Gen': 'Old', 'CMS Old Gen': 'Old', 'Tenured Gen': 'Old',
+    'Metaspace': '元空间', 'Compressed Class Space': '类空间', 'Code Cache': '代码缓存', 'CodeCache': '代码缓存'
+  }
+  if (id.startsWith("CodeHeap '")) return codeHeapLabel(id.slice(10, -1))
+  return short[id] || id
+}
+function codeHeapLabel(kind) {
+  return ({
+    'non-nmethods': '非方法代码',
+    'profiled nmethods': '已分析代码',
+    'non-profiled nmethods': '未分析代码'
+  })[kind] || kind
+}
+function memoryPoolGroup(series) {
+  const id = String(series.tags?.id || '默认')
+  const area = series.tags?.area || 'unknown'
+  if (area === 'heap') {
+    if (/Eden|Survivor/i.test(id)) return { key: 'young', title: '新生代' }
+    if (/Old|Tenured|Gen/i.test(id)) return { key: 'old', title: '老年代' }
+    return { key: `heap-${id}`, title: memoryPoolLabel(id) }
+  }
+  if (/^CodeHeap '/.test(id)) {
+    const kind = id.slice(10, -1)
+    return { key: `code-${kind}`, title: `代码缓存 · ${codeHeapLabel(kind)}` }
+  }
+  if (/Code ?Cache/i.test(id)) return { key: 'code-cache', title: '代码缓存' }
+  if (/Metaspace|Class Space/i.test(id)) return { key: 'class-metadata', title: '类元数据' }
+  return { key: `nonheap-${id}`, title: memoryPoolLabel(id) }
+}
 function memoryValueLabel(name) {
   return ({ 'jvm.memory.used': '已用', 'jvm.memory.committed': '已提交', 'jvm.memory.max': '上限' })[name]
 }
 function seriesTitle(series) {
-  if (series.name.startsWith('jvm.memory.')) return `${memoryValueLabel(series.name) || metricLabel(series)} · ${memoryPoolLabel(series.tags?.id || '默认')}`
+  if (series.name.startsWith('jvm.memory.')) {
+    const id = series.tags?.id || '默认'
+    const singlePoolGroup = /^CodeHeap '|^Code ?Cache$|Old|Tenured/i.test(id)
+    if (singlePoolGroup) return memoryValueLabel(series.name) || metricLabel(series)
+    const pool = ({
+      'Survivor': 'Surv', '元空间': '元', '类空间': '类'
+    })[memoryPoolShortLabel(id)] || memoryPoolShortLabel(id)
+    return `${memoryValueLabel(series.name) || metricLabel(series)} · ${pool}`
+  }
   if (series.name === 'jvm.gc.live.data.size' || series.name === 'jvm.gc.max.data.size') {
     return series.name === 'jvm.gc.live.data.size' ? 'GC 后存活' : 'GC 后存活上限'
   }
@@ -482,7 +575,7 @@ function seriesTitle(series) {
     return series.name === 'jvm.gc.memory.allocated' ? '新分配' : '晋升'
   }
   if (/^jvm\.buffer\.(memory\.used|total\.capacity)$/.test(series.name)) {
-    return series.name === 'jvm.buffer.memory.used' ? '已用' : '总容量'
+    return series.name === 'jvm.buffer.memory.used' ? '已用' : '容量'
   }
   if (/^tomcat\.sessions\.active\.(current|max)$/.test(series.name)) {
     return series.name.endsWith('.current') ? '当前活跃' : '历史峰值'
@@ -491,9 +584,12 @@ function seriesTitle(series) {
     return ({ created: '新建', expired: '过期', rejected: '拒绝' })[series.name.split('.').at(-1)]
   }
   if (series.name === 'easy.operations.duration') {
-    const source = ({ HTTP: 'HTTP', JOB: 'Job', KAFKA_CONSUMER: 'Kafka 消费', REDIS: 'Redis',
+    const source = ({ HTTP: 'HTTP', JOB: 'Job', EXECUTOR_TASK: '线程池任务', KAFKA_CONSUMER: 'Kafka 消费', REDIS: 'Redis',
       DATABASE: '数据库', TRANSACTION: '事务', REMOTE: '远程调用', ELASTICSEARCH: 'Elasticsearch' })[series.tags?.source] || series.tags?.source || '应用'
     return `${source} · ${series.tags?.operation || '操作'}${series.tags?.outcome ? ` · ${series.tags.outcome}` : ''}`
+  }
+  if (series.name === 'logback.events' && series.tags?.level) {
+    return ({ error: '错误日志', warn: '警告日志', info: '信息日志', debug: '调试日志', trace: '跟踪日志' })[series.tags.level] || `${series.tags.level} 日志`
   }
   const tags = Object.entries(series.tags || {})
     .filter(([key]) => !['application', 'environment', 'area', 'id', 'pool'].includes(key))
@@ -512,7 +608,7 @@ function metricMeasurement(series) {
   if (intervalCounterNames.has(series.name) && available.includes('COUNT')) return 'RATE'
   return ['VALUE', 'COUNT', 'TOTAL_TIME', 'MAX'].find(name => available.includes(name)) || available[0] || 'VALUE'
 }
-function metricHistoryValues(series, points, measurement, from) {
+function metricHistoryValues(series, points, measurement, timeRange) {
   const chronological = points.slice().reverse()
   if (measurement === 'INTERVAL_AVG' || measurement === 'RATE') {
     const values = []
@@ -523,7 +619,7 @@ function metricHistoryValues(series, points, measurement, from) {
       const totalTime = Number(point.measurements?.TOTAL_TIME)
       const rawCount = Number(point.measurements?.COUNT)
       if (!Number.isFinite(capturedAt) || !Number.isFinite(rawCount)) { previous = null; continue }
-      if (previous && capturedAt >= from) {
+      if (previous && capturedAt >= timeRange.start && capturedAt <= timeRange.end) {
         const elapsedMinutes = Math.max(1 / 60, (capturedAt - previous.capturedAt) / 60000)
         const deltaCount = count >= previous.count ? count - previous.count : count
         if (measurement === 'INTERVAL_AVG') {
@@ -538,7 +634,10 @@ function metricHistoryValues(series, points, measurement, from) {
     return values
   }
   return chronological
-    .filter(point => new Date(point.capturedAt).getTime() >= from)
+    .filter(point => {
+      const timestamp = new Date(point.capturedAt).getTime()
+      return timestamp >= timeRange.start && timestamp <= timeRange.end
+    })
     .map(point => [new Date(point.capturedAt).getTime(), Number(point.measurements?.[measurement])])
     .filter(([timestamp, value]) => Number.isFinite(timestamp) && Number.isFinite(value)
       && !(series.name === 'jvm.memory.max' && value <= 0))
@@ -547,7 +646,8 @@ function trendGroup(series, category, measurement) {
   const name = String(series.name || '')
   if (name.startsWith('jvm.memory.')) {
     const area = series.tags?.area || 'unknown'
-    return { key: `${category}|jvm-memory|${area}`, title: `JVM ${area === 'heap' ? '堆' : '非堆'}内存` }
+    const poolGroup = memoryPoolGroup(series)
+    return { key: `${category}|jvm-memory|${area}|${poolGroup.key}`, title: `JVM ${poolGroup.title}内存` }
   }
   if (['jvm.gc.live.data.size', 'jvm.gc.max.data.size'].includes(name)) {
     return { key: `${category}|jvm-gc-live-memory`, title: 'GC 后存活内存' }
@@ -567,12 +667,12 @@ function trendGroup(series, category, measurement) {
   }
   if (name === 'easy.operations.duration') {
     const source = series.tags?.source || 'unknown'
-    const sourceLabel = ({ HTTP: 'HTTP', JOB: 'Job', KAFKA_CONSUMER: 'Kafka 消费', REDIS: 'Redis', DATABASE: '数据库',
+    const sourceLabel = ({ HTTP: 'HTTP', JOB: 'Job', EXECUTOR_TASK: '线程池任务', KAFKA_CONSUMER: 'Kafka 消费', REDIS: 'Redis', DATABASE: '数据库',
       TRANSACTION: '事务', REMOTE: '远程调用', ELASTICSEARCH: 'Elasticsearch' })[source] || source
     return { key: `${category}|easy-operation-duration|${source}|${measurement}`, title: `${sourceLabel} 操作耗时` }
   }
   if (['process.cpu.usage', 'system.cpu.usage'].includes(name)) {
-    return { key: `${category}|cpu-usage|${measurement}`, title: 'CPU 使用率' }
+    return { key: `${category}|cpu-usage|${name}|${measurement}`, title: name === 'process.cpu.usage' ? '进程 CPU 使用率' : '系统 CPU 使用率' }
   }
   if (/^jvm\.threads\.(live|peak|daemon)$/.test(name)) {
     return { key: `${category}|thread-count|${measurement}`, title: 'JVM 线程数' }
@@ -704,7 +804,7 @@ function compactAxisValue(value) {
 function metricValueLabel(name, value, measurement = 'VALUE') {
   return formatMetricValue(name, value, measurement)
 }
-function createTimeSeriesChart(element, { series, yAxisName, valueFormatter, axisFormatter = compactAxisValue, showLegend = false, compact = false, description }) {
+function createTimeSeriesChart(element, { series, yAxisName, valueFormatter, axisFormatter = compactAxisValue, showLegend = false, compact = false, description, timeRange }) {
   if (!window.echarts) throw new Error('图表组件加载失败，请刷新页面重试。')
   element.setAttribute('role', 'img')
   element.setAttribute('aria-label', description)
@@ -735,6 +835,7 @@ function createTimeSeriesChart(element, { series, yAxisName, valueFormatter, axi
     } : { show: false },
     xAxis: {
       type: 'time',
+      ...(timeRange ? { min: timeRange.start, max: timeRange.end } : {}),
       boundaryGap: false,
       axisLine: { lineStyle: { color: '#dce3ec' } },
       axisTick: { show: false },
@@ -810,7 +911,7 @@ function redMetricStats(group, metric) {
     : values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null
   return { max: values.length ? Math.max(...values) : null, mean, total }
 }
-function renderHttpRedDashboard(grid, groups) {
+function renderHttpRedDashboard(grid, groups, timeRange) {
   const metric = redMetricOptions[selectedRedMetric]
   const dashboard = document.createElement('div'); dashboard.className = 'red-dashboard'
   const summary = document.createElement('div'); summary.className = 'red-summary-grid'; summary.setAttribute('role', 'group'); summary.setAttribute('aria-label', '选择 HTTP 趋势指标')
@@ -870,19 +971,19 @@ function renderHttpRedDashboard(grid, groups) {
   createTimeSeriesChart(chartElement, {
     series: chartSeries, yAxisName: metric.unit.trim(),
     valueFormatter: value => `${formatNumber(value)}${metric.unit}`,
-    axisFormatter: compactAxisValue, description: `${metric.label}按 URI 分组的时间趋势`
+    axisFormatter: compactAxisValue, description: `${metric.label}按 URI 分组的时间趋势`, timeRange
   })
 }
 
-async function loadHttpRedHistory() {
-  const period = Number(byId('period').value)
-  if (redHistoryCache?.period === period) return redHistoryCache.result
-  if (redLoading) return redLoading
-  redLoading = loadHttpRedHistoryUncached(period)
-  try { return await redLoading } finally { redLoading = null }
+async function loadHttpRedHistory(timeRange) {
+  if (redHistoryCache?.start === timeRange.start && redHistoryCache?.end === timeRange.end) return redHistoryCache.result
+  if (redLoading?.start === timeRange.start && redLoading?.end === timeRange.end) return redLoading.promise
+  const pending = { ...timeRange, promise: loadHttpRedHistoryUncached(timeRange) }
+  redLoading = pending
+  try { return await pending.promise } finally { if (redLoading === pending) redLoading = null }
 }
 
-async function loadHttpRedHistoryUncached(period) {
+async function loadHttpRedHistoryUncached(timeRange) {
   const activeKeys = new Set(liveMetrics.filter(item => item.name === 'http.server.requests').map(seriesKey))
   const candidates = seriesCatalog.filter(item => item.name === 'http.server.requests'
     && !isDashboardHttpTraffic('HTTP', item.tags?.uri || item.tags?.url || ''))
@@ -939,18 +1040,21 @@ async function loadHttpRedHistoryUncached(period) {
       } catch { /* 单条历史序列不可读时，保留同组其他状态的趋势。 */ }
     }
     group.points = [...bins.values()].sort((left, right) => new Date(left.capturedAt) - new Date(right.capturedAt))
-      .filter(point => new Date(point.capturedAt).getTime() >= Date.now() - period * 3600000)
+      .filter(point => {
+        const timestamp = new Date(point.capturedAt).getTime()
+        return timestamp >= timeRange.start && timestamp <= timeRange.end
+      })
       .map(point => ({ ...point, duration: point.durationCount ? point.durationTotalMs / point.durationCount : 0,
         errorRate: point.requests ? point.errors / point.requests * 100 : 0 }))
   }
   const groups = selectedGroups.filter(group => group.points.length)
   const result = { groups, totalUriCount: allGroups.length, selectedUriCount: selectedGroups.length,
     totalSeriesCount: candidates.length, selectedSeriesCount, covered }
-  redHistoryCache = { period, result }
+  redHistoryCache = { start: timeRange.start, end: timeRange.end, result }
   return result
 }
 
-async function renderHttpRed() {
+async function renderHttpRed(timeRange = currentMetricTimeRange()) {
   const grid = byId('http-red-grid'); disposeMetricCharts(grid); grid.replaceChildren()
   const scope = byId('http-red-scope')
   const series = seriesCatalog.filter(item => item.name === 'http.server.requests')
@@ -960,7 +1064,7 @@ async function renderHttpRed() {
     grid.append(empty); return
   }
   const loading = document.createElement('p'); loading.className = 'empty'; loading.textContent = '正在汇总 HTTP 历史…'; grid.append(loading)
-  const result = await loadHttpRedHistory()
+  const result = await loadHttpRedHistory(timeRange)
   scope.textContent = `按 URI 分组 · 展示 ${formatNumber(result.groups.length)} / ${formatNumber(result.totalUriCount)} 组 · 读取 ${formatNumber(result.covered)} / ${formatNumber(result.selectedSeriesCount)} 条序列`
   grid.replaceChildren()
   if (!result.groups.length) {
@@ -972,10 +1076,10 @@ async function renderHttpRed() {
     .filter(group => previousUris === null || !redUriCatalog.has(group.uri) || previousUris.has(group.uri))
     .map(group => group.uri))
   redUriCatalog = new Set(result.groups.map(group => group.uri))
-  renderHttpRedDashboard(grid, result.groups)
+  renderHttpRedDashboard(grid, result.groups, timeRange)
 }
 
-async function renderTrends() {
+async function renderTrends(timeRange = currentMetricTimeRange()) {
   const grid = byId('trend-grid'); disposeMetricCharts(grid); grid.replaceChildren()
   const selected = chooseUsefulSeries()
   if (!selected.length) { const p = document.createElement('p'); p.className = 'empty'; p.textContent = '当前没有可展示的常用指标历史。启用 Micrometer 指标并等待至少两个采样点后，趋势会按类型显示在这里。'; grid.append(p); return }
@@ -1002,13 +1106,29 @@ async function renderTrends() {
       heading.append(title, count)
       if (category === 'JVM') {
         const note = document.createElement('p'); note.className = 'trend-category-note'
-        note.textContent = '内存图按区域和内存池展示：已用是当前占用，已提交是 JVM 已向操作系统申请、可供使用的容量（不等于当前占用）；上限是最大容量，未设置上限时不画线。Eden 用于新对象分配，Survivor 存放经历过回收仍存活的对象，Old 存放较长期存活的对象。'
+        note.textContent = '内存按代和区域拆分；曲线分别表示已用、已提交和上限。新生代包含 Eden 与 Survivor，长期存活对象进入老年代。'
         section.append(heading, note)
       }
       const categoryGrid = document.createElement('div'); categoryGrid.className = 'trend-category-grid'
       if (category !== 'JVM') section.append(heading)
       section.append(categoryGrid); grid.append(section)
       entries.sort((left, right) => {
+        const memoryRank = group => {
+          const series = group.series.find(item => item.name.startsWith('jvm.memory.'))
+          if (!series) return null
+          const pool = memoryPoolGroup(series)
+          if (series.tags?.area === 'heap') return pool.key === 'old' ? 0 : pool.key === 'young' ? 1 : 2
+          if (pool.key === 'class-metadata') return 3
+          if (pool.key.startsWith('code-') || pool.key === 'code-cache') return 4
+          return 5
+        }
+        const leftMemoryRank = memoryRank(left)
+        const rightMemoryRank = memoryRank(right)
+        if (leftMemoryRank !== null || rightMemoryRank !== null) {
+          if (leftMemoryRank === null) return 1
+          if (rightMemoryRank === null) return -1
+          if (leftMemoryRank !== rightMemoryRank) return leftMemoryRank - rightMemoryRank
+        }
         const leftRank = preferredMetricRank.get(left.series[0].name) ?? preferredMetricNames.length
         const rightRank = preferredMetricRank.get(right.series[0].name) ?? preferredMetricNames.length
         return leftRank - rightRank || seriesTitle(left.series[0]).localeCompare(seriesTitle(right.series[0]), 'zh-CN')
@@ -1038,8 +1158,7 @@ async function renderTrends() {
           seriesCache.set(key, points)
         }
         const measurement = group.measurement
-        const from = periodStart()
-        const data = metricHistoryValues(series, points, measurement, from)
+        const data = metricHistoryValues(series, points, measurement, timeRange)
         if (data.length) chartSeries.push({ name: seriesTitle(series), color: chartPalette[index % chartPalette.length], data })
       }
       card.querySelector('.chart-skeleton')?.remove()
@@ -1052,13 +1171,16 @@ async function renderTrends() {
       const measurement = group.measurement
       const valueFormatter = value => metricValueLabel(representative.name, value, measurement)
       const chartElement = document.createElement('div'); chartElement.className = 'metric-chart'; card.append(chartElement)
+      const memoryAxis = /^(jvm\.memory\.|jvm\.buffer\.)/.test(representative.name)
+        || ['jvm.gc.live.data.size', 'jvm.gc.max.data.size'].includes(representative.name)
       createTimeSeriesChart(chartElement, {
         series: chartSeries,
-        yAxisName: metricAxisUnit(representative.name, measurement),
+        yAxisName: memoryAxis ? '' : metricAxisUnit(representative.name, measurement),
         valueFormatter,
         axisFormatter: value => metricAxisTick(representative.name, value, measurement),
         showLegend: chartSeries.length > 1,
-        description: `${group.title}多序列指标趋势`
+        description: `${group.title}多序列指标趋势`,
+        timeRange
       })
     } catch (error) {
       card.classList.remove('is-loading')
@@ -1070,8 +1192,9 @@ async function renderTrends() {
 async function refresh() {
   byId('refresh').disabled = true; showNotice('')
   try {
-    const [statsResult, tracesResult, metricsResult] = await Promise.allSettled([
-      getJson('/request-statistics?source=ALL&limit=500'), getJson('/traces?limit=500'), getJson('/metrics?limit=2000')
+    const [statsResult, tracesResult, metricsResult, slowResult, errorResult] = await Promise.allSettled([
+      getJson('/request-statistics?source=ALL&limit=500'), getJson('/traces?limit=500'), getJson('/metrics?limit=2000'),
+      getJson('/slow?limit=500'), getJson('/errors?limit=500')
     ])
     const catalogResult = await getJson('/metrics/series').then(
       value => ({ status: 'fulfilled', value }), reason => ({ status: 'rejected', reason }))
@@ -1079,7 +1202,15 @@ async function refresh() {
       value => ({ status: 'fulfilled', value }), reason => ({ status: 'rejected', reason }))
     const failed = []
     if (statsResult.status === 'fulfilled') { requestStats = statsResult.value; renderStats() } else failed.push(statsResult.reason?.message)
-    if (tracesResult.status === 'fulfilled') { traces = tracesResult.value; renderIncidentTables() } else failed.push(tracesResult.reason?.message)
+    if (tracesResult.status === 'fulfilled') traces = tracesResult.value
+    else failed.push(tracesResult.reason?.message)
+    if (slowResult.status === 'fulfilled') slowOperations = slowResult.value
+    else { slowOperations = []; failed.push(slowResult.reason?.message) }
+    if (errorResult.status === 'fulfilled') errorOperations = errorResult.value
+    else { errorOperations = []; failed.push(errorResult.reason?.message) }
+    if (tracesResult.status === 'fulfilled' || slowResult.status === 'fulfilled' || errorResult.status === 'fulfilled') {
+      renderIncidentTables()
+    }
     if (catalogResult.status === 'fulfilled') { seriesCatalog = catalogResult.value; seriesCache.clear(); redHistoryCache = null } else failed.push(catalogResult.reason?.message)
     const storageWarnings = []
     if (storageResult.status === 'fulfilled' && storageResult.value) {
@@ -1102,7 +1233,9 @@ async function refresh() {
     if (metricsResult.status === 'fulfilled') liveMetrics = metricsResult.value
     else { liveMetrics = []; failed.push(metricsResult.reason?.message) }
     if (catalogResult.status === 'fulfilled' && !byId('metrics-section').hidden) {
-      await Promise.allSettled([renderTrends(), renderHttpRed()])
+      metricTimeRange = captureMetricTimeRange()
+      const timeRange = metricTimeRange
+      await Promise.allSettled([renderTrends(timeRange), renderHttpRed(timeRange)])
     }
     const notices = [...failed.filter(Boolean), ...storageWarnings]
     if (notices.length) {
@@ -1161,8 +1294,10 @@ function activateView(id, updateHistory = false) {
   if (updateHistory && location.hash !== `#${selected.id}`) history.pushState(null, '', `#${selected.id}`)
   window.scrollTo({ top: 0, behavior: 'smooth' })
   if (selected.id === 'metrics-section' && seriesCatalog.length) {
-    renderTrends().catch(error => showNotice(error?.message || '读取指标趋势失败'))
-    renderHttpRed().catch(error => showNotice(error?.message || '读取 HTTP 趋势失败'))
+    metricTimeRange = captureMetricTimeRange()
+    const timeRange = metricTimeRange
+    renderTrends(timeRange).catch(error => showNotice(error?.message || '读取指标趋势失败'))
+    renderHttpRed(timeRange).catch(error => showNotice(error?.message || '读取 HTTP 趋势失败'))
   }
 }
 sectionLinks.forEach(link => link.addEventListener('click', event => {
@@ -1180,7 +1315,9 @@ byId('period').addEventListener('change', () => {
   redHistoryCache = null
   renderIncidentTables()
   if (byId('metrics-section').hidden) return
-  Promise.allSettled([renderTrends(), renderHttpRed()]).then(results => {
+  metricTimeRange = captureMetricTimeRange()
+  const timeRange = metricTimeRange
+  Promise.allSettled([renderTrends(timeRange), renderHttpRed(timeRange)]).then(results => {
     const failed = results.find(result => result.status === 'rejected')
     if (failed) showNotice(failed.reason?.message || '读取趋势失败')
   })

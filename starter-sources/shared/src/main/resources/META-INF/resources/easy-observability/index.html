@@ -43,8 +43,8 @@
       <div class="summary-grid" aria-label="运行摘要">
         <article class="summary-card summary-primary"><div class="summary-label"><span class="summary-icon icon-requests" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4V5Z"/><path d="M8 9h8M8 12h5"/></svg></span><span>入口调用</span></div><strong id="total-count">—</strong><small>按当前 Micrometer 统计值</small></article>
         <article class="summary-card"><div class="summary-label"><span class="summary-icon icon-duration" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3 2"/></svg></span><span>平均耗时</span></div><strong id="mean-duration">—</strong><small>按当前入口筛选</small></article>
-        <article class="summary-card"><div class="summary-label"><span class="summary-icon icon-slow" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3 2.8 19h18.4L12 3Z"/><path d="M12 9v4m0 3h.01"/></svg></span><span>慢请求</span></div><strong id="slow-count">—</strong><small>所选范围内最近 500 条 Trace</small></article>
-        <article class="summary-card"><div class="summary-label"><span class="summary-icon icon-error" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="m9 9 6 6m0-6-6 6"/></svg></span><span>错误请求</span></div><strong id="failure-count">—</strong><small>所选范围内最近 500 条 Trace</small></article>
+        <article class="summary-card"><div class="summary-label"><span class="summary-icon icon-slow" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3 2.8 19h18.4L12 3Z"/><path d="M12 9v4m0 3h.01"/></svg></span><span>慢调用</span></div><strong id="slow-count">—</strong><small>所选范围内最近的入口和操作</small></article>
+        <article class="summary-card"><div class="summary-label"><span class="summary-icon icon-error" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="m9 9 6 6m0-6-6 6"/></svg></span><span>失败调用</span></div><strong id="failure-count">—</strong><small>所选范围内最近的入口和操作</small></article>
         <article class="summary-card"><div class="summary-label"><span class="summary-icon icon-rate" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 17 9 12l3 3 8-9"/><path d="M15 6h5v5"/></svg></span><span>错误率</span></div><strong id="error-rate">—</strong><small>按当前入口筛选</small></article>
       </div>
     </section>
@@ -61,16 +61,16 @@
 
     <section id="entry-section" class="report-section" aria-labelledby="entry-title" hidden>
       <div class="section-heading"><div><p class="eyebrow">ENTRY POINTS</p><h2 id="entry-title">入口请求统计</h2><p>按当前 Micrometer 统计值展示；选择一行可查看保留窗口中的单次调用。诊断页面自身的请求会排除。</p></div></div>
-      <div class="section-tools"><div class="filters" id="entry-filters" role="group" aria-label="入口类型"><button class="selected" data-source="ALL" aria-pressed="true">全部入口</button><button data-source="HTTP" aria-pressed="false">HTTP</button><button data-source="JOB" aria-pressed="false">Job</button><button data-source="KAFKA_CONSUMER" aria-pressed="false">Kafka 消费</button></div><span class="table-hint">按当前总耗时排序</span></div>
+      <div class="section-tools"><div class="filters" id="entry-filters" role="group" aria-label="入口类型"><button class="selected" data-source="ALL" aria-pressed="true">全部入口</button><button data-source="HTTP" aria-pressed="false">HTTP</button><button data-source="JOB" aria-pressed="false">Job</button><button data-source="EXECUTOR_TASK" aria-pressed="false">线程池任务</button><button data-source="KAFKA_CONSUMER" aria-pressed="false">Kafka 消费</button></div><span class="table-hint">按当前总耗时排序</span></div>
       <div class="table-scroll"><table><thead><tr><th>入口</th><th>调用次数</th><th>总耗时占比</th><th>平均耗时</th><th title="Micrometer Timer 滚动统计窗口内的最大值；窗口内无样本时显示 —">窗口最大耗时</th><th>错误数</th><th>错误率</th><th>平均 CPU</th><th>平均分配内存</th></tr></thead><tbody id="entry-rows"></tbody></table></div>
       <p id="entry-empty" class="empty" hidden>当前没有入口调用统计。HTTP 入口由 Spring Observation 采集；任务和 Kafka 消费需启用对应 Observation。</p>
     </section>
 
     <section id="incidents-section" class="report-section" aria-labelledby="incidents-title" hidden>
-      <div class="section-heading"><div><p class="eyebrow">SLOW &amp; ERRORS</p><h2 id="incidents-title">需要关注的请求</h2><p>只保留慢请求和失败入口的完整 Trace，点击记录即可下钻；数量按最近读取的 500 条 Trace 统计，表格最多展示前 50 条。</p></div><span class="source-badge">按所选时间范围</span></div>
+      <div class="section-heading"><div><p class="eyebrow">SLOW &amp; ERRORS</p><h2 id="incidents-title">需要关注的调用</h2><p>展示慢入口、异步任务及失败操作；点击记录可查看关联 Trace，表格最多展示前 50 条。</p></div><span class="source-badge">按所选时间范围</span></div>
       <div class="incident-columns">
-        <section class="incident-panel slow-panel" aria-labelledby="slow-title"><div class="incident-heading"><span class="incident-symbol" aria-hidden="true">!</span><h3 id="slow-title">慢请求</h3><b id="slow-total">0</b></div><div class="table-scroll"><table><thead><tr><th>入口</th><th>耗时</th><th>CPU</th><th>分配内存</th><th>线程</th><th>完成时间</th></tr></thead><tbody id="slow-rows"></tbody></table></div><p id="slow-empty" class="empty" hidden>当前范围内没有慢请求</p></section>
-        <section class="incident-panel error-panel" aria-labelledby="error-title"><div class="incident-heading"><span class="incident-symbol" aria-hidden="true">×</span><h3 id="error-title">错误请求</h3><b id="error-total">0</b></div><div class="table-scroll"><table><thead><tr><th>入口</th><th>状态</th><th>错误</th><th>耗时</th><th>线程</th><th>完成时间</th></tr></thead><tbody id="error-rows"></tbody></table></div><p id="error-empty" class="empty" hidden>当前范围内没有错误请求</p></section>
+        <section class="incident-panel slow-panel" aria-labelledby="slow-title"><div class="incident-heading"><span class="incident-symbol" aria-hidden="true">!</span><h3 id="slow-title">慢调用</h3><b id="slow-total">0</b></div><div class="table-scroll"><table><thead><tr><th>调用</th><th>耗时</th><th>CPU</th><th>分配内存</th><th>线程</th><th>完成时间</th></tr></thead><tbody id="slow-rows"></tbody></table></div><p id="slow-empty" class="empty" hidden>当前范围内没有慢调用</p></section>
+        <section class="incident-panel error-panel" aria-labelledby="error-title"><div class="incident-heading"><span class="incident-symbol" aria-hidden="true">×</span><h3 id="error-title">失败调用</h3><b id="error-total">0</b></div><div class="table-scroll"><table><thead><tr><th>调用</th><th>状态</th><th>错误</th><th>耗时</th><th>线程</th><th>完成时间</th></tr></thead><tbody id="error-rows"></tbody></table></div><p id="error-empty" class="empty" hidden>当前范围内没有失败调用</p></section>
       </div>
     </section>
 
@@ -85,6 +85,6 @@
   <dialog id="entry-dialog" aria-labelledby="entry-dialog-title"><div class="dialog-head"><div><p class="eyebrow">ENTRY STATISTIC</p><h2 id="entry-dialog-title">入口执行记录</h2></div><button id="close-entry-dialog" class="dialog-close" aria-label="关闭">×</button></div><p id="entry-dialog-note" class="dialog-note"></p><div class="table-scroll"><table><thead><tr><th>结果</th><th>状态</th><th>耗时</th><th>Trace ID</th><th>完成时间</th></tr></thead><tbody id="entry-trace-rows"></tbody></table></div></dialog>
   <dialog id="trace-dialog" aria-labelledby="dialog-title"><div class="dialog-head"><div><p class="eyebrow">TRACE DETAIL</p><h2 id="dialog-title">请求详情</h2></div><button id="close-dialog" class="dialog-close" aria-label="关闭">×</button></div><div id="trace-facts" class="trace-facts"></div><h3>调用树</h3><pre id="trace-tree"></pre><p id="trace-operations-note" class="dialog-note" hidden></p><h3>调用明细</h3><div class="table-scroll"><table id="operation-table"><thead><tr><th>类型</th><th>操作</th><th>耗时</th><th>CPU</th><th>分配内存</th><th>线程</th><th>结果</th><th>错误</th></tr></thead><tbody id="operation-rows"></tbody></table></div></dialog>
   <script defer src="/easy-observability/assets/vendor/echarts.min.js?v=6.1.0"></script>
-  <script type="module" src="/easy-observability/assets/dashboard.js?v=20261020.20"></script>
+  <script type="module" src="/easy-observability/assets/dashboard.js?v=20261020.21"></script>
 </body>
 </html>

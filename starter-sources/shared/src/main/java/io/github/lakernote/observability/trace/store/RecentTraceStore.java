@@ -14,6 +14,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 /** Keeps a small, recent in-memory view of completed traces for the bundled dashboard. */
 public class RecentTraceStore {
+    private static final int MAX_OPERATIONS_PER_TRACE = 200;
     private final ConcurrentLinkedDeque<TraceRecord> records = new ConcurrentLinkedDeque<>();
     private final AtomicInteger recordCount = new AtomicInteger();
     private final AtomicLong nextId = new AtomicLong();
@@ -88,6 +89,9 @@ public class RecentTraceStore {
                 ConcurrentLinkedDeque<OperationRecord> indexed = related == null
                         ? new ConcurrentLinkedDeque<>() : related;
                 indexed.addFirst(operation);
+                // A single request can issue thousands of JDBC observations. Keep its detail index bounded so
+                // evicting old operations stays cheap and pathological traces cannot retain every child node.
+                while (indexed.size() > MAX_OPERATIONS_PER_TRACE) indexed.pollLast();
                 return indexed;
             });
         }

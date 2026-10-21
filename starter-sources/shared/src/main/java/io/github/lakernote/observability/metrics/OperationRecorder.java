@@ -21,7 +21,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public final class OperationRecorder {
     private static final Logger log = LoggerFactory.getLogger(OperationRecorder.class);
     private static final List<String> TYPES = List.of(
-            "HTTP", "SQL", "DATABASE", "REDIS", "ELASTICSEARCH", "TRANSACTION", "REMOTE", "KAFKA", "JOB", "OTHER");
+            "HTTP", "SQL", "DATABASE", "REDIS", "ELASTICSEARCH", "TRANSACTION", "REMOTE", "KAFKA", "JOB",
+            "EXECUTOR_TASK", "OTHER");
     private static final List<String> OUTCOMES = List.of("success", "failure");
 
     private final MeterRegistry meterRegistry;
@@ -83,9 +84,28 @@ public final class OperationRecorder {
     /** 返回入口指标使用的聚合名称，供统计下钻按相同维度匹配当前进程 Trace。 */
     public static String operationTag(OperationRecord operation) {
         if (operation == null) return "unknown";
+        // SQL text belongs in the bounded Trace detail only. Putting it in a metric tag creates one series per
+        // statement shape and makes the cardinality guard serialize every new query after its limit is reached.
+        if ("DATABASE".equals(operation.type())) {
+            String detail = operation.detail();
+            int sqlStart = detail == null ? -1 : detail.indexOf(" · ");
+            return sqlCommand(sqlStart >= 0 ? detail.substring(sqlStart + 3) : operation.name());
+        }
         return safeTag(operation.detail().isBlank() ? operation.name()
                 : "HTTP".equals(operation.type()) ? operation.detail() + " · " + operation.name()
                 : operation.name() + " · " + operation.detail());
+    }
+
+    private static String sqlCommand(String sql) {
+        if (sql == null || sql.isBlank()) return "SQL";
+        int end = 0;
+        while (end < sql.length() && Character.isLetter(sql.charAt(end))) end++;
+        if (end == 0) return "SQL";
+        String command = sql.substring(0, end).toUpperCase(java.util.Locale.ROOT);
+        return switch (command) {
+            case "SELECT", "INSERT", "UPDATE", "DELETE", "MERGE", "CALL", "WITH", "CREATE", "ALTER", "DROP" -> command;
+            default -> "SQL";
+        };
     }
 
     private void record(String name, String unit, String type, String source, String operation,

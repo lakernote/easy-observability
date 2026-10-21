@@ -1,6 +1,7 @@
 package io.github.lakernote.observability.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.util.unit.DataSize;
 
 /** Public configuration for the Easy Observability Spring Boot Starter. */
 @ConfigurationProperties("easy.observability")
@@ -11,6 +12,7 @@ public class EasyObservabilityProperties {
     private final Web web = new Web();
     private final Redis redis = new Redis();
     private final Transaction transaction = new Transaction();
+    private final Http http = new Http();
     private final Kafka kafka = new Kafka();
     private final Mybatis mybatis = new Mybatis();
     private final Scheduling scheduling = new Scheduling();
@@ -37,6 +39,7 @@ public class EasyObservabilityProperties {
 
     public Redis getRedis() { return redis; }
     public Transaction getTransaction() { return transaction; }
+    public Http getHttp() { return http; }
     public Kafka getKafka() { return kafka; }
     public Mybatis getMybatis() { return mybatis; }
     public Scheduling getScheduling() { return scheduling; }
@@ -71,6 +74,17 @@ public class EasyObservabilityProperties {
         public void setSlowThresholdMs(long slowThresholdMs) { this.slowThresholdMs = slowThresholdMs; }
     }
 
+    public static class Http {
+        private final OkHttp okhttp = new OkHttp();
+        public OkHttp getOkhttp() { return okhttp; }
+
+        public static class OkHttp {
+            private boolean enabled = true;
+            public boolean isEnabled() { return enabled; }
+            public void setEnabled(boolean enabled) { this.enabled = enabled; }
+        }
+    }
+
     public static class Redis {
         private boolean enabled = true;
         private String serviceName = "easy-observability";
@@ -84,7 +98,7 @@ public class EasyObservabilityProperties {
         private boolean enabled = true;
         private boolean allowAnonymous;
         private int traceLimit = 500;
-        private int operationLimit = 4_000;
+        private int operationLimit = 2_000;
 
         public boolean isEnabled() { return enabled; }
         public void setEnabled(boolean enabled) { this.enabled = enabled; }
@@ -115,9 +129,9 @@ public class EasyObservabilityProperties {
             private String storageDir = "./data/easy-observability/metrics";
             private int retentionDays = 15;
             private long intervalMs = 60_000;
-            private long maxStorageBytes = 64L * 1024 * 1024;
-            private long maxSeriesBytes = 8L * 1024 * 1024;
-            private int maxSeries = 512;
+            private DataSize maxStorageBytes = DataSize.ofMegabytes(64);
+            private DataSize maxSeriesBytes = DataSize.ofMegabytes(8);
+            private int maxSeries = 256;
             public boolean isEnabled() { return enabled; }
             public void setEnabled(boolean enabled) { this.enabled = enabled; }
             public String getStorageDir() { return storageDir; }
@@ -126,10 +140,10 @@ public class EasyObservabilityProperties {
             public void setRetentionDays(int retentionDays) { this.retentionDays = retentionDays; }
             public long getIntervalMs() { return intervalMs; }
             public void setIntervalMs(long intervalMs) { this.intervalMs = intervalMs; }
-            public long getMaxStorageBytes() { return maxStorageBytes; }
-            public void setMaxStorageBytes(long maxStorageBytes) { this.maxStorageBytes = maxStorageBytes; }
-            public long getMaxSeriesBytes() { return maxSeriesBytes; }
-            public void setMaxSeriesBytes(long maxSeriesBytes) { this.maxSeriesBytes = maxSeriesBytes; }
+            public DataSize getMaxStorageBytes() { return maxStorageBytes; }
+            public void setMaxStorageBytes(DataSize maxStorageBytes) { this.maxStorageBytes = maxStorageBytes; }
+            public DataSize getMaxSeriesBytes() { return maxSeriesBytes; }
+            public void setMaxSeriesBytes(DataSize maxSeriesBytes) { this.maxSeriesBytes = maxSeriesBytes; }
             public int getMaxSeries() { return maxSeries; }
             public void setMaxSeries(int maxSeries) { this.maxSeries = maxSeries; }
         }
@@ -149,15 +163,17 @@ public class EasyObservabilityProperties {
         private String headerName = "X-Trace-Id";
         private long redisSlowThresholdMs = 250;
         private long jobSlowThresholdMs = 1_000;
+        private long executorTaskSlowThresholdMs = 250;
         private long httpSlowThresholdMs = 250;
         private long kafkaConsumerSlowThresholdMs = 250;
         private long dependencySlowThresholdMs = 250;
-        private boolean resourceSamplingEnabled = true;
+        // CPU and allocation counters require JVM management calls for every observed operation; keep opt-in.
+        private boolean resourceSamplingEnabled;
         private boolean threadContentionSamplingEnabled;
         private String slowErrorOperationFile = "./data/easy-observability/incidents.jsonl";
         private String slowErrorTraceFile = "./data/easy-observability/traces.jsonl";
-        private int slowErrorHistoryLimit = 10_000;
-        private long slowErrorMaxBytes = 32L * 1024 * 1024;
+        private int slowErrorHistoryLimit = 1_000;
+        private DataSize slowErrorMaxBytes = DataSize.ofMegabytes(8);
         public boolean isEnabled() {
             return enabled;
         }
@@ -179,6 +195,8 @@ public class EasyObservabilityProperties {
         public void setRedisSlowThresholdMs(long redisSlowThresholdMs) { this.redisSlowThresholdMs = redisSlowThresholdMs; }
         public long getJobSlowThresholdMs() { return jobSlowThresholdMs; }
         public void setJobSlowThresholdMs(long jobSlowThresholdMs) { this.jobSlowThresholdMs = jobSlowThresholdMs; }
+        public long getExecutorTaskSlowThresholdMs() { return executorTaskSlowThresholdMs; }
+        public void setExecutorTaskSlowThresholdMs(long thresholdMs) { this.executorTaskSlowThresholdMs = thresholdMs; }
         public long getHttpSlowThresholdMs() { return httpSlowThresholdMs; }
         public void setHttpSlowThresholdMs(long httpSlowThresholdMs) { this.httpSlowThresholdMs = httpSlowThresholdMs; }
         public long getKafkaConsumerSlowThresholdMs() { return kafkaConsumerSlowThresholdMs; }
@@ -203,7 +221,7 @@ public class EasyObservabilityProperties {
         public void setSlowErrorTraceFile(String slowErrorTraceFile) { this.slowErrorTraceFile = slowErrorTraceFile; }
         public int getSlowErrorHistoryLimit() { return slowErrorHistoryLimit; }
         public void setSlowErrorHistoryLimit(int slowErrorHistoryLimit) { this.slowErrorHistoryLimit = slowErrorHistoryLimit; }
-        public long getSlowErrorMaxBytes() { return slowErrorMaxBytes; }
-        public void setSlowErrorMaxBytes(long slowErrorMaxBytes) { this.slowErrorMaxBytes = slowErrorMaxBytes; }
+        public DataSize getSlowErrorMaxBytes() { return slowErrorMaxBytes; }
+        public void setSlowErrorMaxBytes(DataSize slowErrorMaxBytes) { this.slowErrorMaxBytes = slowErrorMaxBytes; }
     }
 }

@@ -113,8 +113,12 @@ public final class TransactionTraceListener implements TransactionExecutionListe
                     && durationMs >= properties.getTransaction().getSlowThresholdMs();
             boolean sameThread = state.threadId == Thread.currentThread().getId();
             if (state.tracing && sameThread && slow) TraceContext.markSlow("LONG_TRANSACTION");
-            if (state.tracing && sameThread && !success && failure != null) {
-                TraceContext.markError("TRANSACTION_ERROR", failure);
+            BoundedThrowableFormatter.FailureEvidence error = failure == null
+                    ? success ? null : new BoundedThrowableFormatter.FailureEvidence(
+                    "TransactionRollback", "Transaction rolled back", "")
+                    : BoundedThrowableFormatter.capture(failure);
+            if (state.tracing && sameThread && !success) {
+                TraceContext.markError("TRANSACTION_ERROR", error);
             }
             if (sameThread && state.span != null) state.span.run();
 
@@ -123,8 +127,6 @@ public final class TransactionTraceListener implements TransactionExecutionListe
                     properties.getTrace().isResourceSamplingEnabled(),
                     properties.getTrace().isThreadContentionSamplingEnabled())
                     : null;
-            BoundedThrowableFormatter.FailureEvidence error = failure == null ? null
-                    : BoundedThrowableFormatter.capture(failure);
             recorder.record(new OperationRecord("TRANSACTION", state.traceId, state.name,
                     state.threadName == null ? Thread.currentThread().getName() : state.threadName,
                     state.threadId, success ? "success" : "failure", durationMs,
