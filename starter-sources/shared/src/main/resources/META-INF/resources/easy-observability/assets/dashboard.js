@@ -8,11 +8,18 @@ let errorOperations = []
 let selectedSource = 'ALL'
 let seriesCatalog = []
 let liveMetrics = []
+let metricDataLoaded = false
+let metricDataLoading = null
 let usefulSeriesLimit = 64
 let seriesCache = new Map()
+let seriesLoading = new Map()
+let seriesCacheGeneration = 0
 let redHistoryCache = null
 let redLoading = null
 let metricTimeRange = null
+let renderedMetricRangeKey = ''
+let trendHistoryObserver = null
+let trendRenderVersion = 0
 let selectedRedMetric = 'requests'
 let visibleRedUris = null
 let redUriCatalog = new Set()
@@ -108,6 +115,18 @@ function getHistoryJson(path) {
   historyRequestQueue = request.catch(() => {})
   return request
 }
+function loadSeriesHistory(series, limit = 5000) {
+  const key = seriesKey(series)
+  if (seriesCache.has(key)) return Promise.resolve(seriesCache.get(key))
+  if (seriesLoading.has(key)) return seriesLoading.get(key)
+  const generation = seriesCacheGeneration
+  const params = new URLSearchParams({ name: series.name, tags: JSON.stringify(series.tags || {}), limit: String(limit) })
+  const request = getHistoryJson(`/metrics/history?${params}`)
+    .then(points => { if (generation === seriesCacheGeneration) seriesCache.set(key, points); return points })
+    .finally(() => { if (seriesLoading.get(key) === request) seriesLoading.delete(key) })
+  seriesLoading.set(key, request)
+  return request
+}
 function initializeEmbeddedAuth() {
   if (window.parent === window) return Promise.resolve()
   return new Promise(resolve => {
@@ -159,6 +178,7 @@ function currentMetricTimeRange() {
 }
 function inSelectedPeriod(trace) { return new Date(trace.finishedAt).getTime() >= periodStart() }
 let metricRetentionDays = null
+let metricStorageStatus = null
 function updateMetricRangeNote() {
   const note = byId('metric-range-note')
   if (!note) return
@@ -177,6 +197,15 @@ function updateMetricRangeNote() {
     note.textContent = `所选时间范围：${selectedLabel}；指标历史保留 ${formatNumber(metricRetentionDays)} 天。`
     note.classList.add('is-within-retention')
   }
+}
+function updateMetricStorageLabel() {
+  if (!metricStorageStatus) return
+  const storage = metricStorageStatus
+  const size = `${formatBytes(storage.storageBytes)} / ${formatBytes(storage.maxStorageBytes)}`
+  const series = metricDataLoaded ? ` · ${formatNumber(seriesCatalog.length)} 条序列` : ''
+  byId('metric-storage-status').textContent = storage.enabled
+    ? `指标历史 · ${size}${series} · 保留 ${formatNumber(storage.retentionDays)} 天`
+    : '本地历史存储已关闭'
 }
 function showNotice(message = '') { byId('notice').textContent = message; byId('notice').hidden = !message }
 function isDashboardHttpTraffic(source, value) {
@@ -243,12 +272,12 @@ async function openEntryDetails(item) {
   loadingRow.append(loadingCell); rows.append(loadingRow)
   byId('entry-dialog-note').textContent = '正在刷新当前进程的指标和 Trace 保留记录…'
   byId('entry-dialog').showModal()
-  const params = new URLSearchParams({ source: item.source, operation: item.operation, limit: '500' })
+  const params = new URLSearchParams({ source: item.source, operation: item.operation, limit: '100' })
   let matches
   let currentItem = item
   try {
     const [latestStats, latestTraces] = await Promise.all([
-      getJson('/request-statistics?source=ALL&limit=500'), getJson(`/traces?${params}`)
+      getJson('/request-statistics?source=ALL&limit=200'), getJson(`/traces?${params}`)
     ])
     requestStats = latestStats || requestStats
     renderStats()
@@ -260,7 +289,7 @@ async function openEntryDetails(item) {
     byId('entry-dialog-note').textContent = '刷新当前进程指标或读取调用记录失败。'
     return
   }
-  byId('entry-dialog-note').textContent = `Micrometer 当前进程累计 ${formatNumber(currentItem.count)} 次；Trace 保留窗口中匹配 ${matches.length}${matches.length >= 500 ? '+' : ''} 条调用。`
+  byId('entry-dialog-note').textContent = `Micrometer 当前进程累计 ${formatNumber(currentItem.count)} 次；Trace 保留窗口中匹配 ${matches.length}${matches.length >= 100 ? '+' : ''} 条调用。`
   rows.replaceChildren()
   for (const trace of matches.slice(0, 100)) {
     const row = document.createElement('tr'); makeClickable(row, `查看 Trace ${trace.traceId}`, () => {
@@ -476,8 +505,8 @@ function renderIncidentTables() {
     .sort((left, right) => new Date(right.finishedAt).getTime() - new Date(left.finishedAt).getTime())
   const slow = slowItems.slice(0, 50)
   const errors = errorItems.slice(0, 50)
-  const slowCountLabel = slowItems.length >= 500 ? '500+' : formatNumber(slowItems.length)
-  const errorCountLabel = errorItems.length >= 500 ? '500+' : formatNumber(errorItems.length)
+  const slowCountLabel = slowItems.length >= 100 ? '100+' : formatNumber(slowItems.length)
+  const errorCountLabel = errorItems.length >= 100 ? '100+' : formatNumber(errorItems.length)
   byId('slow-count').textContent = slowCountLabel
   byId('failure-count').textContent = errorCountLabel
   byId('slow-total').textContent = `(${slowCountLabel}${slowItems.length > 50 ? '，列表显示前 50 条' : ''})`
@@ -500,7 +529,7 @@ function renderIncidentTables() {
     td(row, trace.traceId, 'mono'); td(row, formatTime(trace.finishedAt)); rows.append(row)
   }
   byId('trace-empty').hidden = recent.length > 0
-  byId('trace-page').textContent = visibleTraces.length ? `${start + 1}–${start + recent.length} 条，共 ${visibleTraces.length} 条（已排除诊断页面自身请求，最多读取最近 500 条）` : ''
+  byId('trace-page').textContent = visibleTraces.length ? `${start + 1}–${start + recent.length} 条，共 ${visibleTraces.length} 条（已排除诊断页面自身请求，最多读取最近 100 条）` : ''
   byId('trace-prev').disabled = recentPage <= 0
   byId('trace-next').disabled = recentPage >= pageCount - 1
 }
@@ -831,6 +860,10 @@ const chartPalette = [
   '#a47c22', '#367b70', '#9a5f4e', '#5c7899'
 ]
 function disposeMetricCharts(container) {
+  if (container === byId('trend-grid')) {
+    trendHistoryObserver?.disconnect()
+    trendHistoryObserver = null
+  }
   container.querySelectorAll('.metric-chart').forEach(element => {
     const chart = window.echarts?.getInstanceByDom(element)
     if (!chart) return
@@ -1049,8 +1082,7 @@ async function loadHttpRedHistoryUncached(timeRange) {
   const processStartSeries = seriesCatalog.find(item => item.name === 'process.start.time')
   if (processStartSeries) {
     try {
-      const params = new URLSearchParams({ name: processStartSeries.name, tags: JSON.stringify(processStartSeries.tags || {}), limit: '5000' })
-      const history = await getHistoryJson(`/metrics/history?${params}`)
+      const history = await loadSeriesHistory(processStartSeries)
       history.forEach(point => {
         const value = Number(point.measurements?.VALUE)
         if (Number.isFinite(value)) processStartByTimestamp.set(point.capturedAt, value)
@@ -1063,8 +1095,7 @@ async function loadHttpRedHistoryUncached(timeRange) {
     const bins = new Map()
     for (const series of group.series) {
       try {
-        const params = new URLSearchParams({ name: series.name, tags: JSON.stringify(series.tags || {}), limit: '5000' })
-        const history = await getHistoryJson(`/metrics/history?${params}`)
+        const history = await loadSeriesHistory(series)
         if (history.length) covered++
         const chronological = history.slice().reverse()
         let previous = null
@@ -1137,6 +1168,7 @@ async function renderHttpRed(timeRange = currentMetricTimeRange()) {
 
 async function renderTrends(timeRange = currentMetricTimeRange()) {
   const grid = byId('trend-grid'); disposeMetricCharts(grid); grid.replaceChildren()
+  const renderVersion = ++trendRenderVersion
   const selected = chooseUsefulSeries()
   if (!selected.length) { const p = document.createElement('p'); p.className = 'empty'; p.textContent = '当前没有可展示的常用指标历史。启用 Micrometer 指标并等待至少两个采样点后，趋势会按类型显示在这里。'; grid.append(p); return }
   const groups = new Map()
@@ -1194,34 +1226,29 @@ async function renderTrends(timeRange = currentMetricTimeRange()) {
         const cardTitle = document.createElement('h3'); cardTitle.textContent = group.title
         const badge = document.createElement('span'); badge.className = 'series-kind'; badge.textContent = group.series.length > 1 ? `${group.series.length} 条曲线` : group.series[0].tags?.area || group.series[0].tags?.type || metricCategoryLabels[category]
         cardHeading.append(cardTitle, badge); card.append(cardHeading)
-        const skeleton = document.createElement('div'); skeleton.className = 'chart-skeleton'; skeleton.setAttribute('aria-label', '正在加载趋势'); card.append(skeleton)
+        const skeleton = document.createElement('div'); skeleton.className = 'chart-skeleton'; skeleton.setAttribute('aria-label', '滚动到附近时加载趋势'); card.append(skeleton)
         categoryGrid.append(card)
         placeholders.push({ group, card })
       })
     })
-  // 历史存储限制并发磁盘读取；按组串行读取，避免趋势面板抢占业务线程的磁盘访问配额。
-  for (const { group, card } of placeholders) {
+  const loadCard = async ({ group, card }) => {
     try {
       const chartSeries = []
       for (let index = 0; index < group.series.length; index++) {
+        if (renderVersion !== trendRenderVersion || !card.isConnected) return
         const series = group.series[index]
-        const key = seriesKey(series)
-        let points = seriesCache.get(key)
-        if (!points) {
-          // 30 分钟归档覆盖最长时间范围，5000 点足以绘制完整曲线。
-          const params = new URLSearchParams({ name: series.name, tags: JSON.stringify(series.tags || {}), limit: '5000' })
-          points = await getHistoryJson(`/metrics/history?${params}`)
-          seriesCache.set(key, points)
-        }
+        // 5000 点覆盖最长时间范围；通过共享缓存避免同一序列被多个图表重复读取。
+        const points = await loadSeriesHistory(series)
         const measurement = group.measurement
         const data = metricHistoryValues(series, points, measurement, timeRange)
         if (data.length) chartSeries.push({ name: seriesTitle(series), color: chartPalette[index % chartPalette.length], data })
       }
+      if (renderVersion !== trendRenderVersion || !card.isConnected) return
       card.querySelector('.chart-skeleton')?.remove()
       card.classList.remove('is-loading')
       if (!chartSeries.length) {
         const empty = document.createElement('p'); empty.className = 'chart-error'; empty.textContent = '所选时间范围内暂无采样数据。'; card.append(empty)
-        continue
+        return
       }
       const representative = group.series[0]
       const measurement = group.measurement
@@ -1243,20 +1270,68 @@ async function renderTrends(timeRange = currentMetricTimeRange()) {
       const message = document.createElement('p'); message.className = 'chart-error'; message.textContent = error?.message || '读取趋势失败'; card.append(message)
     }
   }
+  // 只读取视口附近图表的历史序列，避免进入 Metrics 时串行扫完整个图表目录。
+  if ('IntersectionObserver' in window) {
+    const observer = new IntersectionObserver(entries => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue
+        observer.unobserve(entry.target)
+        const placeholder = placeholders.find(item => item.card === entry.target)
+        if (placeholder) void loadCard(placeholder)
+      }
+    }, { rootMargin: '160px 0px' })
+    trendHistoryObserver = observer
+    placeholders.forEach(({ card }) => observer.observe(card))
+  } else {
+    placeholders.forEach(placeholder => { void loadCard(placeholder) })
+  }
+}
+
+function renderMetricDashboard(timeRange = currentMetricTimeRange(), force = false) {
+  const key = `${timeRange.start}:${timeRange.end}`
+  if (!force && renderedMetricRangeKey === key) return
+  renderedMetricRangeKey = key
+  renderTrends(timeRange).catch(error => showNotice(error?.message || '读取指标趋势失败'))
+  renderHttpRed(timeRange).catch(error => showNotice(error?.message || '读取 HTTP 趋势失败'))
+}
+
+async function loadMetricData(force = false) {
+  if (!force && metricDataLoaded) return
+  if (metricDataLoading) return metricDataLoading
+  metricDataLoading = Promise.all([getJson('/metrics/series'), getJson('/metrics?limit=2000')])
+    .then(([catalog, metrics]) => {
+      seriesCatalog = catalog
+      liveMetrics = metrics
+      metricDataLoaded = true
+      seriesCacheGeneration++
+      seriesCache.clear()
+      seriesLoading.clear()
+      redHistoryCache = null
+      updateMetricStorageLabel()
+    })
+    .finally(() => { metricDataLoading = null })
+  return metricDataLoading
 }
 
 async function refresh() {
   byId('refresh').disabled = true; showNotice('')
   try {
-    const [statsResult, tracesResult, metricsResult, slowResult, errorResult] = await Promise.allSettled([
-      getJson('/request-statistics?source=ALL&limit=500'), getJson('/traces?limit=500'), getJson('/metrics?limit=2000'),
-      getJson('/slow?limit=500'), getJson('/errors?limit=500')
+    const metricsViewActive = !byId('metrics-section').hidden
+    const [statsResult, tracesResult, slowResult, errorResult, storageResult] = await Promise.allSettled([
+      getJson('/request-statistics?source=ALL&limit=200'), getJson('/traces?limit=100'),
+      getJson('/slow?limit=100'), getJson('/errors?limit=100'), getJson('/metrics/storage')
     ])
-    const catalogResult = await getJson('/metrics/series').then(
-      value => ({ status: 'fulfilled', value }), reason => ({ status: 'rejected', reason }))
-    const storageResult = await getJson('/metrics/storage').then(
-      value => ({ status: 'fulfilled', value }), reason => ({ status: 'rejected', reason }))
     const failed = []
+    if (metricsViewActive) {
+      const alreadyLoadingMetrics = Boolean(metricDataLoading)
+      try { await loadMetricData(true) }
+      catch (error) { failed.push(error?.message || '读取指标目录失败') }
+      if (!alreadyLoadingMetrics && metricDataLoaded) {
+        metricTimeRange = captureMetricTimeRange()
+        if (!byId('metrics-section').hidden) renderMetricDashboard(metricTimeRange, true)
+        else renderedMetricRangeKey = ''
+      }
+    }
     if (statsResult.status === 'fulfilled') { requestStats = statsResult.value; renderStats() } else failed.push(statsResult.reason?.message)
     if (tracesResult.status === 'fulfilled') traces = tracesResult.value
     else failed.push(tracesResult.reason?.message)
@@ -1267,32 +1342,20 @@ async function refresh() {
     if (tracesResult.status === 'fulfilled' || slowResult.status === 'fulfilled' || errorResult.status === 'fulfilled') {
       renderIncidentTables()
     }
-    if (catalogResult.status === 'fulfilled') { seriesCatalog = catalogResult.value; seriesCache.clear(); redHistoryCache = null } else failed.push(catalogResult.reason?.message)
     const storageWarnings = []
     if (storageResult.status === 'fulfilled' && storageResult.value) {
       const storage = storageResult.value
+      metricStorageStatus = storage
       metricRetentionDays = Number(storage.retentionDays)
       updateMetricRangeNote()
-      const storageSize = `${formatBytes(storage.storageBytes)} / ${formatBytes(storage.maxStorageBytes)}`
-      const seriesCount = catalogResult.status === 'fulfilled' ? catalogResult.value.length : 0
-      const storageText = storage.enabled
-        ? `指标历史 · ${storageSize} · ${formatNumber(seriesCount)} 条序列 · 保留 ${formatNumber(storage.retentionDays)} 天`
-        : '本地历史存储已关闭'
+      updateMetricStorageLabel()
       byId('instance').textContent = `当前实例 · ${storage.enabled ? `RRD ${formatBytes(storage.storageBytes)}` : '历史未启用'}`
-      byId('metric-storage-status').textContent = storageText
       const hasDrops = Number(storage.droppedWrites) > 0 || Number(storage.rejectedSeries) > 0
       byId('metric-storage-status').classList.toggle('is-warning', hasDrops)
       byId('instance').classList.toggle('is-warning', hasDrops)
       if (Number(storage.droppedWrites) > 0) storageWarnings.push(`指标历史有 ${formatNumber(storage.droppedWrites)} 次快照未完整写入`)
       if (Number(storage.rejectedSeries) > 0) storageWarnings.push(`${formatNumber(storage.rejectedSeries)} 条指标序列因存储限制被拒绝`)
     } else if (storageResult.status === 'rejected') failed.push(storageResult.reason?.message)
-    if (metricsResult.status === 'fulfilled') liveMetrics = metricsResult.value
-    else { liveMetrics = []; failed.push(metricsResult.reason?.message) }
-    if (catalogResult.status === 'fulfilled' && !byId('metrics-section').hidden) {
-      metricTimeRange = captureMetricTimeRange()
-      const timeRange = metricTimeRange
-      await Promise.allSettled([renderTrends(timeRange), renderHttpRed(timeRange)])
-    }
     const notices = [...failed.filter(Boolean), ...storageWarnings]
     if (notices.length) {
       showNotice(notices.join('；'))
@@ -1349,11 +1412,19 @@ function activateView(id, updateHistory = false) {
   })
   if (updateHistory && location.hash !== `#${selected.id}`) history.pushState(null, '', `#${selected.id}`)
   window.scrollTo({ top: 0, behavior: 'smooth' })
-  if (selected.id === 'metrics-section' && seriesCatalog.length) {
-    metricTimeRange = captureMetricTimeRange()
-    const timeRange = metricTimeRange
-    renderTrends(timeRange).catch(error => showNotice(error?.message || '读取指标趋势失败'))
-    renderHttpRed(timeRange).catch(error => showNotice(error?.message || '读取 HTTP 趋势失败'))
+  if (selected.id === 'metrics-section') {
+    if (metricDataLoaded) {
+      metricTimeRange ||= captureMetricTimeRange()
+      renderMetricDashboard(metricTimeRange)
+    } else {
+      byId('http-red-grid').innerHTML = '<p class="empty">正在读取指标目录…</p>'
+      byId('trend-grid').innerHTML = '<p class="empty">正在读取指标目录…</p>'
+      loadMetricData().then(() => {
+        metricTimeRange ||= captureMetricTimeRange()
+        renderMetricDashboard(metricTimeRange, true)
+        updateMetricRangeNote()
+      }).catch(error => showNotice(error?.message || '读取指标趋势失败'))
+    }
   }
 }
 sectionLinks.forEach(link => link.addEventListener('click', event => {
@@ -1372,11 +1443,7 @@ byId('period').addEventListener('change', () => {
   renderIncidentTables()
   if (byId('metrics-section').hidden) return
   metricTimeRange = captureMetricTimeRange()
-  const timeRange = metricTimeRange
-  Promise.allSettled([renderTrends(timeRange), renderHttpRed(timeRange)]).then(results => {
-    const failed = results.find(result => result.status === 'rejected')
-    if (failed) showNotice(failed.reason?.message || '读取趋势失败')
-  })
+  renderMetricDashboard(metricTimeRange, true)
 })
 byId('entry-filters').addEventListener('click', event => {
   const button = event.target.closest('button[data-source]')
