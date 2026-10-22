@@ -3,9 +3,7 @@ package io.github.lakernote.observability.integration.transaction;
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
 import io.github.lakernote.observability.metrics.OperationRecorder;
 import io.github.lakernote.observability.trace.OperationRecord;
-import io.github.lakernote.observability.trace.store.RecentTraceStore;
 import io.github.lakernote.observability.trace.TraceIdContext;
-import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.transaction.TransactionExecution;
@@ -25,37 +23,11 @@ class TransactionTraceListenerTest {
     }
 
     @Test
-    void recordsLongTransactionAndActiveGaugeAtSpringTransactionBoundary() {
-        SimpleMeterRegistry meters = new SimpleMeterRegistry();
-        EasyObservabilityProperties properties = new EasyObservabilityProperties();
-        properties.getTransaction().setSlowThresholdMs(1_000);
-        AtomicLong clock = new AtomicLong();
-        RecentTraceStore history = new RecentTraceStore(10, 10);
-        OperationRecorder recorder = new OperationRecorder(meters, history, properties);
-        TransactionTraceListener listener = new TransactionTraceListener(recorder, meters, properties, clock::get);
-        TransactionExecution execution = execution("OrderService#create", false);
-
-        listener.beforeBegin(execution);
-        clock.set(10_000_000_000L);
-        listener.afterBegin(execution, null);
-        assertThat(meters.get("easy.transactions.active").gauge().value()).isEqualTo(1);
-        clock.addAndGet(1_200_000_000L);
-        listener.afterCommit(execution, null);
-
-        assertThat(history.recent(10)).isEmpty();
-        assertThat(meters.get("easy.transactions").tag("result", "success").tag("read_only", "false")
-                .timer().count()).isEqualTo(1);
-        assertThat(meters.get("easy.transactions.active").gauge().value()).isZero();
-        assertThat(history.recent(10)).isEmpty();
-    }
-
-    @Test
     void attachesTransactionAsSingleChildOfExistingHttpTrace() {
         OperationRecorder recorder = mock(OperationRecorder.class);
-        SimpleMeterRegistry meters = new SimpleMeterRegistry();
         EasyObservabilityProperties properties = new EasyObservabilityProperties();
         AtomicLong clock = new AtomicLong();
-        TransactionTraceListener listener = new TransactionTraceListener(recorder, meters, properties, clock::get);
+        TransactionTraceListener listener = new TransactionTraceListener(recorder, properties, clock::get);
         TransactionExecution execution = execution("OrderService#create", true);
         io.github.lakernote.observability.trace.TraceContext.startRoot("POST /orders",
                 io.github.lakernote.observability.trace.SpanKind.HTTP, "", 8, 0);
@@ -89,9 +61,8 @@ class TransactionTraceListenerTest {
     @Test
     void closesTransactionSpanWhenBeginFails() {
         OperationRecorder recorder = mock(OperationRecorder.class);
-        SimpleMeterRegistry meters = new SimpleMeterRegistry();
         EasyObservabilityProperties properties = new EasyObservabilityProperties();
-        TransactionTraceListener listener = new TransactionTraceListener(recorder, meters, properties, () -> 0L);
+        TransactionTraceListener listener = new TransactionTraceListener(recorder, properties, () -> 0L);
         TransactionExecution execution = execution("OrderService#create", false);
         io.github.lakernote.observability.trace.TraceContext.startRoot("POST /orders",
                 io.github.lakernote.observability.trace.SpanKind.HTTP, "", 8, 0);

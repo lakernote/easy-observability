@@ -4,7 +4,6 @@ import io.github.lakernote.observability.config.EasyObservabilityProperties;
 import io.github.lakernote.observability.integration.transaction.TransactionTraceBeanPostProcessor;
 import io.github.lakernote.observability.integration.transaction.TransactionTraceListener;
 import io.github.lakernote.observability.metrics.OperationRecorder;
-import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
@@ -25,9 +24,9 @@ import org.springframework.transaction.TransactionExecutionListener;
 public class TransactionTraceAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
-    TransactionTraceListener transactionTraceListener(OperationRecorder recorder, MeterRegistry meterRegistry,
+    TransactionTraceListener transactionTraceListener(OperationRecorder recorder,
                                                       EasyObservabilityProperties properties) {
-        return new TransactionTraceListener(recorder, meterRegistry, properties);
+        return new TransactionTraceListener(recorder, properties);
     }
 
     @Bean

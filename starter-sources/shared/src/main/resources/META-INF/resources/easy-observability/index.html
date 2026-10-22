@@ -20,7 +20,6 @@
       </a>
       <nav class="primary-nav" aria-label="页面导航">
         <a class="active" href="#metrics-section" aria-current="page">Metrics</a>
-        <a href="#entry-section">入口统计</a>
         <a href="#incidents-section">慢与错误</a>
         <a href="#traces-section">Trace</a>
       </nav>
@@ -35,20 +34,21 @@
   <main id="main-content" class="report">
     <div id="notice" class="notice" role="alert" hidden></div>
     <section id="metrics-section" class="report-section metrics-view" aria-labelledby="metrics-title">
-      <div class="page-heading metrics-page-heading"><div><p class="eyebrow">METRICS WORKSPACE</p><h1 id="metrics-title">指标趋势</h1><p class="page-description">HTTP、定时任务和 Kafka 消费各自分组展示，再查看进程、JVM 与基础设施趋势。</p><p id="metric-range-note" class="page-description metrics-range-note" role="status">正在读取指标历史范围…</p></div><span id="metric-storage-status" class="source-badge" role="status">本地历史 · 1 分钟采样</span></div>
+      <div class="page-heading metrics-page-heading"><div><p class="eyebrow">METRICS WORKSPACE</p><h1 id="metrics-title">指标趋势</h1><p class="page-description">HTTP 请求、定时任务与 Kafka 消费分别展示速率、错误和耗时，再查看进程、JVM 与基础设施资源。</p><p id="metric-range-note" class="page-description metrics-range-note" role="status">正在读取指标历史范围…</p></div><span id="metric-storage-status" class="source-badge" role="status">本地历史 · 1 分钟采样</span></div>
       <section class="red-section" aria-labelledby="http-red-title">
         <div class="subsection-heading"><div><p class="eyebrow">HTTP · RED</p><h2 id="http-red-title">HTTP 请求健康度</h2><p>请求速率、错误速率和平均耗时合并在同一面板；切换指标查看趋势，点击 URI 表格中的彩色标记显隐曲线。错误包含 4xx、5xx 和异常结果；诊断页面自身的请求会排除。</p></div><span id="http-red-scope" class="source-badge">等待 HTTP 指标</span></div>
         <div class="red-dashboard-host" id="http-red-grid" aria-live="polite"><p class="empty">正在读取 HTTP 趋势…</p></div>
       </section>
-      <div class="subsection-heading common-metrics-heading"><div><p class="eyebrow">应用与运行资源</p><h2>按类型查看趋势</h2><p>定时任务与 Kafka 消费各占一个独立分组；同一指标的不同任务、监听器或客户端展示为多条曲线。</p></div><span id="trend-series-scope" class="source-badge" role="status">读取常用序列中…</span></div>
+      <section class="red-section" aria-labelledby="scheduled-red-title">
+        <div class="subsection-heading"><div><p class="eyebrow">SCHEDULED · RED</p><h2 id="scheduled-red-title">定时任务健康度</h2><p>按任务汇总执行速率、失败速率和平均耗时；点击任务可显隐曲线。</p></div><span id="scheduled-red-scope" class="source-badge">等待任务指标</span></div>
+        <div class="red-dashboard-host" id="scheduled-red-grid" aria-live="polite"><p class="empty">正在读取任务趋势…</p></div>
+      </section>
+      <section class="red-section" aria-labelledby="kafka-red-title">
+        <div class="subsection-heading"><div><p class="eyebrow">KAFKA CONSUMER · RED</p><h2 id="kafka-red-title">Kafka 消费健康度</h2><p>按监听器汇总消费速率、失败速率和平均耗时；客户端资源指标仍在下方趋势中展示。</p></div><span id="kafka-red-scope" class="source-badge">等待 Kafka 消费指标</span></div>
+        <div class="red-dashboard-host" id="kafka-red-grid" aria-live="polite"><p class="empty">正在读取 Kafka 消费趋势…</p></div>
+      </section>
+      <div class="subsection-heading common-metrics-heading"><div><p class="eyebrow">应用与运行资源</p><h2>按类型查看趋势</h2><p>查看 CPU、JVM、基础设施，以及调度线程池和 Kafka Consumer 客户端资源；不同实例或客户端分别展示为多条曲线。</p></div><span id="trend-series-scope" class="source-badge" role="status">读取常用序列中…</span></div>
       <div id="trend-grid" class="trend-grid"><p class="empty">正在读取指标趋势…</p></div>
-    </section>
-
-    <section id="entry-section" class="report-section" aria-labelledby="entry-title" hidden>
-      <div class="section-heading"><div><p class="eyebrow">ENTRY POINTS</p><h2 id="entry-title">入口请求统计</h2><p>按当前 Micrometer 统计值展示；选择一行可查看保留窗口中的单次调用。诊断页面自身的请求会排除。</p></div></div>
-      <div class="section-tools"><div class="filters" id="entry-filters" role="group" aria-label="入口类型"><button class="selected" data-source="ALL" aria-pressed="true">全部入口</button><button data-source="HTTP" aria-pressed="false">HTTP</button><button data-source="JOB" aria-pressed="false">Job</button><button data-source="KAFKA_CONSUMER" aria-pressed="false">Kafka 消费</button></div><span class="table-hint">按当前总耗时排序</span></div>
-      <div class="table-scroll"><table><thead><tr><th>入口</th><th>调用次数</th><th>总耗时占比</th><th>平均耗时</th><th title="Micrometer Timer 滚动统计窗口内的最大值；窗口内无样本时显示 —">窗口最大耗时</th><th>错误数</th><th>错误率</th><th>平均 CPU</th><th>平均分配量</th></tr></thead><tbody id="entry-rows"></tbody></table></div>
-      <p id="entry-empty" class="empty" hidden>当前没有入口调用统计。HTTP 入口由 Spring Observation 采集；任务和 Kafka 消费需启用对应 Observation。</p>
     </section>
 
     <section id="incidents-section" class="report-section" aria-labelledby="incidents-title" hidden>
@@ -67,9 +67,8 @@
     <footer class="page-footer"><span>Easy Observability</span><span>数据来自当前应用实例 · 指标历史保存在本地</span></footer>
   </main>
 
-  <dialog id="entry-dialog" aria-labelledby="entry-dialog-title"><div class="dialog-head"><div><p class="eyebrow">ENTRY STATISTIC</p><h2 id="entry-dialog-title">入口执行记录</h2></div><button id="close-entry-dialog" class="dialog-close" aria-label="关闭">×</button></div><p id="entry-dialog-note" class="dialog-note"></p><div class="table-scroll"><table><thead><tr><th>结果</th><th>状态</th><th>耗时</th><th>Trace ID</th><th>完成时间</th></tr></thead><tbody id="entry-trace-rows"></tbody></table></div></dialog>
   <dialog id="trace-dialog" aria-labelledby="dialog-title"><div class="dialog-head"><div><p class="eyebrow">TRACE DETAIL</p><h2 id="dialog-title">请求详情</h2></div><button id="close-dialog" class="dialog-close" aria-label="关闭">×</button></div><div id="trace-facts" class="trace-facts"></div><h3>调用树</h3><pre id="trace-tree"></pre><p id="trace-operations-note" class="dialog-note" hidden></p><h3>调用明细</h3><div class="table-scroll"><table id="operation-table"><thead><tr><th>类型</th><th>操作</th><th>耗时</th><th>CPU</th><th>分配量</th><th>线程</th><th>结果</th><th>错误</th></tr></thead><tbody id="operation-rows"></tbody></table></div></dialog>
   <script defer src="/easy-observability/assets/vendor/echarts.min.js?v=6.1.0"></script>
-  <script type="module" src="/easy-observability/assets/dashboard.js?v=20261021.7"></script>
+  <script type="module" src="/easy-observability/assets/dashboard.js?v=20261022.1"></script>
 </body>
 </html>

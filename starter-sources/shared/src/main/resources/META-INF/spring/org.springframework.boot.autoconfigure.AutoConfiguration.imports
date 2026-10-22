@@ -1,8 +1,7 @@
 io.github.lakernote.observability.autoconfigure.ObservabilityAutoConfiguration
-io.github.lakernote.observability.autoconfigure.RuntimeMetricsAutoConfiguration
+io.github.lakernote.observability.autoconfigure.Rrd4jStepMeterRegistryAutoConfiguration
 io.github.lakernote.observability.autoconfigure.ObservabilityWebAutoConfiguration
 io.github.lakernote.observability.autoconfigure.ScheduledTaskObservationAutoConfiguration
-io.github.lakernote.observability.autoconfigure.ExecutorMetricsAutoConfiguration
 io.github.lakernote.observability.autoconfigure.TraceIdAutoConfiguration
 io.github.lakernote.observability.autoconfigure.TraceSpanAutoConfiguration
 io.github.lakernote.observability.autoconfigure.RedisTraceAutoConfiguration
@@ -13,5 +12,4 @@ io.github.lakernote.observability.autoconfigure.KafkaProducerTraceAutoConfigurat
 io.github.lakernote.observability.autoconfigure.MybatisTraceAutoConfiguration
 io.github.lakernote.observability.autoconfigure.FeignTraceAutoConfiguration
 io.github.lakernote.observability.autoconfigure.OkHttpObservationAutoConfiguration
-io.github.lakernote.observability.autoconfigure.DruidPoolMetricsAutoConfiguration
 io.github.lakernote.observability.autoconfigure.JdbcObservationOverheadAutoConfiguration

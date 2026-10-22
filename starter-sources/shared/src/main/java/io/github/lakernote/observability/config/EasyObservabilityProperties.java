@@ -210,34 +210,18 @@ public class EasyObservabilityProperties {
     }
 
     public static class Metrics {
-        private boolean enabled = true;
         private final History history = new History();
-        private final Executor executor = new Executor();
-
-        public boolean isEnabled() {
-            return enabled;
-        }
-
-        public void setEnabled(boolean enabled) {
-            this.enabled = enabled;
-        }
 
         public History getHistory() {
             return history;
-        }
-
-        public Executor getExecutor() {
-            return executor;
         }
 
         public static class History {
             private boolean enabled = true;
             private String storageDir = "./data/easy-observability/metrics";
             private int retentionDays = 15;
-            private long intervalMs = 60_000;
             private DataSize maxStorageBytes = DataSize.ofMegabytes(64);
             private DataSize maxSeriesBytes = DataSize.ofMegabytes(8);
-            private int maxSeries = 256;
 
             public boolean isEnabled() {
                 return enabled;
@@ -263,14 +247,6 @@ public class EasyObservabilityProperties {
                 this.retentionDays = retentionDays;
             }
 
-            public long getIntervalMs() {
-                return intervalMs;
-            }
-
-            public void setIntervalMs(long intervalMs) {
-                this.intervalMs = intervalMs;
-            }
-
             public DataSize getMaxStorageBytes() {
                 return maxStorageBytes;
             }
@@ -287,26 +263,8 @@ public class EasyObservabilityProperties {
                 this.maxSeriesBytes = maxSeriesBytes;
             }
 
-            public int getMaxSeries() {
-                return maxSeries;
-            }
-
-            public void setMaxSeries(int maxSeries) {
-                this.maxSeries = maxSeries;
-            }
         }
 
-        public static class Executor {
-            private boolean enabled = true;
-
-            public boolean isEnabled() {
-                return enabled;
-            }
-
-            public void setEnabled(boolean enabled) {
-                this.enabled = enabled;
-            }
-        }
     }
 
     public static class Trace {

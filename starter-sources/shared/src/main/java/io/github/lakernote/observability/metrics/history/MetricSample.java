@@ -3,7 +3,12 @@ package io.github.lakernote.observability.metrics.history;
 import java.util.Map;
 
 /** One bounded snapshot of a Micrometer meter. */
-public record MetricSample(String name, Map<String, String> tags, Map<String, Double> measurements) {
+public record MetricSample(String name, Map<String, String> tags, Map<String, Double> measurements,
+                           boolean stepNormalized) {
+    public MetricSample(String name, Map<String, String> tags, Map<String, Double> measurements) {
+        this(name, tags, measurements, false);
+    }
+
     public MetricSample {
         name = name == null ? "" : name;
         tags = tags == null ? Map.of() : Map.copyOf(tags);

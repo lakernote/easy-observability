@@ -6,15 +6,12 @@ import io.github.lakernote.observability.integration.executor.ExecutorTaskObserv
 import io.github.lakernote.observability.integration.job.JobObservation;
 import io.github.lakernote.observability.integration.observation.ObservationTraceHandler;
 import io.github.lakernote.observability.integration.observation.ObservationTraceIdResolver;
-import io.github.lakernote.observability.metrics.MetricCardinalityConfiguration;
 import io.github.lakernote.observability.metrics.OperationRecorder;
-import io.github.lakernote.observability.metrics.history.MetricHistoryCollector;
 import io.github.lakernote.observability.metrics.history.MetricHistoryStore;
 import io.github.lakernote.observability.trace.BoundedHistoryWriter;
 import io.github.lakernote.observability.trace.TraceContextTaskDecorator;
 import io.github.lakernote.observability.trace.store.IncidentTraceStore;
 import io.github.lakernote.observability.trace.store.RecentTraceStore;
-import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
@@ -22,7 +19,6 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Import;
 
 /**
  * 注册监控共用组件。
@@ -37,7 +33,6 @@ import org.springframework.context.annotation.Import;
 })
 @ConditionalOnProperty(prefix = "easy.observability", name = "enabled", havingValue = "true", matchIfMissing = true)
 @EnableConfigurationProperties(EasyObservabilityProperties.class)
-@Import(MetricCardinalityConfiguration.class)
 public class ObservabilityAutoConfiguration {
 
     /**
@@ -88,33 +83,16 @@ public class ObservabilityAutoConfiguration {
     MetricHistoryStore metricHistoryStore(ObjectMapper objectMapper, EasyObservabilityProperties properties) {
         EasyObservabilityProperties.Metrics.History history = properties.getMetrics().getHistory();
         return new MetricHistoryStore(objectMapper, history.getStorageDir(), history.getRetentionDays(),
-                history.getMaxStorageBytes().toBytes(), history.getMaxSeriesBytes().toBytes(),
-                history.getMaxSeries(), history.isEnabled());
+                history.getMaxStorageBytes().toBytes(), history.getMaxSeriesBytes().toBytes(), history.isEnabled());
     }
 
     /**
-     * 定期从 MeterRegistry 采集指标并写入本地历史存储。
+     * 在 Trace 活跃时保存被观测操作明细。
      */
     @Bean
-    @ConditionalOnBean(MeterRegistry.class)
-    @ConditionalOnProperty(prefix = "easy.observability.metrics.history", name = "enabled",
-            havingValue = "true", matchIfMissing = true)
     @ConditionalOnMissingBean
-    MetricHistoryCollector metricHistoryCollector(MeterRegistry registry, MetricHistoryStore store,
-                                                  EasyObservabilityProperties properties) {
-        // 指标历史采集器使用独立低频后台任务，不要求宿主应用开启 Spring Scheduling。
-        return new MetricHistoryCollector(registry, store, properties.getMetrics().getHistory().getIntervalMs());
-    }
-
-    /**
-     * 将被观测操作记录到 Micrometer 指标，并在 Trace 活跃时保存操作明细。
-     */
-    @Bean
-    @ConditionalOnBean(MeterRegistry.class)
-    @ConditionalOnMissingBean
-    OperationRecorder operationRecorder(MeterRegistry meterRegistry, RecentTraceStore recentTraces,
-                                        EasyObservabilityProperties properties) {
-        return new OperationRecorder(meterRegistry, recentTraces, properties);
+    OperationRecorder operationRecorder(RecentTraceStore recentTraces, EasyObservabilityProperties properties) {
+        return new OperationRecorder(recentTraces, properties);
     }
 
     /**

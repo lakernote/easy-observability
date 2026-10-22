@@ -114,7 +114,6 @@ tbody tr.clickable:focus-visible { outline: 2px solid #7195f0; outline-offset: -
 
 dialog { width: min(1080px, calc(100% - 32px)); max-height: min(88vh, 900px); overflow: auto; padding: 23px; border: 1px solid #dce4ef; border-radius: 15px; background: #fff; box-shadow: 0 24px 90px rgb(17 34 61 / 24%); }
 dialog::backdrop { background: rgb(15 28 48 / 56%); backdrop-filter: blur(3px); }
-#entry-dialog { width: min(900px, calc(100% - 32px)); }
 .dialog-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding-bottom: 15px; border-bottom: 1px solid #e8edf3; }
 .dialog-head h2 { margin: 0; color: #1b2b42; font-size: 17px; font-weight: 680; line-height: 1.4; overflow-wrap: anywhere; }
 .dialog-close { display: grid; flex: 0 0 auto; width: 34px; height: 34px; place-items: center; border: 1px solid #e7ebf1; border-radius: 9px; background: #fff; color: #708097; font-size: 21px; cursor: pointer; }

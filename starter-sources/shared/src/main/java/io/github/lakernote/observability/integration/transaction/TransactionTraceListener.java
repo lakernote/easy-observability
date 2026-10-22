@@ -3,18 +3,14 @@ package io.github.lakernote.observability.integration.transaction;
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
 import io.github.lakernote.observability.metrics.OperationRecorder;
 import io.github.lakernote.observability.trace.*;
-import io.micrometer.core.instrument.MeterRegistry;
-import io.micrometer.core.instrument.Timer;
 import org.springframework.transaction.TransactionExecution;
 import org.springframework.transaction.TransactionExecutionListener;
 
 import java.time.Instant;
 import java.util.IdentityHashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.LongSupplier;
 
 /**
@@ -23,26 +19,19 @@ import java.util.function.LongSupplier;
 public final class TransactionTraceListener implements TransactionExecutionListener {
     private final OperationRecorder recorder;
     private final EasyObservabilityProperties properties;
-    private final AtomicLong activeTransactions = new AtomicLong();
-    private final Map<TransactionMetricKey, Timer> transactionTimers;
     private final LongSupplier nanoTime;
     private final ThreadLocal<Map<TransactionExecution, State>> states =
             ThreadLocal.withInitial(IdentityHashMap::new);
 
-    public TransactionTraceListener(OperationRecorder recorder, MeterRegistry meterRegistry,
-                                    EasyObservabilityProperties properties) {
-        this(recorder, meterRegistry, properties, System::nanoTime);
+    public TransactionTraceListener(OperationRecorder recorder, EasyObservabilityProperties properties) {
+        this(recorder, properties, System::nanoTime);
     }
 
-    TransactionTraceListener(OperationRecorder recorder, MeterRegistry meterRegistry,
-                             EasyObservabilityProperties properties, LongSupplier nanoTime) {
+    TransactionTraceListener(OperationRecorder recorder, EasyObservabilityProperties properties,
+                             LongSupplier nanoTime) {
         this.recorder = recorder;
         this.properties = properties;
         this.nanoTime = nanoTime;
-        if (properties.getMetrics().isEnabled()) {
-            meterRegistry.gauge("easy.transactions.active", activeTransactions, AtomicLong::get);
-        }
-        this.transactionTimers = registerTransactionTimers(meterRegistry, properties.getMetrics().isEnabled());
     }
 
     @Override
@@ -85,8 +74,6 @@ public final class TransactionTraceListener implements TransactionExecutionListe
             state.resources = ThreadResourceSnapshot.capture(state.threadId,
                     properties.getTrace().isResourceSamplingEnabled());
             state.started = true;
-            state.countedActive = true;
-            activeTransactions.incrementAndGet();
         } catch (Throwable ignored) {
             // Instrumentation must never change the transaction result.
         }
@@ -137,13 +124,9 @@ public final class TransactionTraceListener implements TransactionExecutionListe
                     error == null ? "" : error.type(), error == null ? "" : error.message(), Map.of(), Instant.now(),
                     state.span == null ? "" : state.span.spanId(),
                     state.span == null ? "" : state.span.parentSpanId()));
-            Timer transactionTimer = transactionTimers.get(new TransactionMetricKey(success, state.readOnly));
-            if (transactionTimer != null) transactionTimer.record(durationMs, TimeUnit.MILLISECONDS);
-
         } catch (Throwable ignored) {
             // Instrumentation must never change the transaction result.
         } finally {
-            if (state.countedActive) activeTransactions.updateAndGet(value -> Math.max(0, value - 1));
             if (state.ownsTraceId && state.traceId.equals(TraceIdContext.currentTraceId())) TraceIdContext.clear();
             if (states.get().isEmpty()) states.remove();
         }
@@ -151,25 +134,6 @@ public final class TransactionTraceListener implements TransactionExecutionListe
 
     private static String safeName(String name) {
         return name == null || name.isBlank() ? "transaction" : name.length() > 200 ? name.substring(0, 200) : name;
-    }
-
-    private static Map<TransactionMetricKey, Timer> registerTransactionTimers(MeterRegistry registry,
-                                                                              boolean enabled) {
-        if (!enabled) return Map.of();
-        Map<TransactionMetricKey, Timer> timers = new LinkedHashMap<>();
-        for (boolean success : new boolean[]{true, false}) {
-            for (boolean readOnly : new boolean[]{true, false}) {
-                TransactionMetricKey key = new TransactionMetricKey(success, readOnly);
-                timers.put(key, Timer.builder("easy.transactions")
-                        .description("Spring transaction count and duration")
-                        .tag("result", success ? "success" : "failure")
-                        .tag("read_only", Boolean.toString(readOnly)).register(registry));
-            }
-        }
-        return Map.copyOf(timers);
-    }
-
-    private record TransactionMetricKey(boolean success, boolean readOnly) {
     }
 
     private static final class State {
@@ -185,7 +149,6 @@ public final class TransactionTraceListener implements TransactionExecutionListe
         private ThreadResourceSnapshot resources;
         private TraceContext.ScopedSpan span;
         private boolean started;
-        private boolean countedActive;
 
         private State(String traceId, boolean ownsTraceId, boolean tracing, String name, boolean readOnly,
                       long createdNanos, long threadId, String threadName) {

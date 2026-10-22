@@ -1,11 +1,9 @@
 const api = '/api/easy-observability'
 const byId = id => document.getElementById(id)
 const labels = { HTTP: 'HTTP', JOB: 'Job', EXECUTOR_TASK: '线程池任务', KAFKA_CONSUMER: 'Kafka 消费', REDIS: 'Redis', DATABASE: '数据库', SQL: '数据库', TRANSACTION: '事务', REMOTE: '远程调用', ELASTICSEARCH: 'Elasticsearch', KAFKA_PRODUCER: 'Kafka 生产' }
-let requestStats = []
 let traces = []
 let slowIncidents = []
 let errorIncidents = []
-let selectedSource = 'ALL'
 let seriesCatalog = []
 let liveMetrics = []
 let metricDataLoaded = false
@@ -16,13 +14,15 @@ let seriesLoading = new Map()
 let seriesCacheGeneration = 0
 let redHistoryCache = null
 let redLoading = null
+const observationRedCache = new Map()
+const observationRedLoading = new Map()
 let metricTimeRange = null
 let renderedMetricRangeKey = ''
 let trendHistoryObserver = null
 let trendRenderVersion = 0
-let selectedRedMetric = 'requests'
-let visibleRedUris = null
-let redUriCatalog = new Set()
+const selectedRedMetric = { HTTP: 'requests', SCHEDULED: 'requests', KAFKA_CONSUMER: 'requests' }
+const visibleRedGroups = new Map()
+const redGroupCatalog = new Map()
 let historyRequestQueue = Promise.resolve()
 const httpSeriesLimit = 48
 const httpUriLimit = 8
@@ -247,7 +247,7 @@ function updateMetricStorageLabel() {
   if (!metricStorageStatus) return
   const storage = metricStorageStatus
   const size = `${formatBytes(storage.storageBytes)} / ${formatBytes(storage.maxStorageBytes)}`
-  const series = metricDataLoaded ? ` · ${formatNumber(seriesCatalog.length)} 条序列` : ''
+  const series = ` · ${formatNumber(storage.segmentCount)} 条序列`
   byId('metric-storage-status').textContent = storage.enabled
     ? `指标历史 · ${size}${series} · 保留 ${formatNumber(storage.retentionDays)} 天`
     : '本地历史存储已关闭'
@@ -262,11 +262,6 @@ function isDashboardHttpTraffic(source, value) {
 function isDashboardTrace(trace) {
   return isDashboardHttpTraffic(trace.sourceType, `${trace.method || ''} ${trace.name || ''}`)
 }
-function requestStatisticLabel(item) {
-  return item.source === 'HTTP'
-    ? String(item.operation || '').replace(/\s*·\s*http\.server\.requests$/i, '')
-    : item.operation
-}
 function traceOperationLabel(trace) {
   if (trace.sourceType === 'HTTP') {
     if (trace.method && (trace.name === 'http.server.requests' || /\s·\s(?:GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD)\b/i.test(trace.method))) {
@@ -275,75 +270,6 @@ function traceOperationLabel(trace) {
     return trace.name || trace.method || ''
   }
   return [trace.method, trace.name].filter(Boolean).join(' ')
-}
-
-function renderStats() {
-  const visible = requestStats.filter(item => !isDashboardHttpTraffic(item.source, item.operation)
-    && (selectedSource === 'ALL' || item.source === selectedSource))
-  const rows = byId('entry-rows')
-  rows.replaceChildren()
-  const sumDuration = visible.reduce((sum, item) => sum + Number(item.totalDurationMs || 0), 0)
-  for (const item of visible) {
-    const row = document.createElement('tr')
-    row.title = '查看保留的单次调用'
-    makeClickable(row, `查看 ${labels[item.source] || item.source} ${requestStatisticLabel(item)} 的调用记录`, () => openEntryDetails(item))
-    td(row, `${labels[item.source] || item.source} · ${requestStatisticLabel(item)}`)
-    td(row, formatNumber(item.count), 'number')
-    const shareCell = td(row, `${sumDuration ? (item.totalDurationMs / sumDuration * 100).toFixed(1) : '0.0'}%`, 'share')
-    const bar = document.createElement('div'); bar.className = 'share-line'
-    const fill = document.createElement('i'); fill.style.width = `${sumDuration ? Math.min(100, item.totalDurationMs / sumDuration * 100) : 0}%`; bar.append(fill); shareCell.append(bar)
-    td(row, formatNumber(item.meanDurationMs, ' ms'), 'number')
-    td(row, Number(item.maxDurationMs) > 0 ? formatNumber(item.maxDurationMs, ' ms') : '—', 'number')
-    td(row, formatNumber(item.errorCount), 'number')
-    td(row, `${Number(item.errorRate || 0).toFixed(2)}%`, 'number')
-    td(row, formatNumber(item.meanCpuTimeMs, ' ms'), 'number')
-    td(row, formatBytes(item.meanAllocatedBytes), 'number')
-    rows.append(row)
-  }
-  byId('entry-empty').hidden = visible.length > 0
-}
-
-async function openEntryDetails(item) {
-  byId('entry-dialog-title').textContent = `${labels[item.source] || item.source} · ${requestStatisticLabel(item)}`
-  const rows = byId('entry-trace-rows'); rows.replaceChildren()
-  const loadingRow = document.createElement('tr'); const loadingCell = document.createElement('td')
-  loadingCell.colSpan = 5; loadingCell.className = 'empty'; loadingCell.textContent = '正在读取当前进程保留的调用…'
-  loadingRow.append(loadingCell); rows.append(loadingRow)
-  byId('entry-dialog-note').textContent = '正在刷新当前进程的指标和 Trace 保留记录…'
-  byId('entry-dialog').showModal()
-  const params = new URLSearchParams({ source: item.source, operation: item.operation, limit: '100' })
-  let matches
-  let currentItem = item
-  try {
-    const [latestStats, latestTraces] = await Promise.all([
-      getJson('/request-statistics?source=ALL&limit=200'), getJson(`/traces?${params}`)
-    ])
-    requestStats = latestStats || requestStats
-    renderStats()
-    currentItem = requestStats.find(stat => stat.source === item.source && stat.operation === item.operation) || item
-    matches = latestTraces || []
-  }
-  catch (error) {
-    const cell = loadingRow.querySelector('td'); cell.textContent = error?.message || '读取调用记录失败'
-    byId('entry-dialog-note').textContent = '刷新当前进程指标或读取调用记录失败。'
-    return
-  }
-  byId('entry-dialog-note').textContent = `Micrometer 当前进程累计 ${formatNumber(currentItem.count)} 次；Trace 保留窗口中匹配 ${matches.length}${matches.length >= 100 ? '+' : ''} 条调用。`
-  rows.replaceChildren()
-  for (const trace of matches.slice(0, 100)) {
-    const row = document.createElement('tr'); makeClickable(row, `查看 Trace ${trace.traceId}`, () => {
-      byId('entry-dialog').close(); openTrace(trace)
-    })
-    td(row, trace.error ? '错误' : trace.slow ? '慢' : '正常', `status ${trace.error ? 'error' : trace.slow ? 'slow' : 'ok'}`)
-    td(row, formatNumber(trace.status), 'number'); td(row, formatNumber(trace.durationMs, ' ms'), 'number')
-    td(row, trace.traceId, 'mono'); td(row, formatTime(trace.finishedAt)); rows.append(row)
-  }
-  if (!matches.length) {
-    const row = document.createElement('tr'); const cell = document.createElement('td')
-    cell.colSpan = 5; cell.className = 'empty'; cell.textContent = '当前进程的 Trace 保留窗口中没有匹配记录；累计指标仍可用。'
-    row.append(cell); rows.append(row)
-  }
-  byId('entry-dialog').showModal()
 }
 
 async function openTrace(trace) {
@@ -653,11 +579,6 @@ function seriesTitle(series) {
   if (/^tomcat\.sessions\.(created|expired|rejected)$/.test(series.name)) {
     return ({ created: '新建', expired: '过期', rejected: '拒绝' })[series.name.split('.').at(-1)]
   }
-  if (series.name === 'easy.operations.duration') {
-    const source = ({ HTTP: 'HTTP', JOB: 'Job', EXECUTOR_TASK: '线程池任务', KAFKA_CONSUMER: 'Kafka 消费', REDIS: 'Redis',
-      DATABASE: '数据库', TRANSACTION: '事务', REMOTE: '远程调用', ELASTICSEARCH: 'Elasticsearch' })[series.tags?.source] || series.tags?.source || '应用'
-    return `${source} · ${series.tags?.operation || '操作'}${series.tags?.outcome ? ` · ${series.tags.outcome}` : ''}`
-  }
   if (series.name === 'tasks.scheduled.execution' || series.name === 'spring.kafka.listener') {
     const tags = Object.entries(series.tags || {})
       .filter(([key]) => !['application', 'environment'].includes(key))
@@ -684,7 +605,7 @@ function seriesKey(series) {
 }
 function metricMeasurement(series) {
   const available = series.measurements || []
-  if (['easy.operations.duration', 'tasks.scheduled.execution', 'spring.kafka.listener'].includes(series.name)
+  if (['tasks.scheduled.execution', 'spring.kafka.listener'].includes(series.name)
       && available.includes('COUNT') && available.includes('TOTAL_TIME')) return 'INTERVAL_AVG'
   if (/^spring\.kafka\.container\..*\.count$/.test(series.name) && available.includes('COUNT')) return 'RATE'
   if (series.name.startsWith('kafka.consumer.') && available.includes('COUNT')) return 'RATE'
@@ -695,6 +616,21 @@ function metricHistoryValues(series, points, measurement, timeRange) {
   const chronological = points.slice().reverse()
   if (measurement === 'INTERVAL_AVG' || measurement === 'RATE') {
     const values = []
+    if (series.stepNormalized) {
+      for (const point of chronological) {
+        const capturedAt = new Date(point.capturedAt).getTime()
+        if (capturedAt < timeRange.start || capturedAt > timeRange.end) continue
+        const count = Number(point.measurements?.COUNT)
+        if (!Number.isFinite(count)) continue
+        if (measurement === 'INTERVAL_AVG') {
+          const totalTime = Number(point.measurements?.TOTAL_TIME)
+          if (count > 0 && Number.isFinite(totalTime)) values.push([capturedAt, totalTime * 1000 / count])
+        } else {
+          values.push([capturedAt, count])
+        }
+      }
+      return values
+    }
     let previous = null
     for (const point of chronological) {
       const capturedAt = new Date(point.capturedAt).getTime()
@@ -747,12 +683,6 @@ function trendGroup(series, category, measurement) {
   }
   if (/^tomcat\.sessions\.(created|expired|rejected)$/.test(name) && measurement === 'RATE') {
     return { key: `${category}|tomcat-session-rate`, title: 'Tomcat 会话变化' }
-  }
-  if (name === 'easy.operations.duration') {
-    const source = series.tags?.source || 'unknown'
-    const sourceLabel = ({ HTTP: 'HTTP', JOB: 'Job', EXECUTOR_TASK: '线程池任务', KAFKA_CONSUMER: 'Kafka 消费', REDIS: 'Redis', DATABASE: '数据库',
-      TRANSACTION: '事务', REMOTE: '远程调用', ELASTICSEARCH: 'Elasticsearch' })[source] || source
-    return { key: `${category}|easy-operation-duration|${source}|${measurement}`, title: `${sourceLabel} 操作耗时` }
   }
   if (name === 'tasks.scheduled.execution') {
     return { key: `${category}|scheduled-task-duration|${measurement}`, title: '定时任务执行耗时' }
@@ -826,10 +756,9 @@ const preferredMetricNames = [
 const preferredMetricRank = new Map(preferredMetricNames.map((name, index) => [name, index]))
 function isUsefulMetric(series) {
   const name = String(series.name || '')
+  // HTTP, scheduled tasks and Kafka listeners each have a dedicated RED panel above.
+  if (name === 'http.server.requests' || name === 'tasks.scheduled.execution' || name === 'spring.kafka.listener') return false
   // HTTP 的入口请求时延已由 RED 面板按 URI 展示，避免同一数据在应用指标里重复出现。
-  if (name === 'easy.operations.duration' && series.tags?.source === 'HTTP') return false
-  // Job 和 Kafka 的趋势直接读取 Spring 原生 Timer，避免同一次 Observation 重复绘图。
-  if (name === 'easy.operations.duration' && ['JOB', 'KAFKA_CONSUMER'].includes(series.tags?.source)) return false
   if (preferredMetricRank.has(name)) return true
   // 展示常见客户端依赖指标，但仍按指标名分图，避免把不同单位混在一起。
   return /^(http\.client\.requests|kafka\.(consumer|producer)\.|spring\.kafka\.|redis\.|lettuce\.|cache\.|elasticsearch\.)/.test(name)
@@ -977,11 +906,13 @@ function createTimeSeriesChart(element, { series, yAxisName, valueFormatter, axi
   })
   return chart
 }
-function isHttpError(tags) {
+function isMetricError(tags) {
   const status = Number(tags?.status)
+  const error = String(tags?.error || '').trim().toLowerCase()
   return (Number.isFinite(status) && status >= 400)
     || ['CLIENT_ERROR', 'SERVER_ERROR', 'ERROR', 'FAILURE'].includes(String(tags?.outcome || '').toUpperCase())
     || Boolean(tags?.exception && String(tags.exception).toLowerCase() !== 'none')
+    || Boolean(error && error !== 'none' && error !== 'false')
 }
 
 const redMetricOptions = {
@@ -1006,17 +937,31 @@ function redMetricStats(group, metric) {
       : group.points.reduce((sum, point) => sum + point.durationTotalMs, 0)
   const mean = metric.field === 'duration' && samples.length
     ? samples.reduce((sum, point) => sum + point.durationTotalMs, 0) / samples.reduce((sum, point) => sum + point.durationCount, 0)
-    : values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null
+    : values.length ? samples.reduce((sum, point) => sum + Number(point[metric.field]) * (Number(point.intervalSeconds || 60) / 60), 0)
+      / samples.reduce((sum, point) => sum + Number(point.intervalSeconds || 60) / 60, 0) : null
   return { max: values.length ? Math.max(...values) : null, mean, total }
 }
-function renderHttpRedDashboard(grid, groups, timeRange) {
-  const metric = redMetricOptions[selectedRedMetric]
+function redOptionsFor(source) {
+  if (source === 'HTTP') return redMetricOptions
+  const noun = source === 'SCHEDULED' ? '执行' : '消费'
+  return {
+    requests: { label: `${noun}速率`, summaryLabel: `${noun}总数`, field: 'requests', unit: ' 次/分钟', totalUnit: ' 次', summaryUnit: ' 次' },
+    errors: { label: '失败速率', summaryLabel: '失败总数', field: 'errors', unit: ' 次/分钟', totalUnit: ' 次', summaryUnit: ' 次' },
+    duration: redMetricOptions.duration
+  }
+}
+function renderRedDashboard(grid, groups, timeRange, source, groupLabel) {
+  const options = redOptionsFor(source)
+  const selectedMetric = selectedRedMetric[source]
+  const metric = options[selectedMetric]
+  const visibleGroups = visibleRedGroups.get(source)
   const dashboard = document.createElement('div'); dashboard.className = 'red-dashboard'
-  const summary = document.createElement('div'); summary.className = 'red-summary-grid'; summary.setAttribute('role', 'group'); summary.setAttribute('aria-label', '选择 HTTP 趋势指标')
-  Object.entries(redMetricOptions).forEach(([key, option]) => {
+  const summary = document.createElement('div'); summary.className = 'red-summary-grid'; summary.setAttribute('role', 'group')
+  summary.setAttribute('aria-label', `选择${source === 'HTTP' ? 'HTTP' : source === 'SCHEDULED' ? '定时任务' : 'Kafka 消费'}趋势指标`)
+  Object.entries(options).forEach(([key, option]) => {
     const button = document.createElement('button'); button.type = 'button'
-    button.className = `red-summary-card${key === selectedRedMetric ? ' selected' : ''}`
-    button.dataset.redMetric = key; button.setAttribute('aria-pressed', String(key === selectedRedMetric))
+    button.className = `red-summary-card${key === selectedMetric ? ' selected' : ''}`
+    button.dataset.redMetric = key; button.dataset.redSource = source; button.setAttribute('aria-pressed', String(key === selectedMetric))
     const label = document.createElement('span'); label.textContent = option.summaryLabel
     const value = document.createElement('strong'); const current = redMetricCurrent(groups, option)
     value.textContent = Number.isFinite(current) ? `${formatNumber(current)}${option.summaryUnit}` : '暂无数据'
@@ -1027,28 +972,28 @@ function renderHttpRedDashboard(grid, groups, timeRange) {
 
   const chartPanel = document.createElement('section'); chartPanel.className = 'red-chart-panel'; chartPanel.setAttribute('aria-label', `${metric.label}趋势`)
   const chartHeading = document.createElement('div'); chartHeading.className = 'red-chart-heading'
-  const chartTitle = document.createElement('h3'); chartTitle.textContent = `${metric.label} · 按 URI`
-  const chartHint = document.createElement('span'); chartHint.textContent = '点下方 URI 可显隐曲线'
+  const chartTitle = document.createElement('h3'); chartTitle.textContent = `${metric.label} · 按${groupLabel}`
+  const chartHint = document.createElement('span'); chartHint.textContent = `点下方${groupLabel}可显隐曲线`
   chartHeading.append(chartTitle, chartHint)
-  const chartElement = document.createElement('div'); chartElement.className = 'metric-chart'; chartElement.setAttribute('aria-label', `${metric.label}按 URI 分组的趋势图`)
+  const chartElement = document.createElement('div'); chartElement.className = 'metric-chart'; chartElement.setAttribute('aria-label', `${metric.label}按${groupLabel}分组的趋势图`)
   chartPanel.append(chartHeading, chartElement); dashboard.append(chartPanel)
 
   const tableWrap = document.createElement('div'); tableWrap.className = 'red-detail-scroll'
-  const table = document.createElement('table'); table.className = 'red-detail-table'; table.setAttribute('aria-label', `${metric.label} URI 统计和曲线筛选`)
+  const table = document.createElement('table'); table.className = 'red-detail-table'; table.setAttribute('aria-label', `${metric.label}${groupLabel}统计和曲线筛选`)
   const head = document.createElement('thead'); const headerRow = document.createElement('tr')
-  for (const name of ['URI / 曲线', '最大', '平均', '累计']) { const cell = document.createElement('th'); cell.textContent = name; headerRow.append(cell) }
+  for (const name of [`${groupLabel} / 曲线`, '最大', '平均', '累计']) { const cell = document.createElement('th'); cell.textContent = name; headerRow.append(cell) }
   head.append(headerRow); table.append(head)
   const body = document.createElement('tbody')
   groups.map(group => ({ group, ...redMetricStats(group, metric) }))
     .sort((left, right) => right.total - left.total)
     .forEach(({ group, max, mean, total }) => {
-      const row = document.createElement('tr'); const uriCell = document.createElement('td'); uriCell.className = 'red-uri-cell'; uriCell.title = group.uri
-      const visible = visibleRedUris.has(group.uri); const color = chartPalette[groups.indexOf(group) % chartPalette.length]
+      const row = document.createElement('tr'); const uriCell = document.createElement('td'); uriCell.className = 'red-uri-cell'; uriCell.title = group.label
+      const visible = visibleGroups.has(group.id); const color = chartPalette[groups.indexOf(group) % chartPalette.length]
       const toggle = document.createElement('button'); toggle.type = 'button'; toggle.className = `red-uri-toggle${visible ? '' : ' is-hidden'}`
-      toggle.dataset.uri = group.uri; toggle.setAttribute('aria-pressed', String(visible)); toggle.setAttribute('aria-label', `${visible ? '隐藏' : '显示'}曲线 ${group.uri}`)
+      toggle.dataset.uri = group.id; toggle.dataset.redSource = source; toggle.setAttribute('aria-pressed', String(visible)); toggle.setAttribute('aria-label', `${visible ? '隐藏' : '显示'}曲线 ${group.label}`)
       toggle.style.setProperty('--uri-color', color)
       const marker = document.createElement('i'); marker.setAttribute('aria-hidden', 'true')
-      const name = document.createElement('span'); name.textContent = group.uri
+      const name = document.createElement('span'); name.textContent = group.label
       toggle.append(marker, name); uriCell.append(toggle); row.append(uriCell)
       for (const [value, suffix] of [[max, metric.unit], [mean, metric.unit], [total, metric.totalUnit]]) {
         const cell = document.createElement('td'); cell.className = 'number'; cell.textContent = Number.isFinite(value) ? `${formatNumber(value)}${suffix}` : '—'; row.append(cell)
@@ -1058,8 +1003,8 @@ function renderHttpRedDashboard(grid, groups, timeRange) {
   table.append(body); tableWrap.append(table); dashboard.append(tableWrap)
   grid.append(dashboard)
 
-  const chartSeries = groups.filter(group => visibleRedUris.has(group.uri)).map(group => ({
-    name: group.uri,
+  const chartSeries = groups.filter(group => visibleGroups.has(group.id)).map(group => ({
+    name: group.label,
     color: chartPalette[groups.indexOf(group) % chartPalette.length],
     data: group.points
       .filter(point => metric.field !== 'duration' || point.durationCount > 0)
@@ -1069,7 +1014,7 @@ function renderHttpRedDashboard(grid, groups, timeRange) {
   createTimeSeriesChart(chartElement, {
     series: chartSeries, yAxisName: metric.unit.trim(),
     valueFormatter: value => `${formatNumber(value)}${metric.unit}`,
-    axisFormatter: compactAxisValue, description: `${metric.label}按 URI 分组的时间趋势`, timeRange
+    axisFormatter: compactAxisValue, description: `${metric.label}按${groupLabel}分组的时间趋势`, timeRange
   })
 }
 
@@ -1089,7 +1034,7 @@ async function loadHttpRedHistoryUncached(timeRange) {
   const groupsByUri = new Map()
   candidates.forEach(series => {
     const uri = series.tags?.uri || series.tags?.url || '（未标记 URI）'
-    if (!groupsByUri.has(uri)) groupsByUri.set(uri, { uri, series: [], active: 0 })
+    if (!groupsByUri.has(uri)) groupsByUri.set(uri, { id: uri, uri, label: uri, series: [], active: 0 })
     const group = groupsByUri.get(uri)
     group.series.push(series)
     if (activeKeys.has(seriesKey(series))) group.active++
@@ -1127,6 +1072,23 @@ async function loadHttpRedHistoryUncached(timeRange) {
           const count = Number(point.measurements?.COUNT)
           const total = Number(point.measurements?.TOTAL_TIME)
           if (!Number.isFinite(count) || !Number.isFinite(total)) continue
+          if (series.stepNormalized) {
+            const intervalSteps = Math.max(1, Number(point.intervalSeconds || 60) / 60)
+            const rate = count
+            const bucket = bins.get(point.capturedAt) || { capturedAt: point.capturedAt, requests: 0, errors: 0, requestCount: 0, errorCount: 0, durationTotalMs: 0, durationCount: 0 }
+            bucket.requests += rate
+            bucket.requestCount += count * intervalSteps
+            if (isMetricError(series.tags)) {
+              bucket.errors += rate
+              bucket.errorCount += count * intervalSteps
+            }
+            if (count > 0) {
+              bucket.durationTotalMs += total * 1000 * intervalSteps
+              bucket.durationCount += count * intervalSteps
+            }
+            bins.set(point.capturedAt, bucket)
+            continue
+          }
           if (previous) {
             const elapsedMinutes = Math.max(1, (new Date(point.capturedAt).getTime() - new Date(previous.at).getTime()) / 60000)
             const processStartTime = processStartByTimestamp.get(point.capturedAt)
@@ -1139,7 +1101,7 @@ async function loadHttpRedHistoryUncached(timeRange) {
             const requestRate = deltaCount / elapsedMinutes
             bucket.requests += requestRate
             bucket.requestCount += deltaCount
-            if (isHttpError(series.tags)) { bucket.errors += requestRate; bucket.errorCount += deltaCount }
+            if (isMetricError(series.tags)) { bucket.errors += requestRate; bucket.errorCount += deltaCount }
             if (deltaCount > 0) {
               bucket.durationTotalMs += deltaTime * 1000
               bucket.durationCount += deltaCount
@@ -1165,6 +1127,159 @@ async function loadHttpRedHistoryUncached(timeRange) {
   return result
 }
 
+const observationRedConfigs = {
+  SCHEDULED: { name: 'tasks.scheduled.execution', groupLabel: '任务', label: '定时任务' },
+  KAFKA_CONSUMER: { name: 'spring.kafka.listener', groupLabel: '监听器', label: 'Kafka 消费' }
+}
+function observationGroupIdentity(series, source) {
+  const keys = source === 'SCHEDULED'
+    ? ['code.namespace', 'code.function']
+    : ['spring.kafka.listener.id', 'messaging.kafka.consumer.group', 'messaging.source.name']
+  return keys.filter(key => series.tags?.[key]).map(key => [key, series.tags[key]])
+}
+function observationGroupLabel(identity, source, fallback) {
+  if (source === 'SCHEDULED') {
+    const functionName = identity.find(([key]) => key === 'code.function')?.[1]
+    const namespace = identity.find(([key]) => key === 'code.namespace')?.[1]?.split('.').pop()
+    return [functionName, namespace && namespace !== functionName ? namespace : ''].filter(Boolean).join(' · ') || fallback
+  }
+  const listener = identity.find(([key]) => key === 'spring.kafka.listener.id')?.[1]
+  const group = identity.find(([key]) => key === 'messaging.kafka.consumer.group')?.[1]
+  return [listener, group].filter(Boolean).join(' · ') || fallback
+}
+async function loadObservationRedHistory(source, timeRange) {
+  const cacheKey = `${source}|${timeRange.start}|${timeRange.end}`
+  if (observationRedCache.has(cacheKey)) return observationRedCache.get(cacheKey)
+  if (observationRedLoading.has(cacheKey)) return observationRedLoading.get(cacheKey)
+  const pending = loadObservationRedHistoryUncached(source, timeRange)
+  observationRedLoading.set(cacheKey, pending)
+  try {
+    const result = await pending
+    observationRedCache.set(cacheKey, result)
+    return result
+  } finally {
+    if (observationRedLoading.get(cacheKey) === pending) observationRedLoading.delete(cacheKey)
+  }
+}
+async function loadObservationRedHistoryUncached(source, timeRange) {
+  const config = observationRedConfigs[source]
+  const activeKeys = new Set(liveMetrics.filter(item => item.name === config.name).map(seriesKey))
+  const candidates = seriesCatalog.filter(item => item.name === config.name)
+  const groupsById = new Map()
+  candidates.forEach(series => {
+    const identity = observationGroupIdentity(series, source)
+    const id = identity.length ? JSON.stringify(identity) : config.name
+    const label = observationGroupLabel(identity, source, `${config.label}（默认）`)
+    if (!groupsById.has(id)) groupsById.set(id, { id, label, series: [], active: 0 })
+    const group = groupsById.get(id)
+    group.series.push(series)
+    if (activeKeys.has(seriesKey(series))) group.active++
+  })
+  const allGroups = [...groupsById.values()].sort((left, right) => right.active - left.active || left.label.localeCompare(right.label, 'zh-CN'))
+  const selectedGroups = allGroups.slice(0, 12)
+  const processStartByTimestamp = new Map()
+  const processStartSeries = seriesCatalog.find(item => item.name === 'process.start.time')
+  if (processStartSeries) {
+    try {
+      const history = await loadSeriesHistory(processStartSeries)
+      history.forEach(point => {
+        const value = Number(point.measurements?.VALUE)
+        if (Number.isFinite(value)) processStartByTimestamp.set(point.capturedAt, value)
+      })
+    } catch { /* 依赖 Timer 计数器自身递减识别进程重启。 */ }
+  }
+  let covered = 0
+  for (const group of selectedGroups) {
+    const bins = new Map()
+    for (const series of group.series) {
+      try {
+        const history = await loadSeriesHistory(series)
+        if (history.length) covered++
+        let previous = null
+        for (const point of history.slice().reverse()) {
+          const count = Number(point.measurements?.COUNT)
+          const total = Number(point.measurements?.TOTAL_TIME)
+          if (!Number.isFinite(count) || !Number.isFinite(total)) continue
+          if (series.stepNormalized) {
+            const intervalSteps = Math.max(1, Number(point.intervalSeconds || 60) / 60)
+            const rate = count
+            const bucket = bins.get(point.capturedAt) || { capturedAt: point.capturedAt, requests: 0, errors: 0, requestCount: 0, errorCount: 0, durationTotalMs: 0, durationCount: 0 }
+            bucket.requests += rate
+            bucket.requestCount += count * intervalSteps
+            if (isMetricError(series.tags)) {
+              bucket.errors += rate
+              bucket.errorCount += count * intervalSteps
+            }
+            if (count > 0) {
+              bucket.durationTotalMs += total * 1000 * intervalSteps
+              bucket.durationCount += count * intervalSteps
+            }
+            bins.set(point.capturedAt, bucket)
+            continue
+          }
+          if (previous) {
+            const elapsedMinutes = Math.max(1, (new Date(point.capturedAt).getTime() - new Date(previous.at).getTime()) / 60000)
+            const processStartTime = processStartByTimestamp.get(point.capturedAt)
+            const restarted = Number.isFinite(processStartTime) && Number.isFinite(previous.processStartTime)
+              && processStartTime !== previous.processStartTime
+            const deltaCount = restarted ? count : count >= previous.count ? count - previous.count : count
+            const deltaTime = restarted ? total : total >= previous.total ? total - previous.total : total
+            const bucket = bins.get(point.capturedAt) || { capturedAt: point.capturedAt, requests: 0, errors: 0, requestCount: 0, errorCount: 0, durationTotalMs: 0, durationCount: 0 }
+            const rate = deltaCount / elapsedMinutes
+            bucket.requests += rate
+            bucket.requestCount += deltaCount
+            if (isMetricError(series.tags)) { bucket.errors += rate; bucket.errorCount += deltaCount }
+            if (deltaCount > 0) {
+              bucket.durationTotalMs += deltaTime * 1000
+              bucket.durationCount += deltaCount
+            }
+            bins.set(point.capturedAt, bucket)
+          }
+          previous = { at: point.capturedAt, count, total, processStartTime: processStartByTimestamp.get(point.capturedAt) }
+        }
+      } catch { /* 单个 Listener 或任务序列缺失时保留同组其他序列。 */ }
+    }
+    group.points = [...bins.values()].sort((left, right) => new Date(left.capturedAt) - new Date(right.capturedAt))
+      .filter(point => {
+        const timestamp = new Date(point.capturedAt).getTime()
+        return timestamp >= timeRange.start && timestamp <= timeRange.end
+      })
+      .map(point => ({ ...point, duration: point.durationCount ? point.durationTotalMs / point.durationCount : 0,
+        errorRate: point.requests ? point.errors / point.requests * 100 : 0 }))
+  }
+  return { groups: selectedGroups.filter(group => group.points.length), totalGroupCount: allGroups.length,
+    selectedGroupCount: selectedGroups.length, selectedSeriesCount: selectedGroups.reduce((sum, group) => sum + group.series.length, 0), covered }
+}
+async function renderObservationRed(source, timeRange = currentMetricTimeRange()) {
+  const config = observationRedConfigs[source]
+  const gridId = source === 'SCHEDULED' ? 'scheduled-red-grid' : 'kafka-red-grid'
+  const scopeId = source === 'SCHEDULED' ? 'scheduled-red-scope' : 'kafka-red-scope'
+  const grid = byId(gridId); disposeMetricCharts(grid); grid.replaceChildren()
+  const scope = byId(scopeId)
+  const series = seriesCatalog.filter(item => item.name === config.name)
+  if (!series.length) {
+    scope.textContent = `尚无${config.label}历史序列`
+    const empty = document.createElement('p'); empty.className = 'empty'
+    empty.textContent = `当前没有${config.label} Timer 历史；确认已启用对应 Observation，并等待至少两个采样点。`
+    grid.append(empty); return
+  }
+  const loading = document.createElement('p'); loading.className = 'empty'; loading.textContent = `正在汇总${config.label}历史…`; grid.append(loading)
+  const result = await loadObservationRedHistory(source, timeRange)
+  scope.textContent = `按${config.groupLabel}分组 · 展示 ${formatNumber(result.groups.length)} / ${formatNumber(result.totalGroupCount)} 组 · 读取 ${formatNumber(result.covered)} / ${formatNumber(result.selectedSeriesCount)} 条序列`
+  grid.replaceChildren()
+  if (!result.groups.length) {
+    const empty = document.createElement('p'); empty.className = 'empty'; empty.textContent = `所选时间范围内暂无足够的${config.label}历史采样。趋势至少需要两个采样点。`
+    grid.append(empty); return
+  }
+  const previous = visibleRedGroups.get(source)
+  const previousCatalog = redGroupCatalog.get(source) || new Set()
+  visibleRedGroups.set(source, new Set(result.groups
+    .filter(group => previous === undefined || !previousCatalog.has(group.id) || previous.has(group.id))
+    .map(group => group.id)))
+  redGroupCatalog.set(source, new Set(result.groups.map(group => group.id)))
+  renderRedDashboard(grid, result.groups, timeRange, source, config.groupLabel)
+}
+
 async function renderHttpRed(timeRange = currentMetricTimeRange()) {
   const grid = byId('http-red-grid'); disposeMetricCharts(grid); grid.replaceChildren()
   const scope = byId('http-red-scope')
@@ -1182,12 +1297,13 @@ async function renderHttpRed(timeRange = currentMetricTimeRange()) {
     const empty = document.createElement('p'); empty.className = 'empty'; empty.textContent = '所选时间范围内暂无足够的 HTTP 历史采样。趋势至少需要两个采样点。'
     grid.append(empty); return
   }
-  const previousUris = visibleRedUris
-  visibleRedUris = new Set(result.groups
-    .filter(group => previousUris === null || !redUriCatalog.has(group.uri) || previousUris.has(group.uri))
-    .map(group => group.uri))
-  redUriCatalog = new Set(result.groups.map(group => group.uri))
-  renderHttpRedDashboard(grid, result.groups, timeRange)
+  const previousUris = visibleRedGroups.get('HTTP')
+  const previousCatalog = redGroupCatalog.get('HTTP') || new Set()
+  visibleRedGroups.set('HTTP', new Set(result.groups
+    .filter(group => previousUris === undefined || !previousCatalog.has(group.uri) || previousUris.has(group.uri))
+    .map(group => group.uri)))
+  redGroupCatalog.set('HTTP', new Set(result.groups.map(group => group.uri)))
+  renderRedDashboard(grid, result.groups, timeRange, 'HTTP', 'URI')
 }
 
 async function renderTrends(timeRange = currentMetricTimeRange()) {
@@ -1225,8 +1341,8 @@ async function renderTrends(timeRange = currentMetricTimeRange()) {
       if (category === 'SCHEDULED' || category === 'KAFKA_CONSUMER') {
         categoryNote = document.createElement('p'); categoryNote.className = 'trend-category-note'
         categoryNote.textContent = category === 'SCHEDULED'
-          ? '执行耗时来自 Spring 定时任务 Observation；可用时同时展示调度线程池指标。'
-          : '展示 Spring Kafka Listener Observation 和已注册的 Kafka Consumer 客户端指标。'
+          ? '展示调度线程池容量和活跃度等运行资源。'
+          : '展示 Kafka Consumer 客户端资源指标；监听器执行趋势见上方 RED 面板。'
       }
       const categoryGrid = document.createElement('div'); categoryGrid.className = 'trend-category-grid'
       if (category !== 'JVM') section.append(heading, ...(categoryNote ? [categoryNote] : []))
@@ -1324,6 +1440,8 @@ function renderMetricDashboard(timeRange = currentMetricTimeRange(), force = fal
   renderedMetricRangeKey = key
   renderTrends(timeRange).catch(error => showNotice(error?.message || '读取指标趋势失败'))
   renderHttpRed(timeRange).catch(error => showNotice(error?.message || '读取 HTTP 趋势失败'))
+  renderObservationRed('SCHEDULED', timeRange).catch(error => showNotice(error?.message || '读取定时任务 RED 趋势失败'))
+  renderObservationRed('KAFKA_CONSUMER', timeRange).catch(error => showNotice(error?.message || '读取 Kafka RED 趋势失败'))
 }
 
 async function loadMetricData(force = false) {
@@ -1338,6 +1456,7 @@ async function loadMetricData(force = false) {
       seriesCache.clear()
       seriesLoading.clear()
       redHistoryCache = null
+      observationRedCache.clear()
       updateMetricStorageLabel()
     })
     .finally(() => { metricDataLoading = null })
@@ -1348,8 +1467,8 @@ async function refresh() {
   byId('refresh').disabled = true; showNotice('')
   try {
     const metricsViewActive = !byId('metrics-section').hidden
-    const [statsResult, tracesResult, slowResult, errorResult, storageResult] = await Promise.allSettled([
-      getJson('/request-statistics?source=ALL&limit=200'), getJson('/traces?limit=100'),
+    const [tracesResult, slowResult, errorResult, storageResult] = await Promise.allSettled([
+      getJson('/traces?limit=100'),
       getJson('/incidents?kind=slow&limit=100'), getJson('/incidents?kind=error&limit=100'), getJson('/metrics/storage')
     ])
     const failed = []
@@ -1363,7 +1482,6 @@ async function refresh() {
         else renderedMetricRangeKey = ''
       }
     }
-    if (statsResult.status === 'fulfilled') { requestStats = statsResult.value; renderStats() } else failed.push(statsResult.reason?.message)
     if (tracesResult.status === 'fulfilled') traces = tracesResult.value
     else failed.push(tracesResult.reason?.message)
     if (slowResult.status === 'fulfilled') slowIncidents = slowResult.value
@@ -1380,12 +1498,15 @@ async function refresh() {
       metricRetentionDays = Number(storage.retentionDays)
       updateMetricRangeNote()
       updateMetricStorageLabel()
-      byId('instance').textContent = `当前实例 · ${storage.enabled ? `RRD ${formatBytes(storage.storageBytes)}` : '历史未启用'}`
-      const hasDrops = Number(storage.droppedWrites) > 0 || Number(storage.rejectedSeries) > 0
+      byId('instance').textContent = `当前实例 · ${storage.enabled
+        ? `RRD ${formatBytes(storage.storageBytes)}/${formatBytes(storage.maxStorageBytes)} · 序列 ${formatNumber(storage.segmentCount)}`
+        : '历史未启用'}`
+      const hasDrops = Number(storage.droppedWrites) > 0 || Number(storage.rejectedSeries) > 0 || Number(storage.evictedSeries) > 0
       byId('metric-storage-status').classList.toggle('is-warning', hasDrops)
       byId('instance').classList.toggle('is-warning', hasDrops)
       if (Number(storage.droppedWrites) > 0) storageWarnings.push(`指标历史有 ${formatNumber(storage.droppedWrites)} 次快照未完整写入`)
       if (Number(storage.rejectedSeries) > 0) storageWarnings.push(`${formatNumber(storage.rejectedSeries)} 条指标序列因存储限制被拒绝`)
+      if (Number(storage.evictedSeries) > 0) storageWarnings.push(`历史中有 ${formatNumber(storage.evictedSeries)} 条指标序列被淘汰或清理`)
     } else if (storageResult.status === 'rejected') failed.push(storageResult.reason?.message)
     const notices = [...failed.filter(Boolean), ...storageWarnings]
     if (notices.length) {
@@ -1400,22 +1521,28 @@ async function refresh() {
 }
 
 byId('refresh').addEventListener('click', refresh)
-byId('http-red-grid').addEventListener('click', event => {
+byId('metrics-section').addEventListener('click', event => {
   const metricButton = event.target.closest('button[data-red-metric]')
   const uriButton = event.target.closest('button[data-uri]')
   let focusTarget
   if (metricButton) {
-    selectedRedMetric = metricButton.dataset.redMetric
-    focusTarget = button => button.dataset.redMetric === selectedRedMetric
+    const source = metricButton.dataset.redSource || 'HTTP'
+    selectedRedMetric[source] = metricButton.dataset.redMetric
+    focusTarget = button => button.dataset.redMetric === selectedRedMetric[source] && button.dataset.redSource === source
   } else if (uriButton) {
     const uri = uriButton.dataset.uri
-    if (visibleRedUris.has(uri)) visibleRedUris.delete(uri)
-    else visibleRedUris.add(uri)
-    focusTarget = button => button.dataset.uri === uri
+    const source = uriButton.dataset.redSource || 'HTTP'
+    const visible = visibleRedGroups.get(source)
+    if (visible.has(uri)) visible.delete(uri)
+    else visible.add(uri)
+    focusTarget = button => button.dataset.uri === uri && button.dataset.redSource === source
   }
   if (focusTarget) {
-    renderHttpRed().then(() => {
-      const next = [...byId('http-red-grid').querySelectorAll('button[data-red-metric], button[data-uri]')].find(focusTarget)
+    const source = (metricButton || uriButton)?.dataset.redSource || 'HTTP'
+    const panel = source === 'HTTP' ? renderHttpRed() : renderObservationRed(source)
+    const grid = byId(source === 'HTTP' ? 'http-red-grid' : source === 'SCHEDULED' ? 'scheduled-red-grid' : 'kafka-red-grid')
+    panel.then(() => {
+      const next = [...grid.querySelectorAll('button[data-red-metric], button[data-uri]')].find(focusTarget)
       next?.focus({ preventScroll: true })
     }).catch(error => showNotice(error?.message || '读取 HTTP 趋势失败'))
   }
@@ -1423,7 +1550,6 @@ byId('http-red-grid').addEventListener('click', event => {
 window.addEventListener('resize', () => metricChartInstances.forEach(chart => chart.resize()), { passive: true })
 byId('trace-prev').addEventListener('click', () => { recentPage = Math.max(0, recentPage - 1); renderIncidentTables() })
 byId('trace-next').addEventListener('click', () => { recentPage++; renderIncidentTables() })
-byId('close-entry-dialog').addEventListener('click', () => byId('entry-dialog').close())
 const sectionLinks = [...document.querySelectorAll('.primary-nav a')]
 const viewSections = sectionLinks.map(link => document.querySelector(link.hash)).filter(Boolean)
 function activateView(id, updateHistory = false) {
@@ -1465,21 +1591,11 @@ activateView(location.hash.slice(1))
 byId('period').addEventListener('change', () => {
   updateMetricRangeNote()
   redHistoryCache = null
+  observationRedCache.clear()
   renderIncidentTables()
   metricTimeRange = captureMetricTimeRange()
   if (byId('metrics-section').hidden) return
   renderMetricDashboard(metricTimeRange, true)
-})
-byId('entry-filters').addEventListener('click', event => {
-  const button = event.target.closest('button[data-source]')
-  if (!button) return
-  selectedSource = button.dataset.source
-  byId('entry-filters').querySelectorAll('button').forEach(item => {
-    const active = item === button
-    item.classList.toggle('selected', active)
-    item.setAttribute('aria-pressed', String(active))
-  })
-  renderStats()
 })
 byId('close-dialog').addEventListener('click', () => byId('trace-dialog').close())
 initializeEmbeddedAuth().then(refresh)

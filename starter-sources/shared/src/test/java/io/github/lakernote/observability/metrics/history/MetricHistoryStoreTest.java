@@ -37,7 +37,7 @@ class MetricHistoryStoreTest {
 
     @Test
     void persistsRrdAndReadsMatchingPointsNewestFirstAfterRestart() {
-        MetricHistoryStore store = store(64 * MEBIBYTE, 8 * MEBIBYTE, 512);
+        MetricHistoryStore store = store(64 * MEBIBYTE, 8 * MEBIBYTE);
         store.restore();
         store.recordMetricsSnapshot(List.of(metric("jvm.memory.used", 42, "VALUE")));
         clock.advance(Duration.ofMinutes(1));
@@ -47,7 +47,7 @@ class MetricHistoryStoreTest {
         assertThat(metricMetadataFiles()).hasSize(1);
         assertThat(store.getStorageBytes()).isPositive().isLessThan(64 * MEBIBYTE);
 
-        MetricHistoryStore restarted = store(64 * MEBIBYTE, 8 * MEBIBYTE, 512);
+        MetricHistoryStore restarted = store(64 * MEBIBYTE, 8 * MEBIBYTE);
         restarted.restore();
         List<MetricHistoryPoint> points = restarted.queryHistory(
                 "jvm.memory.used", Map.of("area", "heap", "node", "local"), 10);
@@ -66,7 +66,7 @@ class MetricHistoryStoreTest {
 
     @Test
     void emptyTagsSelectOnlyTheExactUntaggedSeries() {
-        MetricHistoryStore store = store(64 * MEBIBYTE, 8 * MEBIBYTE, 512);
+        MetricHistoryStore store = store(64 * MEBIBYTE, 8 * MEBIBYTE);
         store.restore();
         store.recordMetricsSnapshot(List.of(
                 new MetricSample("same.metric", Map.of(), Map.of("VALUE", 1D)),
@@ -82,68 +82,8 @@ class MetricHistoryStoreTest {
     }
 
     @Test
-    void preservesEntryRequestDurationHistoryAheadOfInternalOperationSeries() {
-        MetricHistoryStore store = store(64 * MEBIBYTE, 8 * MEBIBYTE, 1);
-        store.restore();
-        store.recordMetricsSnapshot(List.of(new MetricSample("easy.operations.duration",
-                Map.of("source", "SQL", "operation", "Mapper#find", "outcome", "success"),
-                Map.of("COUNT", 1D))));
-
-        clock.advance(Duration.ofMinutes(1));
-        MetricSample request = new MetricSample("easy.operations.duration", Map.of("source", "HTTP",
-                "operation", "GET /orders", "outcome", "success"), Map.of("COUNT", 1D));
-        store.recordMetricsSnapshot(List.of(request));
-
-        assertThat(store.queryHistory("easy.operations.duration", request.tags(), 10)).isNotEmpty();
-        assertThat(store.listSeries()).singleElement().satisfies(series ->
-                assertThat(series.tags()).isEqualTo(request.tags()));
-        assertThat(store.listSeries()).noneMatch(series -> "SQL".equals(series.tags().get("source")));
-    }
-
-    @Test
-    void removesPreviouslyStoredPerOperationResourceSeriesWhenRestoringHistory() {
-        MetricHistoryStore previous = store(64 * MEBIBYTE, 8 * MEBIBYTE, 512);
-        previous.restore();
-        previous.recordMetricsSnapshot(List.of(
-                new MetricSample("easy.operations.duration", Map.of("source", "HTTP", "operation", "GET /orders"),
-                        Map.of("COUNT", 1D)),
-                new MetricSample("easy.operations.cpu.time", Map.of("source", "HTTP", "operation", "GET /orders"),
-                        Map.of("VALUE", 3D)),
-                new MetricSample("easy.operations.allocated", Map.of("source", "HTTP", "operation", "GET /orders"),
-                        Map.of("VALUE", 4096D))));
-
-        MetricHistoryStore current = store(64 * MEBIBYTE, 8 * MEBIBYTE, 512);
-        current.restore();
-
-        assertThat(current.listSeries()).extracting(MetricHistoryStore.MetricSeriesDescriptor::name)
-                .containsExactly("easy.operations.duration");
-        assertThat(current.getStatus().evictedSeries()).isEqualTo(2);
-    }
-
-    @Test
-    void keepsCoreJvmSeriesWhenOperationMetricsReachTheNonCoreCapacity() {
-        MetricHistoryStore store = store(64 * MEBIBYTE, 8 * MEBIBYTE, 2);
-        store.restore();
-        MetricSample jvm = metric("process.cpu.usage", 1, "VALUE");
-        MetricSample request = new MetricSample("easy.operations.duration", Map.of("source", "HTTP",
-                "operation", "GET /orders", "outcome", "success"), Map.of("COUNT", 1D));
-        MetricSample dependency = new MetricSample("easy.operations.allocated", Map.of("source", "DATABASE",
-                "operation", "OrderMapper#select", "outcome", "success"), Map.of("VALUE", 1D));
-        MetricSample anotherDependency = new MetricSample("easy.operations.allocated", Map.of("source", "REDIS",
-                "operation", "get", "outcome", "success"), Map.of("VALUE", 1D));
-
-        store.recordMetricsSnapshot(List.of(jvm, request, dependency, anotherDependency));
-
-        assertThat(store.listSeries()).extracting(MetricHistoryStore.MetricSeriesDescriptor::name)
-                .contains("process.cpu.usage", "easy.operations.duration")
-                .doesNotContain("easy.operations.allocated");
-        assertThat(MetricHistoryStore.metricPriority("easy.operations.duration", request.tags()))
-                .isLessThan(MetricHistoryStore.metricPriority("easy.operations.allocated", dependency.tags()));
-    }
-
-    @Test
     void createsFixedOneMinuteFiveMinuteAndThirtyMinuteArchives() throws Exception {
-        MetricHistoryStore store = store(64 * MEBIBYTE, 8 * MEBIBYTE, 512);
+        MetricHistoryStore store = store(64 * MEBIBYTE, 8 * MEBIBYTE);
         store.restore();
         store.recordMetricsSnapshot(List.of(metric("process.cpu.usage", 1, "VALUE")));
 
@@ -158,12 +98,12 @@ class MetricHistoryStoreTest {
 
     @Test
     void rejectsArchiveWithUnexpectedXFilesFactor() throws Exception {
-        MetricHistoryStore initial = store(64 * MEBIBYTE, 8 * MEBIBYTE, 512);
+        MetricHistoryStore initial = store(64 * MEBIBYTE, 8 * MEBIBYTE);
         initial.restore();
         initial.recordMetricsSnapshot(List.of(metric("process.cpu.usage", 1, "VALUE")));
         RrdToolkit.setArcXff(rrdFiles().get(0).toString(), ConsolFun.LAST, 1, 0.25);
 
-        MetricHistoryStore restarted = store(64 * MEBIBYTE, 8 * MEBIBYTE, 512);
+        MetricHistoryStore restarted = store(64 * MEBIBYTE, 8 * MEBIBYTE);
         restarted.restore();
 
         assertThat(restarted.getStatus().segmentCount()).isZero();
@@ -180,14 +120,14 @@ class MetricHistoryStoreTest {
 
         for (int index = 0; index < mutations.size(); index++) {
             Path directory = tempDirectory.resolve("schema-" + index);
-            MetricHistoryStore initial = store(directory, 30, 64 * MEBIBYTE, 8 * MEBIBYTE, 512);
+            MetricHistoryStore initial = store(directory, 30, 64 * MEBIBYTE, 8 * MEBIBYTE);
             initial.restore();
             initial.recordMetricsSnapshot(List.of(metric("process.cpu.usage", 1, "VALUE")));
             Path rrd = filesEndingWith(directory, ".rrd").get(0);
             mutations.get(index).apply(rrd);
 
             MetricHistoryStore restarted = store(directory, 30,
-                    64 * MEBIBYTE, 8 * MEBIBYTE, 512);
+                    64 * MEBIBYTE, 8 * MEBIBYTE);
             restarted.restore();
 
             assertThat(restarted.getStatus().segmentCount()).as("schema mutation %s", index).isZero();
@@ -198,11 +138,11 @@ class MetricHistoryStoreTest {
 
     @Test
     void growsRetentionArchiveWithoutLosingExistingHistory() throws Exception {
-        MetricHistoryStore initial = store(30, 64 * MEBIBYTE, 8 * MEBIBYTE, 512);
+        MetricHistoryStore initial = store(30, 64 * MEBIBYTE, 8 * MEBIBYTE);
         initial.restore();
         initial.recordMetricsSnapshot(List.of(metric("process.cpu.usage", 1, "VALUE")));
 
-        MetricHistoryStore changedRetention = store(60, 64 * MEBIBYTE, 8 * MEBIBYTE, 512);
+        MetricHistoryStore changedRetention = store(60, 64 * MEBIBYTE, 8 * MEBIBYTE);
         changedRetention.restore();
 
         assertThat(changedRetention.getStatus().segmentCount()).isEqualTo(1);
@@ -225,11 +165,11 @@ class MetricHistoryStoreTest {
 
     @Test
     void shrinksRetentionArchiveWithoutLosingHistoryInsideTheNewWindow() throws Exception {
-        MetricHistoryStore initial = store(30, 64 * MEBIBYTE, 8 * MEBIBYTE, 512);
+        MetricHistoryStore initial = store(30, 64 * MEBIBYTE, 8 * MEBIBYTE);
         initial.restore();
         initial.recordMetricsSnapshot(List.of(metric("process.cpu.usage", 1, "VALUE")));
 
-        MetricHistoryStore changedRetention = store(15, 64 * MEBIBYTE, 8 * MEBIBYTE, 512);
+        MetricHistoryStore changedRetention = store(15, 64 * MEBIBYTE, 8 * MEBIBYTE);
         changedRetention.restore();
 
         assertThat(changedRetention.getStatus().segmentCount()).isEqualTo(1);
@@ -243,7 +183,7 @@ class MetricHistoryStoreTest {
 
     @Test
     void reportsCoverageFromObservedSamplesInsteadOfMetadataAge() {
-        MetricHistoryStore store = store(64 * MEBIBYTE, 8 * MEBIBYTE, 512);
+        MetricHistoryStore store = store(64 * MEBIBYTE, 8 * MEBIBYTE);
         store.restore();
         store.recordMetricsSnapshot(List.of(metric("jvm.memory.used", 42, "VALUE")));
         clock.advance(Duration.ofMinutes(1));
@@ -255,7 +195,7 @@ class MetricHistoryStoreTest {
         clock.advance(Duration.ofDays(10));
         assertThat(store.getStatus().coverageDays()).isEqualTo(1);
 
-        MetricHistoryStore restarted = store(64 * MEBIBYTE, 8 * MEBIBYTE, 512);
+        MetricHistoryStore restarted = store(64 * MEBIBYTE, 8 * MEBIBYTE);
         restarted.restore();
 
         assertThat(restarted.getStatus().oldestSegmentDate()).isEqualTo("2026-10-14");
@@ -265,7 +205,7 @@ class MetricHistoryStoreTest {
 
     @Test
     void expandsMeasurementSchemaAndKeepsItReadableAfterRestart() {
-        MetricHistoryStore store = store(64 * MEBIBYTE, 8 * MEBIBYTE, 512);
+        MetricHistoryStore store = store(64 * MEBIBYTE, 8 * MEBIBYTE);
         store.restore();
         store.recordMetricsSnapshot(List.of(metric("http.server.requests", 1, "COUNT")));
         clock.advance(Duration.ofMinutes(1));
@@ -273,7 +213,7 @@ class MetricHistoryStoreTest {
                 Map.of("area", "heap", "node", "local"),
                 Map.of("COUNT", 2D, "TOTAL_TIME", 0.5D, "MAX", 0.4D))));
 
-        MetricHistoryStore restarted = store(64 * MEBIBYTE, 8 * MEBIBYTE, 512);
+        MetricHistoryStore restarted = store(64 * MEBIBYTE, 8 * MEBIBYTE);
         restarted.restore();
         List<MetricHistoryPoint> points = restarted.queryHistory(
                 "http.server.requests", Map.of("area", "heap", "node", "local"), 10);
@@ -287,7 +227,7 @@ class MetricHistoryStoreTest {
 
     @Test
     void keepsFixedDirectoryCapacityByReplacingTheOldestSeries() {
-        MetricHistoryStore store = store(90_000, 80_000, 10);
+        MetricHistoryStore store = store(90_000, 80_000);
         store.restore();
         store.recordMetricsSnapshot(List.of(metric("test.one", 1, "VALUE")));
         clock.advance(Duration.ofMinutes(1));
@@ -310,8 +250,8 @@ class MetricHistoryStoreTest {
     }
 
     @Test
-    void admitsFreshOptionalSeriesByEvictingOnlyTheLeastRecentlyWrittenOptionalSeries() {
-        MetricHistoryStore store = store(64 * MEBIBYTE, 8 * MEBIBYTE, 4);
+    void doesNotEvictSeriesUntilTheStorageLimitIsReached() {
+        MetricHistoryStore store = store(64 * MEBIBYTE, 8 * MEBIBYTE);
         store.restore();
         store.recordMetricsSnapshot(List.of(
                 metric("jvm.memory.used", 1, "VALUE"),
@@ -325,19 +265,19 @@ class MetricHistoryStoreTest {
         store.recordMetricsSnapshot(List.of(metric("optional.newest", 4, "VALUE")));
 
         assertThat(store.queryHistory("jvm.memory.used", defaultTags(), 10)).hasSize(1);
-        assertThat(store.queryHistory("optional.first", defaultTags(), 10)).isEmpty();
+        assertThat(store.queryHistory("optional.first", defaultTags(), 10)).hasSize(1);
         assertThat(store.queryHistory("optional.second", defaultTags(), 10)).hasSize(1);
         assertThat(store.queryHistory("optional.third", defaultTags(), 10)).hasSize(1);
         assertThat(store.queryHistory("optional.newest", defaultTags(), 10)).hasSize(1);
-        assertThat(store.getStatus().segmentCount()).isEqualTo(4);
-        assertThat(store.getStatus().evictedSeries()).isEqualTo(1);
+        assertThat(store.getStatus().segmentCount()).isEqualTo(5);
+        assertThat(store.getStatus().evictedSeries()).isZero();
         assertThat(store.getStatus().rejectedSeries()).isZero();
         assertThat(store.getStatus().droppedWrites()).isZero();
     }
 
     @Test
-    void admitsCoreSeriesImmediatelyByEvictingOptionalSeriesAndNeverLetsOptionalDisplaceCore() {
-        MetricHistoryStore store = store(64 * MEBIBYTE, 8 * MEBIBYTE, 1);
+    void protectsCoreSeriesWhenStorageCapacityIsReached() {
+        MetricHistoryStore store = store(60_000, 80_000);
         store.restore();
         store.recordMetricsSnapshot(List.of(metric("http.server.requests", 1, "COUNT")));
         assertThat(store.queryHistory("http.server.requests", defaultTags(), 10)).hasSize(1);
@@ -359,8 +299,8 @@ class MetricHistoryStoreTest {
     }
 
     @Test
-    void replacesStaleCoreSeriesWhenTagsChangeAtTheSeriesLimit() {
-        MetricHistoryStore store = store(64 * MEBIBYTE, 8 * MEBIBYTE, 1);
+    void replacesStaleCoreSeriesWhenStorageCapacityIsReached() {
+        MetricHistoryStore store = store(60_000, 80_000);
         store.restore();
         MetricSample previous = new MetricSample("process.cpu.usage",
                 Map.of("application", "old-app", "environment", "local"), Map.of("VALUE", 0.1D));
@@ -378,14 +318,8 @@ class MetricHistoryStoreTest {
     }
 
     @Test
-    void fallsBackToMeterPriorityWhenOperationSourceIsMissing() {
-        assertThat(MetricHistoryStore.metricPriority("easy.operations.duration", Map.of()))
-                .isEqualTo(MetricHistoryStore.metricPriority("easy.operations.duration"));
-    }
-
-    @Test
     void reservesCoreCapacityWhilePrioritizingHttpRedOverOptionalSeries() {
-        MetricHistoryStore store = store(64 * MEBIBYTE, 8 * MEBIBYTE, 2);
+        MetricHistoryStore store = store(90_000, 80_000);
         store.restore();
 
         store.recordMetricsSnapshot(List.of(
@@ -402,14 +336,14 @@ class MetricHistoryStoreTest {
 
     @Test
     void capacityEnforcementOnRestartKeepsCoreSeriesBeforeOptionalSeries() {
-        MetricHistoryStore initial = store(64 * MEBIBYTE, 8 * MEBIBYTE, 2);
+        MetricHistoryStore initial = store(90_000, 80_000);
         initial.restore();
         initial.recordMetricsSnapshot(List.of(
                 metric("jvm.threads.live", 5, "VALUE"),
                 metric("http.server.requests", 1, "COUNT")));
         assertThat(initial.getStatus().segmentCount()).isEqualTo(2);
 
-        MetricHistoryStore constrained = store(64 * MEBIBYTE, 8 * MEBIBYTE, 1);
+        MetricHistoryStore constrained = store(60_000, 80_000);
         constrained.restore();
 
         assertThat(constrained.queryHistory("jvm.threads.live", defaultTags(), 10)).hasSize(1);
@@ -419,13 +353,13 @@ class MetricHistoryStoreTest {
 
     @Test
     void removesExistingSeriesWhenRestartedWithLowerPerSeriesLimit() throws Exception {
-        MetricHistoryStore initial = store(64 * MEBIBYTE, 8 * MEBIBYTE, 512);
+        MetricHistoryStore initial = store(64 * MEBIBYTE, 8 * MEBIBYTE);
         initial.restore();
         initial.recordMetricsSnapshot(List.of(metric("jvm.memory.used", 42, "VALUE")));
 
         long existingRrdBytes = Files.size(rrdFiles().get(0));
         long loweredSeriesLimit = Math.max(1, existingRrdBytes / 2);
-        MetricHistoryStore constrained = store(64 * MEBIBYTE, loweredSeriesLimit, 512);
+        MetricHistoryStore constrained = store(64 * MEBIBYTE, loweredSeriesLimit);
         constrained.restore();
 
         MetricHistoryStore.StorageStatus restoredStatus = constrained.getStatus();
@@ -449,7 +383,7 @@ class MetricHistoryStoreTest {
     @Test
     void removesStoppedSeriesAfterRetentionAndDeletesLegacyMtsFiles() throws Exception {
         Files.writeString(tempDirectory.resolve("metrics-2026-10-14.mts"), "legacy");
-        MetricHistoryStore store = store(64 * MEBIBYTE, 8 * MEBIBYTE, 512);
+        MetricHistoryStore store = store(64 * MEBIBYTE, 8 * MEBIBYTE);
         store.restore();
         assertThat(legacyFiles()).isEmpty();
 
@@ -465,7 +399,7 @@ class MetricHistoryStoreTest {
 
     @Test
     void honorsConfiguredRetentionShorterThanThirtyDays() {
-        MetricHistoryStore store = store(7, 64 * MEBIBYTE, 8 * MEBIBYTE, 512);
+        MetricHistoryStore store = store(7, 64 * MEBIBYTE, 8 * MEBIBYTE);
         store.restore();
         store.recordMetricsSnapshot(List.of(metric("process.cpu.usage", 1, "VALUE")));
 
@@ -477,8 +411,8 @@ class MetricHistoryStoreTest {
     }
 
     @Test
-    void scansCapacityOncePerBatchAndCachesRepeatedCapacityRejectionsBriefly() {
-        MetricHistoryStore store = store(64 * MEBIBYTE, 8 * MEBIBYTE, 1);
+    void rejectsSeriesWhenCoreDataFillsTheStorageLimitAndCachesRetries() {
+        MetricHistoryStore store = store(60_000, 80_000);
         store.restore();
         store.recordMetricsSnapshot(List.of(metric("jvm.memory.used", 1, "VALUE")));
         clock.advance(Duration.ofMinutes(1));
@@ -507,7 +441,7 @@ class MetricHistoryStoreTest {
 
     @Test
     void doesNotRescanDirectoryForSteadyStateWritesToKnownSeries() {
-        MetricHistoryStore store = store(64 * MEBIBYTE, 8 * MEBIBYTE, 512);
+        MetricHistoryStore store = store(64 * MEBIBYTE, 8 * MEBIBYTE);
         store.restore();
         store.recordMetricsSnapshot(List.of(metric("jvm.memory.used", 1, "VALUE")));
         long scansAfterAdmission = store.directoryScanCount();
@@ -520,8 +454,8 @@ class MetricHistoryStoreTest {
     }
 
     @Test
-    void boundsAdmissionAttemptsAndCachesOnlyEvaluatedRejectionsUnderHighCardinalityInput() {
-        MetricHistoryStore store = store(64 * MEBIBYTE, 8 * MEBIBYTE, 1);
+    void boundsStorageUnderHighCardinalityInput() {
+        MetricHistoryStore store = store(60_000, 80_000);
         store.restore();
         store.recordMetricsSnapshot(List.of(metric("jvm.memory.used", 1, "VALUE")));
         clock.advance(Duration.ofMinutes(1));
@@ -535,15 +469,15 @@ class MetricHistoryStoreTest {
         store.recordMetricsSnapshot(rejected);
 
         assertThat(store.directoryScanCount()).isEqualTo(scansBeforeRejection + 1);
-        assertThat(store.seriesCreationAttemptCount()).isEqualTo(attemptsBeforeRejection + 1);
-        assertThat(store.rejectedSeriesCacheSize()).isEqualTo(1);
+        assertThat(store.seriesCreationAttemptCount()).isEqualTo(attemptsBeforeRejection + rejected.size());
+        assertThat(store.rejectedSeriesCacheSize()).isEqualTo(rejected.size());
         assertThat(store.getStatus().segmentCount()).isEqualTo(1);
     }
 
     @Test
     void disabledStoreDoesNotCreateRrdFiles() {
         MetricHistoryStore store = new MetricHistoryStore(objectMapper,
-                tempDirectory.toString(), 30, 64 * MEBIBYTE, 8 * MEBIBYTE, 512, clock, false);
+                tempDirectory.toString(), 30, 64 * MEBIBYTE, 8 * MEBIBYTE, clock, false);
         store.restore();
         store.recordMetricsSnapshot(List.of(metric("ignored", 1, "VALUE")));
 
@@ -553,18 +487,18 @@ class MetricHistoryStoreTest {
         assertThat(rrdFiles()).isEmpty();
     }
 
-    private MetricHistoryStore store(long maxBytes, long maxSeriesBytes, int maxSeries) {
-        return store(30, maxBytes, maxSeriesBytes, maxSeries);
+    private MetricHistoryStore store(long maxBytes, long maxSeriesBytes) {
+        return store(30, maxBytes, maxSeriesBytes);
     }
 
-    private MetricHistoryStore store(int retentionDays, long maxBytes, long maxSeriesBytes, int maxSeries) {
-        return store(tempDirectory, retentionDays, maxBytes, maxSeriesBytes, maxSeries);
+    private MetricHistoryStore store(int retentionDays, long maxBytes, long maxSeriesBytes) {
+        return store(tempDirectory, retentionDays, maxBytes, maxSeriesBytes);
     }
 
     private MetricHistoryStore store(Path directory, int retentionDays,
-                                             long maxBytes, long maxSeriesBytes, int maxSeries) {
+                                     long maxBytes, long maxSeriesBytes) {
         return new MetricHistoryStore(objectMapper, directory.toString(), retentionDays,
-                maxBytes, maxSeriesBytes, maxSeries, clock, true);
+                maxBytes, maxSeriesBytes, clock, true);
     }
 
     private MetricSample metric(String name, int value, String measurement) {

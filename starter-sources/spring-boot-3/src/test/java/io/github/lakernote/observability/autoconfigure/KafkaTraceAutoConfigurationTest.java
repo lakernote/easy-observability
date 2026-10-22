@@ -5,7 +5,6 @@ import io.github.lakernote.observability.integration.kafka.TraceIdProducerInterc
 import io.github.lakernote.observability.integration.observation.ObservationTraceHandler;
 import io.github.lakernote.observability.metrics.OperationRecorder;
 import io.github.lakernote.observability.trace.store.RecentTraceStore;
-import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.header.internals.RecordHeader;
 import org.springframework.kafka.support.micrometer.KafkaRecordReceiverContext;
@@ -91,7 +90,7 @@ class KafkaTraceAutoConfigurationTest {
     void consumerObservationUsesTraceIdFromKafkaRecordHeader() {
         EasyObservabilityProperties properties = new EasyObservabilityProperties();
         RecentTraceStore history = new RecentTraceStore(10, 10);
-        OperationRecorder recorder = new OperationRecorder(new SimpleMeterRegistry(), history, properties);
+        OperationRecorder recorder = new OperationRecorder(history, properties);
         new ApplicationContextRunner()
                 .withConfiguration(AutoConfigurations.of(KafkaTraceAutoConfiguration.class))
                 .withBean(EasyObservabilityProperties.class, () -> properties)

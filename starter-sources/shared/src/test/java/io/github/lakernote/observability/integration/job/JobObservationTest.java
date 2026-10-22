@@ -4,7 +4,6 @@ import io.github.lakernote.observability.config.EasyObservabilityProperties;
 import io.github.lakernote.observability.integration.observation.ObservationTraceHandler;
 import io.github.lakernote.observability.metrics.OperationRecorder;
 import io.github.lakernote.observability.trace.store.RecentTraceStore;
-import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.micrometer.observation.ObservationRegistry;
 import org.junit.jupiter.api.Test;
 
@@ -16,7 +15,7 @@ class JobObservationTest {
         ObservationRegistry registry = ObservationRegistry.create();
         EasyObservabilityProperties properties = new EasyObservabilityProperties();
         RecentTraceStore history = new RecentTraceStore(10);
-        OperationRecorder recorder = new OperationRecorder(new SimpleMeterRegistry(), history, properties);
+        OperationRecorder recorder = new OperationRecorder(history, properties);
         registry.observationConfig().observationHandler(new ObservationTraceHandler(recorder, history, properties));
 
         new JobObservation(registry).observe("nightly-reconciliation", () -> { });

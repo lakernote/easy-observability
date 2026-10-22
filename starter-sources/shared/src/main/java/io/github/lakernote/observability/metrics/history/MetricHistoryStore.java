@@ -48,7 +48,7 @@ import java.util.stream.Collectors;
 /**
  * 基于 RRD4J 保存有界的本地 Micrometer 指标历史。
  * <p>每个“指标名 + 标签”使用一个固定大小的 RRD 文件，并按分钟、五分钟、三十分钟三个分辨率归档。
- * 三十分钟归档至少保留三十天；使用 LAST 合并方式同时保存 Gauge 和累计型 Counter 的最新值。</p>
+ * 三十分钟归档至少保留三十天；Gauge 保留最新值，StepMeterRegistry 的 Counter/Timer 等按步长值用 AVERAGE 归档。</p>
  * <p>旁路元数据只保存指标身份和统计项到 RRD 数据源的映射，时间序列数值只由 RRD4J 保存。</p>
  */
 public class MetricHistoryStore {
@@ -69,15 +69,8 @@ public class MetricHistoryStore {
 
     private static final long DEFAULT_MAX_STORAGE_BYTES = 64L * 1024 * 1024;
     private static final long DEFAULT_MAX_SERIES_BYTES = 8L * 1024 * 1024;
-    private static final int DEFAULT_MAX_SERIES = 256;
     private static final long REJECTED_SERIES_CACHE_TTL_SECONDS = 5 * 60;
-    private static final int MIN_REJECTED_SERIES_CACHE_ENTRIES = 256;
     private static final int MAX_REJECTED_SERIES_CACHE_ENTRIES = 8_192;
-    /** Bound file creation/eviction work so a high-cardinality registry cannot monopolize the writer thread. */
-    private static final int MAX_NEW_SERIES_ATTEMPTS_PER_BATCH = 64;
-    private static final Set<String> NON_PERSISTED_OPERATION_RESOURCE_METRICS = Set.of(
-            "easy.operations.cpu.time",
-            "easy.operations.allocated");
     private static final int CORE_PRIORITY = 0;
     private static final int REQUEST_PRIORITY = 1;
     private static final int PLATFORM_PRIORITY = 2;
@@ -95,8 +88,6 @@ public class MetricHistoryStore {
     private final int retentionDays;
     private final long maxStorageBytes;
     private final long maxSeriesBytes;
-    private final int maxSeries;
-    private final int rejectedSeriesCacheLimit;
     private final Clock clock;
     private final boolean enabled;
     private final Object fileLock = new Object();
@@ -109,20 +100,23 @@ public class MetricHistoryStore {
     private final AtomicLong seriesCreationAttempts = new AtomicLong();
     private final Map<String, SeriesMetadata> seriesByKey = new HashMap<>();
     private final Map<String, ObservedSampleRange> observedRangesById = new HashMap<>();
-    private final int[] seriesCountsByPriority = new int[OPTIONAL_PRIORITY + 1];
     private final Map<String, Long> rejectedSeriesUntilByKey = new LinkedHashMap<>(16, 0.75F, true);
 
     private volatile boolean initialized;
     private long trackedStorageBytes;
 
+    static long stepSeconds() {
+        return STEP_SECONDS;
+    }
+
     public MetricHistoryStore(ObjectMapper objectMapper, String storageDir, int retentionDays,
-                              long maxStorageBytes, long maxSeriesBytes, int maxSeries, boolean enabled) {
-        this(objectMapper, storageDir, retentionDays, maxStorageBytes, maxSeriesBytes, maxSeries,
+                              long maxStorageBytes, long maxSeriesBytes, boolean enabled) {
+        this(objectMapper, storageDir, retentionDays, maxStorageBytes, maxSeriesBytes,
                 Clock.systemDefaultZone(), enabled);
     }
 
     public MetricHistoryStore(ObjectMapper objectMapper, String storageDir, int retentionDays,
-                               long maxStorageBytes, long maxSeriesBytes, int maxSeries,
+                               long maxStorageBytes, long maxSeriesBytes,
                                Clock clock, boolean enabled) {
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper").copy();
         this.storageDirectory = Path.of(storageDir).toAbsolutePath().normalize();
@@ -130,9 +124,6 @@ public class MetricHistoryStore {
         this.maxStorageBytes = maxStorageBytes > 0 ? maxStorageBytes : DEFAULT_MAX_STORAGE_BYTES;
         long configuredSeriesBytes = maxSeriesBytes > 0 ? maxSeriesBytes : DEFAULT_MAX_SERIES_BYTES;
         this.maxSeriesBytes = Math.min(configuredSeriesBytes, this.maxStorageBytes);
-        this.maxSeries = maxSeries > 0 ? maxSeries : DEFAULT_MAX_SERIES;
-        this.rejectedSeriesCacheLimit = (int) Math.max(MIN_REJECTED_SERIES_CACHE_ENTRIES,
-                Math.min(MAX_REJECTED_SERIES_CACHE_ENTRIES, (long) this.maxSeries * 4));
         this.clock = Objects.requireNonNull(clock, "clock");
         this.enabled = enabled;
     }
@@ -189,11 +180,9 @@ public class MetricHistoryStore {
             if (requiresBatchMaintenanceLocked(normalizedSamples, timestamp)) {
                 prepareWriteBatchLocked(timestamp);
             }
-            BatchAdmissionBudget admissionBudget = new BatchAdmissionBudget(
-                    Math.min(maxSeries, MAX_NEW_SERIES_ATTEMPTS_PER_BATCH));
             for (NormalizedSample normalized : normalizedSamples) {
                 try {
-                    SeriesResolution resolution = resolveSeriesLocked(normalized, timestamp, admissionBudget);
+                    SeriesResolution resolution = resolveSeriesLocked(normalized, timestamp);
                     if (resolution.metadata() == null) {
                         dropped = true;
                         reason = resolution.reason();
@@ -263,7 +252,7 @@ public class MetricHistoryStore {
                             .thenComparing(point -> point.tags().toString()))
                     .map(point -> new MetricHistoryPoint(
                             LocalDateTime.ofInstant(Instant.ofEpochSecond(point.epochSecond()), clock.getZone()).toString(),
-                            point.tags(), point.measurements()))
+                            point.tags(), point.measurements(), point.intervalSeconds()))
                     .toList();
         }
     }
@@ -285,7 +274,7 @@ public class MetricHistoryStore {
                     .sorted(Comparator.comparing(SeriesMetadata::name)
                             .thenComparing(metadata -> metadata.tags().toString()))
                     .map(metadata -> new MetricSeriesDescriptor(metadata.name(), metadata.tags(),
-                            metadata.dataSources().keySet().stream().sorted().toList()))
+                            metadata.dataSources().keySet().stream().sorted().toList(), metadata.stepNormalized()))
                     .toList();
         }
     }
@@ -406,32 +395,32 @@ public class MetricHistoryStore {
             if (value != null && Double.isFinite(value)) finite.put(key, value);
         });
         if (finite.isEmpty()) return null;
-        return new NormalizedSample(sample.name(), immutableSortedMap(tags), Map.copyOf(finite));
+        return new NormalizedSample(sample.name(), immutableSortedMap(tags), Map.copyOf(finite),
+                sample.stepNormalized());
     }
 
-    private SeriesResolution resolveSeriesLocked(NormalizedSample sample, long timestamp,
-                                                 BatchAdmissionBudget admissionBudget) throws IOException {
+    private SeriesResolution resolveSeriesLocked(NormalizedSample sample, long timestamp) throws IOException {
         String key = seriesKey(sample.name(), sample.tags());
         SeriesMetadata metadata = seriesByKey.get(key);
+        if (metadata != null && metadata.stepNormalized() != sample.stepNormalized()) {
+            removeSeriesLocked(metadata, "指标窗口语义变更");
+            metadata = null;
+        }
         if (metadata == null) {
             String keyFingerprint = sha256(key);
             Long rejectedUntil = rejectedSeriesUntilByKey.get(keyFingerprint);
             if (rejectedUntil != null) {
                 if (rejectedUntil > timestamp) {
                     return new SeriesResolution(null, false, true,
-                            "series 数量或 Metrics 本地容量仍在短时拒绝窗口内");
+                            "Metrics 存储空间仍在短时拒绝窗口内");
                 }
                 rejectedSeriesUntilByKey.remove(keyFingerprint);
-            }
-            if (!admissionBudget.tryAcquire(keyFingerprint)) {
-                return new SeriesResolution(null, false, true,
-                        "单批新 series 候选数已达 Metrics 本地上限");
             }
             seriesCreationAttempts.incrementAndGet();
             metadata = createSeriesLocked(key, keyFingerprint, sample, timestamp);
             if (metadata == null) {
                 rememberRejectedSeriesLocked(keyFingerprint, timestamp);
-                return new SeriesResolution(null, false, true, "series 数量或 Metrics 本地容量已达上限");
+                return new SeriesResolution(null, false, true, "Metrics 存储空间已达上限");
             }
             rejectedSeriesUntilByKey.remove(keyFingerprint);
             return new SeriesResolution(metadata, true, false, "");
@@ -452,12 +441,12 @@ public class MetricHistoryStore {
         String id = SERIES_PREFIX + keyFingerprint;
         Map<String, String> dataSources = dataSourceMapping(sample.measurements().keySet(), Map.of());
         SeriesMetadata metadata = new SeriesMetadata(METADATA_VERSION, id, sample.name(), sample.tags(),
-                dataSources, timestamp);
-        RrdDef definition = definition(rrdPath(id), timestamp, dataSources.values());
+                dataSources, sample.stepNormalized(), timestamp);
+        RrdDef definition = definition(rrdPath(id), timestamp, dataSources.values(), sample.stepNormalized());
         byte[] metadataBytes = objectMapper.writeValueAsBytes(metadata);
         long required = definition.getEstimatedSize() + metadataBytes.length;
         if (definition.getEstimatedSize() > maxSeriesBytes
-                || !ensureAdmissionCapacityLocked(sample.name(), sample.tags(), required, true, null)) return null;
+                || !ensureAdmissionCapacityLocked(sample.name(), sample.tags(), required, null)) return null;
 
         Path rrdTarget = rrdPath(id);
         Path metadataTarget = metadataPath(id);
@@ -466,7 +455,7 @@ public class MetricHistoryStore {
         Files.deleteIfExists(rrdTemp);
         Files.deleteIfExists(metadataTemp);
         try {
-            RrdDef tempDefinition = definition(rrdTemp, timestamp, dataSources.values());
+            RrdDef tempDefinition = definition(rrdTemp, timestamp, dataSources.values(), sample.stepNormalized());
             try (RrdDb ignored = new RrdDb(tempDefinition)) {
                 // Creation allocates every archive slot, making the file size stable for its lifetime.
             }
@@ -513,14 +502,14 @@ public class MetricHistoryStore {
         }
 
         SeriesMetadata expanded = new SeriesMetadata(metadata.version(), metadata.id(), metadata.name(),
-                metadata.tags(), expandedMapping, metadata.createdAtEpochSecond());
+                metadata.tags(), expandedMapping, metadata.stepNormalized(), metadata.createdAtEpochSecond());
         byte[] metadataBytes = objectMapper.writeValueAsBytes(expanded);
         long currentRrdBytes = sizeQuietly(rrd);
         long currentMetadataBytes = sizeQuietly(metadataPath(metadata.id()));
         long growth = Math.max(0, expandedDefinition.getEstimatedSize() - currentRrdBytes)
                 + Math.max(0, metadataBytes.length - currentMetadataBytes);
         if (expandedDefinition.getEstimatedSize() > maxSeriesBytes
-                || !ensureAdmissionCapacityLocked(metadata.name(), metadata.tags(), growth, false, metadata.id())) return null;
+                || !ensureAdmissionCapacityLocked(metadata.name(), metadata.tags(), growth, metadata.id())) return null;
 
         if (!additions.isEmpty()) {
             RrdToolkit.addDatasources(rrd.toString(), additions, false);
@@ -566,7 +555,7 @@ public class MetricHistoryStore {
         if (start > end) return;
         for (SeriesMetadata metadata : matching) {
             try (RrdDb database = new RrdDb(rrdPath(metadata.id()).toString())) {
-                var request = database.createFetchRequest(ConsolFun.LAST, start, end, resolution);
+                var request = database.createFetchRequest(consolidation(metadata.stepNormalized()), start, end, resolution);
                 request.setFilter(Set.copyOf(metadata.dataSources().values()));
                 FetchData data = request.fetchData();
                 long[] timestamps = data.getTimestamps();
@@ -582,7 +571,7 @@ public class MetricHistoryStore {
                         if (Double.isFinite(value)) measurements.put(values.getKey(), value);
                     }
                     if (!measurements.isEmpty()) addNewest(newest, limit,
-                            new HistoryPoint(timestamp, metadata.tags(), Map.copyOf(measurements)));
+                            new HistoryPoint(timestamp, metadata.tags(), Map.copyOf(measurements), resolution));
                 }
             } catch (Exception exception) {
                 log.warn("读取 Metrics RRD4J series {} 失败", metadata.id(), exception);
@@ -605,7 +594,6 @@ public class MetricHistoryStore {
     private void restoreIndexLocked() {
         seriesByKey.clear();
         observedRangesById.clear();
-        Arrays.fill(seriesCountsByPriority, 0);
         if (!Files.isDirectory(storageDirectory)) return;
         Set<String> restoredIds = new java.util.HashSet<>();
         try (var paths = Files.list(storageDirectory)) {
@@ -616,13 +604,6 @@ public class MetricHistoryStore {
                 try {
                     SeriesMetadata metadata = objectMapper.readValue(metadataFile.toFile(), SeriesMetadata.class);
                     if (!validMetadata(id, metadata)) throw new IOException("invalid series metadata");
-                    if (!shouldPersistMetric(metadata.name())) {
-                        deleteFiles(id);
-                        long evicted = evictedSeries.incrementAndGet();
-                        log.info("已删除不再写入长期历史的 operation 资源序列 {} ({})，累计清理 {} 个 series",
-                                id, metadata.name(), evicted);
-                        continue;
-                    }
                     if (removeOversizedRrdLocked(id)) continue;
                     ObservedSampleRange observed = validateOrMigrateAndReadRrd(metadata);
                     String key = seriesKey(metadata.name(), metadata.tags());
@@ -644,8 +625,6 @@ public class MetricHistoryStore {
             log.warn("扫描 Metrics RRD4J 元数据失败，目录 {}", storageDirectory, exception);
         }
         removeOrphanRrdFilesLocked(restoredIds);
-        seriesByKey.values().forEach(metadata ->
-                seriesCountsByPriority[metricPriority(metadata.name(), metadata.tags())]++);
     }
 
     private boolean removeOversizedRrdLocked(String id) throws IOException {
@@ -678,7 +657,7 @@ public class MetricHistoryStore {
         if (!Files.isRegularFile(rrd)) throw new IOException("RRD file is missing");
         try (RrdDb database = new RrdDb(rrd.toString())) {
             RrdDef definition = database.getRrdDef();
-            validateArchiveLayout(definition);
+            validateArchiveLayout(definition, metadata.stepNormalized());
             validateDatasourceLayout(definition);
             Set<String> dataSources = Set.copyOf(Arrays.asList(database.getDsNames()));
             if (!dataSources.containsAll(metadata.dataSources().values())) {
@@ -707,7 +686,7 @@ public class MetricHistoryStore {
             try (RrdDb database = new RrdDb(source.toString())) {
                 RrdDef definition = database.getRrdDef();
                 validateDatasourceLayout(definition);
-                existingRetentionRows = retentionRowsWhenOnlyRetentionDiffers(definition);
+                existingRetentionRows = retentionRowsWhenOnlyRetentionDiffers(definition, metadata.stepNormalized());
                 if (existingRetentionRows < 0) throw incompatible;
                 Set<String> dataSources = Set.copyOf(Arrays.asList(database.getDsNames()));
                 if (!dataSources.containsAll(metadata.dataSources().values())) {
@@ -720,7 +699,7 @@ public class MetricHistoryStore {
             Path temporary = storageDirectory.resolve(metadata.id() + ".rrd.resize.tmp");
             try {
                 Files.deleteIfExists(temporary);
-                RrdToolkit.resizeArchive(source.toString(), temporary.toString(), ConsolFun.LAST,
+                RrdToolkit.resizeArchive(source.toString(), temporary.toString(), consolidation(metadata.stepNormalized()),
                         THIRTY_MINUTE_STEPS, expectedRows);
                 long migratedBytes = Files.size(temporary);
                 if (migratedBytes > maxSeriesBytes) {
@@ -742,14 +721,14 @@ public class MetricHistoryStore {
     }
 
     /** Returns the current long-retention row count only when that is the sole schema difference. */
-    private int retentionRowsWhenOnlyRetentionDiffers(RrdDef definition) {
+    private int retentionRowsWhenOnlyRetentionDiffers(RrdDef definition, boolean stepNormalized) {
         if (definition.getStep() != STEP_SECONDS) return -1;
         List<ArchiveLayout> actual = Arrays.stream(definition.getArcDefs())
                 .map(archive -> new ArchiveLayout(archive.getConsolFun(), archive.getXff(),
                         archive.getSteps(), archive.getRows()))
                 .sorted(ArchiveLayout.ORDER)
                 .toList();
-        List<ArchiveLayout> expected = expectedArchiveLayouts();
+        List<ArchiveLayout> expected = expectedArchiveLayouts(stepNormalized);
         if (actual.size() != expected.size()) return -1;
         int retentionRows = -1;
         for (int index = 0; index < actual.size(); index++) {
@@ -767,7 +746,8 @@ public class MetricHistoryStore {
         return retentionRows >= 2 && retentionRows != retentionThirtyMinuteRows() ? retentionRows : -1;
     }
 
-    private void validateArchiveLayout(RrdDef definition) throws IncompatibleRrdLayoutException {
+    private void validateArchiveLayout(RrdDef definition, boolean stepNormalized)
+            throws IncompatibleRrdLayoutException {
         if (definition.getStep() != STEP_SECONDS) {
             throw new IncompatibleRrdLayoutException(
                     "step=" + definition.getStep() + "，expected=" + STEP_SECONDS);
@@ -777,19 +757,24 @@ public class MetricHistoryStore {
                         archive.getSteps(), archive.getRows()))
                 .sorted(ArchiveLayout.ORDER)
                 .toList();
-        List<ArchiveLayout> expected = expectedArchiveLayouts();
+        List<ArchiveLayout> expected = expectedArchiveLayouts(stepNormalized);
         if (!actual.equals(expected)) {
             throw new IncompatibleRrdLayoutException("archives=" + actual + "，expected=" + expected);
         }
     }
 
-    private List<ArchiveLayout> expectedArchiveLayouts() {
+    private List<ArchiveLayout> expectedArchiveLayouts(boolean stepNormalized) {
+        ConsolFun consolidation = consolidation(stepNormalized);
         return List.of(
-                new ArchiveLayout(ConsolFun.LAST, X_FILES_FACTOR, 1, ONE_DAY_ROWS),
-                new ArchiveLayout(ConsolFun.LAST, X_FILES_FACTOR, 5, SEVEN_DAY_FIVE_MINUTE_ROWS),
-                new ArchiveLayout(ConsolFun.LAST, X_FILES_FACTOR,
+                new ArchiveLayout(consolidation, X_FILES_FACTOR, 1, ONE_DAY_ROWS),
+                new ArchiveLayout(consolidation, X_FILES_FACTOR, 5, SEVEN_DAY_FIVE_MINUTE_ROWS),
+                new ArchiveLayout(consolidation, X_FILES_FACTOR,
                         THIRTY_MINUTE_STEPS, retentionThirtyMinuteRows())
         );
+    }
+
+    private static ConsolFun consolidation(boolean stepNormalized) {
+        return stepNormalized ? ConsolFun.AVERAGE : ConsolFun.LAST;
     }
 
     private void validateDatasourceLayout(RrdDef definition) throws IncompatibleRrdLayoutException {
@@ -859,7 +844,7 @@ public class MetricHistoryStore {
     private SeriesMetadata normalizedMetadata(SeriesMetadata metadata) {
         return new SeriesMetadata(metadata.version(), metadata.id(), metadata.name(),
                 immutableSortedMap(metadata.tags()), immutableSortedMap(metadata.dataSources()),
-                metadata.createdAtEpochSecond());
+                metadata.stepNormalized(), metadata.createdAtEpochSecond());
     }
 
     /** Performs the two O(number-of-files/series) maintenance passes once for the whole minute snapshot. */
@@ -891,7 +876,7 @@ public class MetricHistoryStore {
 
     private void rememberRejectedSeriesLocked(String key, long timestamp) {
         rejectedSeriesUntilByKey.put(key, timestamp + REJECTED_SERIES_CACHE_TTL_SECONDS);
-        while (rejectedSeriesUntilByKey.size() > rejectedSeriesCacheLimit) {
+        while (rejectedSeriesUntilByKey.size() > MAX_REJECTED_SERIES_CACHE_ENTRIES) {
             var iterator = rejectedSeriesUntilByKey.entrySet().iterator();
             if (!iterator.hasNext()) break;
             iterator.next();
@@ -909,8 +894,7 @@ public class MetricHistoryStore {
     }
 
     private void enforceCapacityLocked() {
-        while ((seriesByKey.size() > maxSeries || trackedStorageBytes > maxStorageBytes)
-                && !seriesByKey.isEmpty()) {
+        while (trackedStorageBytes > maxStorageBytes && !seriesByKey.isEmpty()) {
             SeriesMetadata candidate = lowestPriorityLruCandidate(null, Integer.MIN_VALUE, true);
             if (candidate == null) break;
             evictSeriesLocked(candidate, "容量");
@@ -918,25 +902,13 @@ public class MetricHistoryStore {
     }
 
     /**
-     * Makes room while protecting JVM/process/system series from lower-priority meters.
-     * A quarter of the configured series slots remains available for core meters. When no lower-priority
-     * candidate remains, the least-recently-written series at the incoming priority is replaced so fresh data
-     * can continue to enter the bounded store.
+     * Makes room by storage size while protecting JVM/process/system series from lower-priority meters.
      */
     private boolean ensureAdmissionCapacityLocked(String incomingName, Map<String, String> incomingTags,
-                                                   long requiredBytes, boolean needsSlot, String excludedId) {
+                                                   long requiredBytes, String excludedId) {
         if (requiredBytes < 0 || requiredBytes > maxStorageBytes) return false;
         int incomingPriority = metricPriority(incomingName, incomingTags);
-        if (needsSlot && incomingPriority != CORE_PRIORITY) {
-            int nonCoreLimit = maxNonCoreSeries();
-            while (nonCoreSeriesCount() >= nonCoreLimit) {
-                if (!hasEvictableSeriesLocked(incomingPriority)) return false;
-                SeriesMetadata candidate = lowestPriorityLruCandidate(excludedId, incomingPriority, false);
-                if (candidate == null) return false;
-                evictSeriesLocked(candidate, "优先级保留");
-            }
-        }
-        while ((needsSlot && seriesByKey.size() >= maxSeries) || !hasCapacityLocked(requiredBytes)) {
+        while (!hasCapacityLocked(requiredBytes)) {
             if (!hasEvictableSeriesLocked(incomingPriority)) return false;
             SeriesMetadata candidate = lowestPriorityLruCandidate(excludedId, incomingPriority, false);
             if (candidate == null) return false;
@@ -945,22 +917,12 @@ public class MetricHistoryStore {
         return true;
     }
 
-    private int maxNonCoreSeries() {
-        if (maxSeries <= 1) return maxSeries;
-        int reservedCoreSlots = Math.max(1, maxSeries / 4);
-        return Math.max(1, maxSeries - reservedCoreSlots);
-    }
-
-    private long nonCoreSeriesCount() {
-        return (long) seriesCountsByPriority[REQUEST_PRIORITY]
-                + seriesCountsByPriority[PLATFORM_PRIORITY]
-                + seriesCountsByPriority[OPTIONAL_PRIORITY];
-    }
-
     private boolean hasEvictableSeriesLocked(int incomingPriority) {
         for (int priority = incomingPriority; priority <= OPTIONAL_PRIORITY; priority++) {
             if (incomingPriority == REQUEST_PRIORITY && priority == CORE_PRIORITY) continue;
-            if (seriesCountsByPriority[priority] > 0) return true;
+            final int candidatePriority = priority;
+            if (seriesByKey.values().stream().anyMatch(metadata ->
+                    metricPriority(metadata.name(), metadata.tags()) == candidatePriority)) return true;
         }
         return false;
     }
@@ -989,20 +951,17 @@ public class MetricHistoryStore {
     }
 
     private void addSeriesLocked(String key, SeriesMetadata metadata) {
-        SeriesMetadata previous = seriesByKey.put(key, metadata);
-        if (previous == null) {
-        seriesCountsByPriority[metricPriority(metadata.name(), metadata.tags())]++;
-        }
+        seriesByKey.put(key, metadata);
     }
 
     private void removeSeriesLocked(SeriesMetadata metadata, String reason) {
-        SeriesMetadata removed = seriesByKey.remove(seriesKey(metadata.name(), metadata.tags()));
-        if (removed != null) {
-            int priority = metricPriority(removed.name(), removed.tags());
-            seriesCountsByPriority[priority] = Math.max(0, seriesCountsByPriority[priority] - 1);
-        }
+        seriesByKey.remove(seriesKey(metadata.name(), metadata.tags()));
         deleteFiles(metadata.id());
-        log.info("已按{}策略删除 Metrics RRD4J series {} ({})", reason, metadata.id(), metadata.name());
+        if (reason.contains("容量") || "优先级保留".equals(reason)) {
+            log.debug("已按{}策略删除 Metrics RRD4J series {} ({})", reason, metadata.id(), metadata.name());
+        } else {
+            log.info("已按{}策略删除 Metrics RRD4J series {} ({})", reason, metadata.id(), metadata.name());
+        }
     }
 
     private void cleanupObsoleteFilesLocked() {
@@ -1013,7 +972,7 @@ public class MetricHistoryStore {
                 if (filename.endsWith(LEGACY_SUFFIX) || filename.endsWith(".tmp") || filename.endsWith(".bak")) {
                     Files.deleteIfExists(path);
                     if (filename.endsWith(LEGACY_SUFFIX)) {
-                        log.info("已删除不再使用的 Metrics 自研时序分段 {}", filename);
+                        log.info("已删除旧版 Metrics 时序分段 {}", filename);
                     }
                 }
             }
@@ -1039,13 +998,14 @@ public class MetricHistoryStore {
         }
     }
 
-    private RrdDef definition(Path path, long timestamp, Iterable<String> dataSources) {
+    private RrdDef definition(Path path, long timestamp, Iterable<String> dataSources, boolean stepNormalized) {
+        ConsolFun consolidation = consolidation(stepNormalized);
         RrdDef definition = new RrdDef(path.toString(), timestamp - STEP_SECONDS, STEP_SECONDS);
         dataSources.forEach(dataSource -> definition.addDatasource(
                 dataSource, DsType.GAUGE, HEARTBEAT_SECONDS, Double.NaN, Double.NaN));
-        definition.addArchive(ConsolFun.LAST, X_FILES_FACTOR, 1, ONE_DAY_ROWS);
-        definition.addArchive(ConsolFun.LAST, X_FILES_FACTOR, 5, SEVEN_DAY_FIVE_MINUTE_ROWS);
-        definition.addArchive(ConsolFun.LAST, X_FILES_FACTOR, THIRTY_MINUTE_STEPS,
+        definition.addArchive(consolidation, X_FILES_FACTOR, 1, ONE_DAY_ROWS);
+        definition.addArchive(consolidation, X_FILES_FACTOR, 5, SEVEN_DAY_FIVE_MINUTE_ROWS);
+        definition.addArchive(consolidation, X_FILES_FACTOR, THIRTY_MINUTE_STEPS,
                 retentionThirtyMinuteRows());
         return definition;
     }
@@ -1196,24 +1156,14 @@ public class MetricHistoryStore {
         return OPTIONAL_PRIORITY;
     }
 
-    static boolean shouldPersistMetric(String name) {
-        return !NON_PERSISTED_OPERATION_RESOURCE_METRICS.contains(name);
-    }
-
-    /** Entry summaries stay ahead of dependency details while a fixed share remains reserved for JVM metrics. */
+    /** Entry summaries stay ahead of dependency details, while JVM/process/system series have the highest priority. */
     public static int metricPriority(String name, Map<String, String> tags) {
-        String source = tags == null ? null : tags.get("source");
         if ("http.server.requests".equals(name)) return REQUEST_PRIORITY;
         if ("tasks.scheduled.execution".equals(name) || "spring.kafka.listener".equals(name)
                 || name != null && name.startsWith("spring.kafka.container.")) {
             return REQUEST_PRIORITY;
         }
         if (name != null && name.startsWith("kafka.consumer.")) return PLATFORM_PRIORITY;
-        if (List.of("easy.operations.duration", "easy.operations.cpu.time", "easy.operations.allocated").contains(name)
-                && source != null
-                && List.of("HTTP", "JOB", "KAFKA_CONSUMER").contains(source)) {
-            return REQUEST_PRIORITY;
-        }
         return metricPriority(name);
     }
 
@@ -1246,33 +1196,21 @@ public class MetricHistoryStore {
         return java.util.Collections.unmodifiableMap(new TreeMap<>(source));
     }
 
-    private record NormalizedSample(String name, Map<String, String> tags, Map<String, Double> measurements) {
+    private record NormalizedSample(String name, Map<String, String> tags, Map<String, Double> measurements,
+                                    boolean stepNormalized) {
     }
 
     private record SeriesResolution(SeriesMetadata metadata, boolean complete, boolean rejectedSeries,
                                     String reason) {
     }
 
-    private static final class BatchAdmissionBudget {
-        private final int limit;
-        private final Set<String> attemptedKeys = new java.util.HashSet<>();
-
-        private BatchAdmissionBudget(int limit) {
-            this.limit = Math.max(1, limit);
-        }
-
-        private boolean tryAcquire(String key) {
-            if (attemptedKeys.contains(key) || attemptedKeys.size() >= limit) return false;
-            attemptedKeys.add(key);
-            return true;
-        }
-    }
-
     private record SeriesMetadata(int version, String id, String name, Map<String, String> tags,
-                                  Map<String, String> dataSources, long createdAtEpochSecond) {
+                                  Map<String, String> dataSources, boolean stepNormalized,
+                                  long createdAtEpochSecond) {
     }
 
-    private record HistoryPoint(long epochSecond, Map<String, String> tags, Map<String, Double> measurements) {
+    private record HistoryPoint(long epochSecond, Map<String, String> tags, Map<String, Double> measurements,
+                                long intervalSeconds) {
     }
 
     private record ObservedSampleRange(long oldestEpochSecond, long newestEpochSecond) {
@@ -1307,7 +1245,12 @@ public class MetricHistoryStore {
                                 long droppedWrites, long rejectedSeries, long evictedSeries) {
     }
 
-    public record MetricSeriesDescriptor(String name, Map<String, String> tags, List<String> measurements) {
+    public record MetricSeriesDescriptor(String name, Map<String, String> tags, List<String> measurements,
+                                         boolean stepNormalized) {
+        public MetricSeriesDescriptor(String name, Map<String, String> tags, List<String> measurements) {
+            this(name, tags, measurements, false);
+        }
+
         public MetricSeriesDescriptor {
             tags = tags == null ? Map.of() : Map.copyOf(tags);
             measurements = measurements == null ? List.of() : List.copyOf(measurements);

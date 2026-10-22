@@ -3,8 +3,6 @@ package io.github.lakernote.observability.web;
 import io.github.lakernote.observability.trace.store.RecentTraceStore;
 import io.github.lakernote.observability.trace.OperationRecord;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import io.micrometer.core.instrument.Timer;
-import io.micrometer.core.instrument.DistributionSummary;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -96,50 +94,13 @@ class ObservabilityControllerTest {
     }
 
     @Test
-    void aggregatesEntryOperationsLikeRequestStatistics() {
-        SimpleMeterRegistry registry = new SimpleMeterRegistry();
-        Timer.builder("easy.operations.duration").tags("source", "HTTP", "operation", "GET /orders",
-                        "type", "HTTP", "outcome", "success").register(registry)
-                .record(10, java.util.concurrent.TimeUnit.MILLISECONDS);
-        Timer.builder("easy.operations.duration").tags("source", "HTTP", "operation", "GET /orders",
-                        "type", "HTTP", "outcome", "failure").register(registry)
-                .record(5, java.util.concurrent.TimeUnit.MILLISECONDS);
-        DistributionSummary.builder("easy.operations.cpu.time").baseUnit("milliseconds")
-                .tags("source", "HTTP", "operation", "GET /orders", "type", "HTTP", "outcome", "success")
-                .register(registry).record(4);
-        DistributionSummary.builder("easy.operations.allocated").baseUnit("bytes")
-                .tags("source", "HTTP", "operation", "GET /orders", "type", "HTTP", "outcome", "success")
-                .register(registry).record(1_024);
-
-        ObservabilityController controller = new ObservabilityController(registry, new RecentTraceStore(10), () -> true);
-        var statistics = controller.requestStatistics("HTTP", 100);
-
-        assertThat(statistics).singleElement().satisfies(statistic -> {
-            assertThat(statistic.operation()).isEqualTo("GET /orders");
-            assertThat(statistic.count()).isEqualTo(2);
-            assertThat(statistic.errorCount()).isEqualTo(1);
-            assertThat(statistic.errorRate()).isEqualTo(50);
-            assertThat(statistic.meanDurationMs()).isEqualTo(7.5);
-            assertThat(statistic.maxDurationMs()).isEqualTo(10);
-            assertThat(statistic.meanCpuTimeMs()).isEqualTo(4);
-            assertThat(statistic.meanAllocatedBytes()).isEqualTo(1_024);
-        });
-    }
-
-    @Test
-    void entryDrillDownMatchesTheCurrentProcessAndMetricOperationTag() {
-        SimpleMeterRegistry registry = new SimpleMeterRegistry();
-        Timer.builder("easy.operations.duration").tags("source", "JOB", "operation", "tasks.scheduled.execution",
-                        "type", "JOB", "outcome", "success").register(registry)
-                .record(120, java.util.concurrent.TimeUnit.MILLISECONDS);
+    void filtersTraceListBySource() {
         RecentTraceStore history = new RecentTraceStore(10);
         history.add("job-trace", "nightly cleanup", "", "JOB", 200, 120, true, false, "tree");
-        history.addOperation(new OperationRecord("JOB", "job-trace", "tasks.scheduled.execution", "worker-1",
-                7, "success", 120, 3, 4096, "", "", "", true, false,
-                java.util.List.of(), "", "", java.util.Map.of(), java.time.Instant.now(), "1", ""));
-        ObservabilityController controller = new ObservabilityController(registry, history, () -> true);
+        history.add("http-trace", "GET /orders", "GET", "HTTP", 200, 20, false, false, "tree");
+        ObservabilityController controller = new ObservabilityController(new SimpleMeterRegistry(), history, () -> true);
 
-        var matches = controller.traces(100, "JOB", "tasks.scheduled.execution");
+        var matches = controller.traces(100, "JOB");
 
         assertThat(matches).singleElement().satisfies(trace -> {
             assertThat(trace.traceId()).isEqualTo("job-trace");

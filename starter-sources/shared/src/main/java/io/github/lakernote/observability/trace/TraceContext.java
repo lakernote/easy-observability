@@ -72,7 +72,8 @@ public final class TraceContext {
         if (completed) captured = null;
         if (captured == null) CURRENT_FRAME.remove();
         else CURRENT_FRAME.set(captured);
-        String traceId = snapshot == null || completed ? null : snapshot.traceId;
+        // 完成的树不能再接收 Span，但 Trace ID 仍可用于异步任务日志和下游调用关联。
+        String traceId = snapshot == null ? null : snapshot.traceId;
         MdcContext.putOrRemove(TraceIdContext.MDC_KEY,
                 TraceIdContext.isValidTraceId(traceId) ? traceId : null);
         return new Scope(previous, previousTraceId);
