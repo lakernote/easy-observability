@@ -5,28 +5,23 @@ import org.springframework.core.task.TaskDecorator;
 import java.util.Map;
 
 /**
- * 在线程池任务边界传播 Trace ID 和 MDC。
- * <p>任务结束后恢复线程池线程原有的 MDC，防止复用线程把上一个请求的上下文带给下一个任务。</p>
- * <p>此装饰器不跨线程共享 Trace 树；异步操作需要由框架 Observation 或应用自己的入口管理生命周期。</p>
+ * 在线程池任务边界传播 Trace 执行上下文和 MDC。
+ * <p>任务线程继承提交时的当前 Span；任务结束后恢复线程池线程原有的上下文。</p>
  */
 public final class TraceContextTaskDecorator implements TaskDecorator {
     @Override
     public Runnable decorate(Runnable task) {
-        // 在提交任务的线程捕获上下文，在执行线程安装副本，最后清理本次任务写入的 Trace ID。
+        // ExecutionFrame 不可变，引用的 TraceTree 用同步方法保护跨线程的节点变更。
         Map<String, String> context = MdcContext.copy();
-        String traceId = TraceIdContext.currentTraceId();
+        TraceContext.Snapshot traceSnapshot = TraceContext.capture();
         return () -> {
-            try (MdcContext.Scope ignored = MdcContext.withContext(context)) {
-                if (TraceIdContext.isValidTraceId(traceId)) {
-                    TraceIdContext.putTraceId(traceId);
-                } else {
+            try (MdcContext.Scope ignored = MdcContext.withContext(context);
+                 TraceContext.Scope traceScope = TraceContext.makeCurrent(traceSnapshot)) {
+                // 无父 Trace 的独立任务仍生成 Trace ID，便于日志和下游调用关联。
+                if (!TraceIdContext.isValidTraceId(TraceIdContext.currentTraceId())) {
                     TraceIdContext.getOrCreateTraceId();
                 }
-                try {
-                    task.run();
-                } finally {
-                    TraceIdContext.clear();
-                }
+                task.run();
             }
         };
     }

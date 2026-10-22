@@ -1,7 +1,7 @@
 package io.github.lakernote.observability.integration.observation;
 
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
-import io.github.lakernote.observability.metrics.OperationRecorder;
+import io.github.lakernote.observability.trace.TraceOperationRecorder;
 import io.github.lakernote.observability.trace.BoundedThrowableFormatter;
 import io.github.lakernote.observability.trace.OperationRecord;
 import io.github.lakernote.observability.trace.SpanKind;
@@ -32,24 +32,24 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
     private static final Pattern SQL_LITERAL = Pattern.compile("'(?:''|[^'])*'|\\b[0-9]+(?:\\.[0-9]+)?\\b");
     private static final Pattern SQL_COMMENT = Pattern.compile("(?s)/\\*.*?\\*/|--[^\\r\\n]*");
 
-    private final OperationRecorder recorder;
+    private final TraceOperationRecorder recorder;
     private final RecentTraceStore recentTraces;
     private final EasyObservabilityProperties properties;
     private final IncidentTraceStore incidentTraces;
     private final List<ObservationTraceIdResolver> traceIdResolvers;
     private final AtomicBoolean callbackFailureLogged = new AtomicBoolean();
 
-    public ObservationTraceHandler(OperationRecorder recorder, RecentTraceStore recentTraces,
+    public ObservationTraceHandler(TraceOperationRecorder recorder, RecentTraceStore recentTraces,
                                    EasyObservabilityProperties properties) {
         this(recorder, recentTraces, null, properties, List.of());
     }
 
-    public ObservationTraceHandler(OperationRecorder recorder, RecentTraceStore recentTraces,
+    public ObservationTraceHandler(TraceOperationRecorder recorder, RecentTraceStore recentTraces,
                                    IncidentTraceStore incidentTraces, EasyObservabilityProperties properties) {
         this(recorder, recentTraces, incidentTraces, properties, List.of());
     }
 
-    public ObservationTraceHandler(OperationRecorder recorder, RecentTraceStore recentTraces,
+    public ObservationTraceHandler(TraceOperationRecorder recorder, RecentTraceStore recentTraces,
                                    IncidentTraceStore incidentTraces, EasyObservabilityProperties properties,
                                    List<ObservationTraceIdResolver> traceIdResolvers) {
         this.recorder = recorder;
@@ -77,7 +77,7 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
             if (type == null || !type.isEnabled(properties)) return;
             // 诊断页轮询自身 API 和静态资源会持续制造 HTTP Trace；仅跳过本组件记录，不改动宿主 Actuator/Micrometer 指标。
             if (type == ObservationType.HTTP && isDashboardRequest(context)) return;
-            // 只有入口请求创建根 Trace。客户端调用、SQL、Redis 和事务是依赖节点；脱离入口时只记录操作指标。
+            // 只有入口 Observation 创建根 Trace。客户端调用、SQL、Redis 和事务是依赖节点；脱离入口时不生成孤立 Trace。
             boolean traceActive = TraceContext.active();
             boolean root = type.entryPoint && !traceActive;
             String currentTraceId = TraceIdContext.currentTraceId();
@@ -457,7 +457,6 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
         HTTP(SpanKind.HTTP, true, MatchMode.EXACT, "http.server.requests"),
         KAFKA_CONSUMER(SpanKind.KAFKA, true, "spring.kafka.listener"),
         KAFKA_PRODUCER(SpanKind.KAFKA, false, "spring.kafka.template"),
-        EXECUTOR_TASK(SpanKind.CODE, false, MatchMode.EXACT, "tasks.executor.execution"),
         ELASTICSEARCH(SpanKind.REMOTE, false, "spring.data.elasticsearch", "elasticsearch"),
         DATABASE(SpanKind.DATABASE, false, "spring.jdbc", "jdbc."),
         TRANSACTION(SpanKind.TRANSACTION, false, "spring.transaction"),
@@ -498,6 +497,7 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
                 case HTTP -> properties.getTrace().isHttpServerObservationEnabled();
                 case REDIS -> properties.getTrace().isRedisObservationEnabled();
                 case DATABASE -> properties.getTrace().isDatabaseObservationEnabled();
+                case JOB -> properties.getScheduling().isEnabled();
                 default -> true;
             };
         }
@@ -506,7 +506,6 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
             return switch (this) {
                 case REDIS -> properties.getTrace().getRedisSlowThresholdMs();
                 case JOB -> properties.getTrace().getJobSlowThresholdMs();
-                case EXECUTOR_TASK -> properties.getTrace().getExecutorTaskSlowThresholdMs();
                 case HTTP -> properties.getTrace().getHttpSlowThresholdMs();
                 case KAFKA_CONSUMER -> properties.getTrace().getKafkaConsumerSlowThresholdMs();
                 default -> properties.getTrace().getDependencySlowThresholdMs();

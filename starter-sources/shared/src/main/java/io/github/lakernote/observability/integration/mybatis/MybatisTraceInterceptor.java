@@ -1,7 +1,7 @@
 package io.github.lakernote.observability.integration.mybatis;
 
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
-import io.github.lakernote.observability.metrics.OperationRecorder;
+import io.github.lakernote.observability.trace.TraceOperationRecorder;
 import io.github.lakernote.observability.trace.OperationRecord;
 import io.github.lakernote.observability.trace.SpanKind;
 import io.github.lakernote.observability.trace.ThreadResourceSnapshot;
@@ -33,10 +33,10 @@ import java.util.concurrent.TimeUnit;
                 RowBounds.class, ResultHandler.class, CacheKey.class, BoundSql.class})
 })
 public final class MybatisTraceInterceptor implements Interceptor {
-    private final OperationRecorder recorder;
+    private final TraceOperationRecorder recorder;
     private final EasyObservabilityProperties properties;
 
-    public MybatisTraceInterceptor(OperationRecorder recorder, EasyObservabilityProperties properties) {
+    public MybatisTraceInterceptor(TraceOperationRecorder recorder, EasyObservabilityProperties properties) {
         this.recorder = recorder;
         this.properties = properties;
     }

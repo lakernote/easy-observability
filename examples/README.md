@@ -37,13 +37,13 @@ java -jar examples/easy-observability-example-spring-boot-4/target/easy-observab
 - `/api/demo/real-flow`：真实插入并查询 H2 的 `demo_orders`，读写 Redis，再请求 httpbingo `/anything/orders/{id}`，最后向 Kafka producer 发送订单事件。返回值包含订单、Redis 读回结果、远程响应片段及 Kafka topic/partition/offset；用响应头 `X-Trace-Id` 在监控页查看整条 Trace。
 - `/api/demo/transaction/error`：事务内插入后主动抛错，用于观察 SQL 错误、Spring 事务回滚和根因定位；接口预期返回 HTTP 500。
 - `/api/demo/okhttp`：通过 Spring 管理的 `OkHttpClient` 调用 httpbingo，验证自动注入 Trace ID、HTTP 状态/耗时 Observation 和远程调用记录。
-- `/api/demo/executor?mode=normal|slow|error`：提交到 `demoTaskExecutor` 的异步任务并返回 task ID。慢任务执行约 700 ms，失败任务抛出异常。打开监控页“线程池任务”入口筛选任务记录；`/api/demo/executor/{taskId}` 查看演示状态。示例显式使用 `TraceContextTaskDecorator` 传播提交线程的 Trace ID、当前父 Span 和 MDC，任务用 `ExecutorTaskObservation` 记录耗时、失败根因和线程信息。父 Trace 仍有效时，任务 Observation 可作为子 Span 加入原调用树；父 Trace 已完成时任务仍沿用 Trace ID，但不会再追加 Span；任务默认不创建独立入口 Trace。
+- `/api/demo/executor?mode=normal|slow|error`：提交到 `demoTaskExecutor` 的异步任务并返回 task ID。慢任务执行约 700 ms，失败任务抛出异常。打开监控页“线程池任务”入口筛选任务记录；`/api/demo/executor/{taskId}` 查看演示状态。示例显式使用 `TraceContextTaskDecorator` 传播提交线程的 Trace ID、当前父 Span 和 MDC，任务用 `ExecutorTaskTrace` 记录耗时、失败根因和线程信息，不额外注册 Timer。父 Trace 仍有效时，任务节点会追加到原调用树；父 Trace 已完成时任务仍沿用 Trace ID，但不会再追加节点；任务默认不创建独立入口 Trace。
 - 定时任务启动 5 秒后执行，随后每 30 秒递增 Redis 计数并非阻塞地读取队列；生成 `task DemoScheduledJob.countHeartbeat` 入口 Trace 及 Redis 子调用，不会持续制造慢调用。
 - 第二个定时任务每 45 秒执行一次独立 Redis 计数；两个任务的 Spring 原生 `tasks.scheduled.execution` Timer 会在“定时任务”指标分组中分别显示。调度器线程池指标在 Spring Boot 将其绑定到 MeterRegistry 时也会显示在同一分组。
 
 HTTP 请求的响应头也会返回 `X-Trace-Id`。打开 `/easy-observability/`，在“最近入口调用”或慢请求/错误请求列表中按该 ID 对照；Kafka 的 producer 和 consumer 是异步的独立调用入口，但共享相同 Trace ID。慢、错误 Kafka 示例可能同时让外层 HTTP 请求进入关注列表，这是因为接口会等待 consumer 完成。
 
-线程池整体指标由 Spring Boot Actuator 按执行器类型提供；Starter 不再对执行器重复绑定 Micrometer 指标。逐任务的耗时、慢任务、异常和根因由 `ExecutorTaskObservation` 记录为线程池任务操作，需要在任务执行边界调用该观测器；它不会单独创建入口 Trace。
+线程池整体指标由 Spring Boot Actuator 按执行器类型提供；Starter 不再对执行器重复绑定 Micrometer 指标。逐任务的耗时、慢任务、异常和根因由 `ExecutorTaskTrace` 记录为线程池任务节点，需要在任务执行边界调用；它不会注册额外的 Micrometer meter，也不会单独创建入口 Trace。
 
 `/api/demo/real-flow` 的订单写入/查询运行在 Spring `@Transactional` 服务中。JDBC 观测从真实 `DataSource` 边界采集，因此 `JdbcTemplate`、MyBatis 与 JPA 的 SQL 都可在 Trace 中查看脱敏模板、耗时、错误和慢调用；Spring 管理的事务会显示耗时与提交/回滚结果。Actuator 按数据源类型提供连接池指标；SQL 绑定参数默认不记录。
 

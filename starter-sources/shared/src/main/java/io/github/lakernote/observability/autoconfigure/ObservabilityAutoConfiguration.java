@@ -2,11 +2,10 @@ package io.github.lakernote.observability.autoconfigure;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
-import io.github.lakernote.observability.integration.executor.ExecutorTaskObservation;
-import io.github.lakernote.observability.integration.job.JobObservation;
+import io.github.lakernote.observability.integration.executor.ExecutorTaskTrace;
 import io.github.lakernote.observability.integration.observation.ObservationTraceHandler;
 import io.github.lakernote.observability.integration.observation.ObservationTraceIdResolver;
-import io.github.lakernote.observability.metrics.OperationRecorder;
+import io.github.lakernote.observability.trace.TraceOperationRecorder;
 import io.github.lakernote.observability.metrics.history.MetricHistoryStore;
 import io.github.lakernote.observability.trace.BoundedHistoryWriter;
 import io.github.lakernote.observability.trace.TraceContextTaskDecorator;
@@ -91,28 +90,17 @@ public class ObservabilityAutoConfiguration {
      */
     @Bean
     @ConditionalOnMissingBean
-    OperationRecorder operationRecorder(RecentTraceStore recentTraces, EasyObservabilityProperties properties) {
-        return new OperationRecorder(recentTraces, properties);
+    TraceOperationRecorder traceOperationRecorder(RecentTraceStore recentTraces, EasyObservabilityProperties properties) {
+        return new TraceOperationRecorder(recentTraces, properties);
     }
 
     /**
-     * 将定时任务的 Micrometer Observation 转为本项目可处理的任务观测。
+     * 为执行器任务记录 Trace 诊断，不向 Micrometer 注册独立 Meter。
      */
     @Bean
-    @ConditionalOnBean(io.micrometer.observation.ObservationRegistry.class)
     @ConditionalOnMissingBean
-    JobObservation jobObservation(io.micrometer.observation.ObservationRegistry registry) {
-        return new JobObservation(registry);
-    }
-
-    /**
-     * 为执行器任务提供 Micrometer Observation 支持。
-     */
-    @Bean
-    @ConditionalOnBean(io.micrometer.observation.ObservationRegistry.class)
-    @ConditionalOnMissingBean
-    ExecutorTaskObservation executorTaskObservation(io.micrometer.observation.ObservationRegistry registry) {
-        return new ExecutorTaskObservation(registry);
+    ExecutorTaskTrace executorTaskTrace(TraceOperationRecorder recorder, EasyObservabilityProperties properties) {
+        return new ExecutorTaskTrace(recorder, properties);
     }
 
     /**
@@ -132,9 +120,9 @@ public class ObservabilityAutoConfiguration {
     @Bean
     @ConditionalOnProperty(prefix = "easy.observability.trace", name = "enabled",
             havingValue = "true", matchIfMissing = true)
-    @ConditionalOnBean(OperationRecorder.class)
+    @ConditionalOnBean(TraceOperationRecorder.class)
     @ConditionalOnMissingBean
-    ObservationTraceHandler observationTraceHandler(OperationRecorder recorder, RecentTraceStore history,
+    ObservationTraceHandler observationTraceHandler(TraceOperationRecorder recorder, RecentTraceStore history,
                                                     IncidentTraceStore archive,
                                                     EasyObservabilityProperties properties,
                                                     ObjectProvider<ObservationTraceIdResolver> resolvers) {

@@ -1,7 +1,7 @@
 package io.github.lakernote.observability.integration.observation;
 
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
-import io.github.lakernote.observability.metrics.OperationRecorder;
+import io.github.lakernote.observability.trace.TraceOperationRecorder;
 import io.github.lakernote.observability.trace.OperationRecord;
 import io.github.lakernote.observability.trace.SpanKind;
 import io.github.lakernote.observability.trace.TraceContext;
@@ -28,7 +28,7 @@ class ObservationTraceHandlerTest {
         EasyObservabilityProperties properties = new EasyObservabilityProperties();
         properties.getTrace().setRedisSlowThresholdMs(1);
         RecentTraceStore history = new RecentTraceStore(10, 10);
-        OperationRecorder recorder = new OperationRecorder(history, properties);
+        TraceOperationRecorder recorder = new TraceOperationRecorder(history, properties);
         ObservationRegistry registry = ObservationRegistry.create();
         registry.observationConfig().observationHandler(new ObservationTraceHandler(recorder, history, properties));
         TraceIdContext.putTraceId("trace-redis-1");
@@ -59,7 +59,7 @@ class ObservationTraceHandlerTest {
         EasyObservabilityProperties properties = new EasyObservabilityProperties();
         properties.getTrace().setRedisSlowThresholdMs(0);
         RecentTraceStore history = new RecentTraceStore(10, 10);
-        OperationRecorder recorder = new OperationRecorder(history, properties);
+        TraceOperationRecorder recorder = new TraceOperationRecorder(history, properties);
         ObservationRegistry registry = ObservationRegistry.create();
         registry.observationConfig().observationHandler(new ObservationTraceHandler(recorder, history, properties));
         Observation observation = Observation.createNotStarted("spring.data.redis", registry)
@@ -82,7 +82,7 @@ class ObservationTraceHandlerTest {
     void recordsHttpServerErrorStatusAsFailedTraceWithoutThrowable() {
         EasyObservabilityProperties properties = new EasyObservabilityProperties();
         RecentTraceStore history = new RecentTraceStore(10, 10);
-        OperationRecorder recorder = new OperationRecorder(history, properties);
+        TraceOperationRecorder recorder = new TraceOperationRecorder(history, properties);
         ObservationRegistry registry = ObservationRegistry.create();
         registry.observationConfig().observationHandler(new ObservationTraceHandler(recorder, history, properties));
 
@@ -110,7 +110,7 @@ class ObservationTraceHandlerTest {
         EasyObservabilityProperties properties = new EasyObservabilityProperties();
         properties.getTrace().setHttpServerObservationEnabled(false);
         RecentTraceStore history = new RecentTraceStore(10, 10);
-        OperationRecorder recorder = new OperationRecorder(history, properties);
+        TraceOperationRecorder recorder = new TraceOperationRecorder(history, properties);
         ObservationRegistry registry = ObservationRegistry.create();
         registry.observationConfig().observationHandler(new ObservationTraceHandler(recorder, history, properties));
 
@@ -129,7 +129,7 @@ class ObservationTraceHandlerTest {
         properties.getTrace().setRedisObservationEnabled(false);
         properties.getTrace().setDatabaseObservationEnabled(false);
         ObservationTraceHandler handler = new ObservationTraceHandler(
-                new OperationRecorder(new RecentTraceStore(10, 10), properties),
+                new TraceOperationRecorder(new RecentTraceStore(10, 10), properties),
                 new RecentTraceStore(10, 10), properties);
 
         Observation.Context redis = new Observation.Context();
@@ -149,7 +149,7 @@ class ObservationTraceHandlerTest {
     void recordsHttpObservationAsTraceWithoutCustomMetrics() {
         EasyObservabilityProperties properties = new EasyObservabilityProperties();
         RecentTraceStore history = new RecentTraceStore(10, 10);
-        OperationRecorder recorder = new OperationRecorder(history, properties);
+        TraceOperationRecorder recorder = new TraceOperationRecorder(history, properties);
         ObservationRegistry registry = ObservationRegistry.create();
         registry.observationConfig().observationHandler(new ObservationTraceHandler(recorder, history, properties));
 
@@ -166,7 +166,7 @@ class ObservationTraceHandlerTest {
     void excludesBundledDashboardTrafficFromEasyObservabilityRecords() {
         EasyObservabilityProperties properties = new EasyObservabilityProperties();
         RecentTraceStore history = new RecentTraceStore(10, 10);
-        OperationRecorder recorder = new OperationRecorder(history, properties);
+        TraceOperationRecorder recorder = new TraceOperationRecorder(history, properties);
         ObservationRegistry registry = ObservationRegistry.create();
         registry.observationConfig().observationHandler(new ObservationTraceHandler(recorder, history, properties));
 
@@ -182,7 +182,7 @@ class ObservationTraceHandlerTest {
     void excludesDashboardTrafficWhenSpringAddsRouteOnlyAtObservationStop() {
         EasyObservabilityProperties properties = new EasyObservabilityProperties();
         RecentTraceStore history = new RecentTraceStore(10, 10);
-        OperationRecorder recorder = new OperationRecorder(history, properties);
+        TraceOperationRecorder recorder = new TraceOperationRecorder(history, properties);
         ObservationRegistry registry = ObservationRegistry.create();
         registry.observationConfig().observationHandler(new ObservationTraceHandler(recorder, history, properties));
 
@@ -199,7 +199,7 @@ class ObservationTraceHandlerTest {
         EasyObservabilityProperties properties = new EasyObservabilityProperties();
         properties.getTrace().setHttpSlowThresholdMs(1);
         RecentTraceStore history = new RecentTraceStore(10, 10);
-        OperationRecorder recorder = new OperationRecorder(history, properties);
+        TraceOperationRecorder recorder = new TraceOperationRecorder(history, properties);
         ObservationRegistry registry = ObservationRegistry.create();
         registry.observationConfig().observationHandler(new ObservationTraceHandler(recorder, history, properties));
 
@@ -220,7 +220,7 @@ class ObservationTraceHandlerTest {
     void asyncStopFinishesItsTraceWithoutEndingAnotherThreadsTrace() {
         EasyObservabilityProperties properties = new EasyObservabilityProperties();
         RecentTraceStore history = new RecentTraceStore(10, 10);
-        OperationRecorder recorder = new OperationRecorder(history, properties);
+        TraceOperationRecorder recorder = new TraceOperationRecorder(history, properties);
         ObservationRegistry registry = ObservationRegistry.create();
         registry.observationConfig().observationHandler(new ObservationTraceHandler(recorder, history, properties));
         Observation observation = Observation.createNotStarted("http.server.requests", registry)

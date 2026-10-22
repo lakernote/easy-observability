@@ -1,7 +1,7 @@
 package io.github.lakernote.observability.integration.transaction;
 
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
-import io.github.lakernote.observability.metrics.OperationRecorder;
+import io.github.lakernote.observability.trace.TraceOperationRecorder;
 import io.github.lakernote.observability.trace.*;
 import org.springframework.transaction.TransactionExecution;
 import org.springframework.transaction.TransactionExecutionListener;
@@ -17,17 +17,16 @@ import java.util.function.LongSupplier;
  * Records Spring transaction boundaries without proxying application services.
  */
 public final class TransactionTraceListener implements TransactionExecutionListener {
-    private final OperationRecorder recorder;
+    private final TraceOperationRecorder recorder;
     private final EasyObservabilityProperties properties;
     private final LongSupplier nanoTime;
-    private final ThreadLocal<Map<TransactionExecution, State>> states =
-            ThreadLocal.withInitial(IdentityHashMap::new);
+    private final ThreadLocal<Map<TransactionExecution, State>> states = new ThreadLocal<>();
 
-    public TransactionTraceListener(OperationRecorder recorder, EasyObservabilityProperties properties) {
+    public TransactionTraceListener(TraceOperationRecorder recorder, EasyObservabilityProperties properties) {
         this(recorder, properties, System::nanoTime);
     }
 
-    TransactionTraceListener(OperationRecorder recorder, EasyObservabilityProperties properties,
+    TransactionTraceListener(TraceOperationRecorder recorder, EasyObservabilityProperties properties,
                              LongSupplier nanoTime) {
         this.recorder = recorder;
         this.properties = properties;
@@ -53,15 +52,20 @@ public final class TransactionTraceListener implements TransactionExecutionListe
                 state.span = TraceContext.startScopedSpan(state.name, SpanKind.TRANSACTION,
                         state.readOnly ? "read-only" : "write");
             }
-            states.get().put(execution, state);
+            Map<TransactionExecution, State> currentStates = states.get();
+            if (currentStates == null) {
+                currentStates = new IdentityHashMap<>();
+                states.set(currentStates);
+            }
+            currentStates.put(execution, state);
         } catch (Throwable ignored) {
-            states.get().remove(execution);
+            removeState(execution);
         }
     }
 
     @Override
     public void afterBegin(TransactionExecution execution, Throwable failure) {
-        State state = states.get().get(execution);
+        State state = stateFor(execution);
         if (state == null) return;
         if (failure != null) {
             finish(execution, state, false, failure, false);
@@ -81,18 +85,18 @@ public final class TransactionTraceListener implements TransactionExecutionListe
 
     @Override
     public void afterCommit(TransactionExecution execution, Throwable failure) {
-        finish(execution, states.get().get(execution), failure == null, failure, true);
+        finish(execution, stateFor(execution), failure == null, failure, true);
     }
 
     @Override
     public void afterRollback(TransactionExecution execution, Throwable failure) {
-        finish(execution, states.get().get(execution), false, failure, true);
+        finish(execution, stateFor(execution), false, failure, true);
     }
 
     private void finish(TransactionExecution execution, State state, boolean success, Throwable failure,
                         boolean transactionStarted) {
         if (state == null) return;
-        states.get().remove(execution);
+        removeState(execution);
         try {
             long durationMs = Math.max(0, TimeUnit.NANOSECONDS.toMillis(nanoTime.getAsLong()
                     - (state.started ? state.startedNanos : state.createdNanos)));
@@ -128,8 +132,19 @@ public final class TransactionTraceListener implements TransactionExecutionListe
             // Instrumentation must never change the transaction result.
         } finally {
             if (state.ownsTraceId && state.traceId.equals(TraceIdContext.currentTraceId())) TraceIdContext.clear();
-            if (states.get().isEmpty()) states.remove();
         }
+    }
+
+    private State stateFor(TransactionExecution execution) {
+        Map<TransactionExecution, State> currentStates = states.get();
+        return currentStates == null ? null : currentStates.get(execution);
+    }
+
+    private void removeState(TransactionExecution execution) {
+        Map<TransactionExecution, State> currentStates = states.get();
+        if (currentStates == null) return;
+        currentStates.remove(execution);
+        if (currentStates.isEmpty()) states.remove();
     }
 
     private static String safeName(String name) {

@@ -430,14 +430,10 @@ public final class TraceContext {
     private static ExecutionFrame currentFrame() {
         ExecutionFrame context = CURRENT_FRAME.get();
         if (context != null && context.trace.completed()) {
-            String contextTraceId = context.traceId;
-            if (contextTraceId != null && contextTraceId.equals(TraceIdContext.currentTraceId())) {
+            // 只清理由创建线程拥有的 ID；异步任务的作用域会在结束时自行恢复其 MDC。
+            String ownedTraceId = context.trace.ownedTraceIdForCurrentThread();
+            if (!ownedTraceId.isBlank() && ownedTraceId.equals(TraceIdContext.currentTraceId())) {
                 TraceIdContext.clear();
-            } else {
-                String ownedTraceId = context.trace.ownedTraceIdForCurrentThread();
-                if (!ownedTraceId.isBlank() && ownedTraceId.equals(TraceIdContext.currentTraceId())) {
-                    TraceIdContext.clear();
-                }
             }
             CURRENT_FRAME.remove();
             return null;

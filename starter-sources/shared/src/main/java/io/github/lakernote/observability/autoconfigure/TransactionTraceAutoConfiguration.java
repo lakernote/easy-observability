@@ -3,7 +3,7 @@ package io.github.lakernote.observability.autoconfigure;
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
 import io.github.lakernote.observability.integration.transaction.TransactionTraceBeanPostProcessor;
 import io.github.lakernote.observability.integration.transaction.TransactionTraceListener;
-import io.github.lakernote.observability.metrics.OperationRecorder;
+import io.github.lakernote.observability.trace.TraceOperationRecorder;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
@@ -20,11 +20,11 @@ import org.springframework.transaction.TransactionExecutionListener;
 @ConditionalOnClass(TransactionExecutionListener.class)
 @ConditionalOnProperty(prefix = "easy.observability", name = "enabled", havingValue = "true", matchIfMissing = true)
 @ConditionalOnProperty(prefix = "easy.observability.transaction", name = "enabled", havingValue = "true", matchIfMissing = true)
-@ConditionalOnBean(OperationRecorder.class)
+@ConditionalOnBean(TraceOperationRecorder.class)
 public class TransactionTraceAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
-    TransactionTraceListener transactionTraceListener(OperationRecorder recorder,
+    TransactionTraceListener transactionTraceListener(TraceOperationRecorder recorder,
                                                       EasyObservabilityProperties properties) {
         return new TransactionTraceListener(recorder, properties);
     }

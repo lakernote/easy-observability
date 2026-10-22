@@ -3,7 +3,7 @@ package io.github.lakernote.observability.autoconfigure;
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
 import io.github.lakernote.observability.integration.kafka.TraceIdProducerInterceptor;
 import io.github.lakernote.observability.integration.observation.ObservationTraceHandler;
-import io.github.lakernote.observability.metrics.OperationRecorder;
+import io.github.lakernote.observability.trace.TraceOperationRecorder;
 import io.github.lakernote.observability.trace.store.RecentTraceStore;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.header.internals.RecordHeader;
@@ -90,7 +90,7 @@ class KafkaTraceAutoConfigurationTest {
     void consumerObservationUsesTraceIdFromKafkaRecordHeader() {
         EasyObservabilityProperties properties = new EasyObservabilityProperties();
         RecentTraceStore history = new RecentTraceStore(10, 10);
-        OperationRecorder recorder = new OperationRecorder(history, properties);
+        TraceOperationRecorder recorder = new TraceOperationRecorder(history, properties);
         new ApplicationContextRunner()
                 .withConfiguration(AutoConfigurations.of(KafkaTraceAutoConfiguration.class))
                 .withBean(EasyObservabilityProperties.class, () -> properties)

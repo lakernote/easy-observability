@@ -1,6 +1,6 @@
 package io.github.lakernote.observability.example;
 
-import io.github.lakernote.observability.integration.executor.ExecutorTaskObservation;
+import io.github.lakernote.observability.integration.executor.ExecutorTaskTrace;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
@@ -10,10 +10,10 @@ import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 public class DemoAsyncTaskService {
-    private final ExecutorTaskObservation observations;
+    private final ExecutorTaskTrace observations;
     private final Map<String, Map<String, String>> statuses = new ConcurrentHashMap<>();
 
-    public DemoAsyncTaskService(ExecutorTaskObservation observations) {
+    public DemoAsyncTaskService(ExecutorTaskTrace observations) {
         this.observations = observations;
     }
 

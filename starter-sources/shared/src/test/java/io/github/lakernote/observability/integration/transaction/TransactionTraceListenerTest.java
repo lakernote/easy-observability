@@ -1,7 +1,7 @@
 package io.github.lakernote.observability.integration.transaction;
 
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
-import io.github.lakernote.observability.metrics.OperationRecorder;
+import io.github.lakernote.observability.trace.TraceOperationRecorder;
 import io.github.lakernote.observability.trace.OperationRecord;
 import io.github.lakernote.observability.trace.TraceIdContext;
 import org.junit.jupiter.api.AfterEach;
@@ -24,7 +24,7 @@ class TransactionTraceListenerTest {
 
     @Test
     void attachesTransactionAsSingleChildOfExistingHttpTrace() {
-        OperationRecorder recorder = mock(OperationRecorder.class);
+        TraceOperationRecorder recorder = mock(TraceOperationRecorder.class);
         EasyObservabilityProperties properties = new EasyObservabilityProperties();
         AtomicLong clock = new AtomicLong();
         TransactionTraceListener listener = new TransactionTraceListener(recorder, properties, clock::get);
@@ -60,7 +60,7 @@ class TransactionTraceListenerTest {
 
     @Test
     void closesTransactionSpanWhenBeginFails() {
-        OperationRecorder recorder = mock(OperationRecorder.class);
+        TraceOperationRecorder recorder = mock(TraceOperationRecorder.class);
         EasyObservabilityProperties properties = new EasyObservabilityProperties();
         TransactionTraceListener listener = new TransactionTraceListener(recorder, properties, () -> 0L);
         TransactionExecution execution = execution("OrderService#create", false);

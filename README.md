@@ -58,8 +58,8 @@ Boot 3 示例页面在 `http://localhost:8083/`；Boot 4 示例用 `easy-observa
 | OkHttp | 自动增强 Spring 容器中的 `OkHttpClient` Bean，并传播 Trace ID | 容器外创建的客户端不自动增强；可用 `easy.observability.http.okhttp.enabled=false` 关闭 |
 | JDBC、事务、MyBatis | DataSource 记录 SQL 执行；Spring 事务记录耗时和提交/回滚；MyBatis 插件补充 Mapper 节点 | 自建 DataSource/事务边界需自行接入；ResultSet 每次读取的 FETCH 细节默认关闭 |
 | Kafka Consumer | Spring Kafka Listener Observation 生成原生 Timer；绑定 `MicrometerConsumerListener` 后同时采集 `kafka.consumer.*` 客户端指标 | 需设置 `spring.kafka.listener.observation-enabled: true`；自定义工厂或非 Spring 消费者需自行接入 |
-| `@Scheduled` | 启用 Spring Scheduling 后连接 Spring 原生 Observation；保存 `tasks.scheduled.execution` Timer 和可用的调度线程池指标 | Quartz、自建调度器和批处理入口可调用 `JobObservation` |
-| 线程池任务 | Actuator 按执行器类型提供线程池状态指标；任务 Trace 不自动创建 | 可调用 `ExecutorTaskObservation` 记录单个任务的耗时与错误；它不创建独立入口 Trace。自建线程池需设置 `TraceContextTaskDecorator` 传播 Trace 执行上下文和 MDC |
+| `@Scheduled` | Spring Boot Actuator 自动接入 Spring 原生 Observation；保存 `tasks.scheduled.execution` Timer 和可用的调度线程池指标 | Quartz、自建调度器需自行创建 Micrometer Observation |
+| 线程池任务 | Actuator 按执行器类型提供线程池状态指标；任务 Trace 不自动创建 | 可调用 `ExecutorTaskTrace` 记录单个任务的耗时与错误，不额外注册 Timer，也不创建独立入口 Trace。自建线程池需设置 `TraceContextTaskDecorator` 传播 Trace 执行上下文和 MDC |
 | 业务方法与业务指标 | 不扫描所有 Service | 使用 `TraceBlock` 显式记录调用；自建指标使用 Micrometer API；`@TraceSpan` 需要应用提供 Spring AOP |
 
 自动创建入口 Trace 的来源只有 HTTP 请求、Spring 定时任务和 Kafka consumer。HTTP client、Kafka producer、Redis、JDBC/MyBatis、事务和线程池任务会作为当前入口 Trace 下的操作保留；没有入口上下文时不会为这些操作虚构请求 Trace，也不会额外创建独立的自定义 Meter。
@@ -122,7 +122,7 @@ easy:
 | `easy.observability.trace.slow-error-max-bytes` | `8MB` | 慢错事件文件和 Trace 文件各自的容量上限 |
 | `easy.observability.web.allow-anonymous` | `false` | 是否允许匿名访问监控 API；生产保持关闭 |
 
-`slow-error-history-limit` 对事件列表和 Trace 列表分别生效。Redis、Kafka、MyBatis、事务、定时任务和 OkHttp 可分别通过 `easy.observability.redis.enabled`、`kafka.enabled`、`mybatis.enabled`、`transaction.enabled`、`scheduling.enabled` 和 `http.okhttp.enabled` 关闭。JDBC DataSource 代理使用上游开关 `jdbc.datasource-proxy.enabled`。
+`slow-error-history-limit` 对事件列表和 Trace 列表分别生效。Redis、Kafka、MyBatis、事务、定时任务 Trace 和 OkHttp 可分别通过 `easy.observability.redis.enabled`、`kafka.enabled`、`mybatis.enabled`、`transaction.enabled`、`scheduling.enabled` 和 `http.okhttp.enabled` 关闭；关闭定时任务 Trace 不会关闭 Actuator 的 metrics。JDBC DataSource 代理使用上游开关 `jdbc.datasource-proxy.enabled`。
 
 按需诊断时可开启 `easy.observability.trace.resource-sampling-enabled`，采集操作线程的 CPU 时间和分配字节。分配量表示这次调用在线程上累计分配的内存，不是调用结束后仍存活的堆内存，也不代表峰值堆占用；它适合发现高分配调用，OOM 还需结合堆转储、GC 和堆使用趋势分析。数据受 JVM 支持情况影响，异步跨线程结束时线程级差值可能为空。
 
@@ -155,17 +155,11 @@ return TraceBlock.call("partner.lookup", SpanKind.REMOTE, "partner-api",
         () -> partnerClient.lookup(accountId));
 ```
 
-Quartz 或自建任务可用 `JobObservation` 建立任务入口：
-
-```java
-jobObservation.observe("nightly-reconciliation", () -> reconciliation.run());
-```
-
 Actuator 会按执行器类型提供可用的线程池整体状态指标；逐任务 Trace 需要在任务执行边界显式调用：
 
 ```java
-executor.execute(() -> executorTaskObservation.observe(
+executor.execute(() -> executorTaskTrace.observe(
         "billingExecutor", "invoice.reconcile", () -> invoiceService.reconcile()));
 ```
 
-`TraceContextTaskDecorator` 在提交任务时捕获 Trace ID、当前父 Span 和 MDC，在工作线程中按作用域恢复，并在任务结束后恢复工作线程原有上下文。父 Trace 仍有效时，任务里的 Observation 和 `TraceBlock` 会作为子 Span 追加到同一调用树；父 Trace 已完成时仍沿用 Trace ID，但不再追加 Span。任务默认不会创建独立入口 Trace，装饰器也不会延长父 Trace 的生命周期。项目提供本地调用树和有界事件历史，不是分布式 Trace 后端。
+`TraceContextTaskDecorator` 在提交任务时捕获 Trace ID、当前父 Span 和 MDC，在工作线程中按作用域恢复，并在任务结束后恢复工作线程原有上下文。父 Trace 仍有效时，`ExecutorTaskTrace` 和 `TraceBlock` 会作为子 Span 追加到同一调用树；父 Trace 已完成时仍沿用 Trace ID，但不再追加 Span。任务默认不会创建独立入口 Trace，装饰器也不会延长父 Trace 的生命周期。项目提供本地调用树和有界事件历史，不是分布式 Trace 后端。

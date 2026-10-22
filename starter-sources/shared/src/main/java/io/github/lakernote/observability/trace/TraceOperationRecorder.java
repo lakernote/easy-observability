@@ -1,8 +1,6 @@
-package io.github.lakernote.observability.metrics;
+package io.github.lakernote.observability.trace;
 
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
-import io.github.lakernote.observability.trace.OperationRecord;
-import io.github.lakernote.observability.trace.TraceContext;
 import io.github.lakernote.observability.trace.store.RecentTraceStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -13,13 +11,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * 统一保留诊断事件，是框架接入层与 Trace 存储之间的边界。
  * <p>记录过程失败只影响诊断数据，不得中断被观测的业务调用。</p>
  */
-public final class OperationRecorder {
-    private static final Logger log = LoggerFactory.getLogger(OperationRecorder.class);
+public final class TraceOperationRecorder {
+    private static final Logger log = LoggerFactory.getLogger(TraceOperationRecorder.class);
     private final RecentTraceStore recentTraces;
     private final EasyObservabilityProperties properties;
     private final AtomicBoolean failureLogged = new AtomicBoolean();
 
-    public OperationRecorder(RecentTraceStore recentTraces, EasyObservabilityProperties properties) {
+    public TraceOperationRecorder(RecentTraceStore recentTraces, EasyObservabilityProperties properties) {
         this.recentTraces = recentTraces;
         this.properties = properties;
     }
