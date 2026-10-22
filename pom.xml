@@ -8,7 +8,7 @@
     <version>0.1.0-alpha.0</version>
     <packaging>pom</packaging>
     <name>Easy Observability</name>
-    <description>Spring Boot metrics, trace and slow/error diagnostics</description>
+    <description>Spring Boot Trace and slow/error diagnostics</description>
     <url>https://github.com/lakernote/easy-observability</url>
     <licenses>
         <license>
@@ -30,7 +30,10 @@
         <url>https://github.com/lakernote/easy-observability</url>
     </scm>
     <modules>
+        <module>easy-observability-spring-boot-common</module>
+        <module>easy-observability-spring-boot-3-autoconfigure</module>
         <module>easy-observability-spring-boot-3-starter</module>
+        <module>easy-observability-spring-boot-4-autoconfigure</module>
         <module>easy-observability-spring-boot-4-starter</module>
         <module>examples/easy-observability-example-spring-boot-3</module>
         <module>examples/easy-observability-example-spring-boot-4</module>
@@ -39,14 +42,12 @@
         <java.version>17</java.version>
         <spring-boot-3.version>3.5.16</spring-boot-3.version>
         <spring-boot-4.version>4.1.1</spring-boot-4.version>
-        <rrd4j.version>3.10</rrd4j.version>
-        <mybatis.version>3.5.19</mybatis.version>
         <openfeign.version>13.6.1</openfeign.version>
-        <build-helper.version>3.6.1</build-helper.version>
         <maven-compiler-plugin.version>3.14.1</maven-compiler-plugin.version>
         <maven.compiler.release>${java.version}</maven.compiler.release>
         <maven.compiler.parameters>true</maven.compiler.parameters>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <central.skipUpload>false</central.skipUpload>
     </properties>
     <profiles>
         <profile>
@@ -62,6 +63,7 @@
                             <publishingServerId>central</publishingServerId>
                             <autoPublish>true</autoPublish>
                             <waitUntil>published</waitUntil>
+                            <skipUpload>${central.skipUpload}</skipUpload>
                         </configuration>
                     </plugin>
                     <plugin>

@@ -49,6 +49,3 @@ easy:
       kafka-consumer-slow-threshold-ms: 250
       redis-observation-enabled: false # Lettuce 在 Netty 线程完成命令；示例用 TraceBlock 包裹真实同步命令以保留父子关系。
       slow-error-trace-file: ./data/easy-observability-example-spring-boot-4/traces.jsonl
-    metrics:
-      history:
-        storage-dir: ./data/easy-observability-example-spring-boot-4/metrics

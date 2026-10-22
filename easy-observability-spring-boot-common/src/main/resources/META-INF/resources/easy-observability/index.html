@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Easy Observability · Trace</title>
+  <link rel="stylesheet" href="/easy-observability/assets/dashboard.css?v=20261022.13">
+</head>
+<body>
+  <a class="skip-link" href="#main-content">跳到主要内容</a>
+  <header class="masthead">
+    <a class="brand" href="/easy-observability/">
+      <span class="brand-mark" aria-hidden="true">↗</span>
+      <span><strong>Easy Observability</strong><small>Trace 诊断</small></span>
+    </a>
+    <div class="toolbar">
+      <span id="instance" class="instance-pill"><i></i>连接中</span>
+      <button id="refresh" type="button">刷新</button>
+      <button id="clear-history" class="quiet-button" type="button">清空历史</button>
+    </div>
+  </header>
+  <main id="main-content" class="report">
+    <section class="intro">
+      <p class="eyebrow">TRACE EXPLORER</p>
+      <h1>从慢调用和错误开始排查</h1>
+      <p>每条入口 Trace 展示端到端耗时和依赖调用树。失败节点会标出异常类型，详情保留异常消息与堆栈。</p>
+    </section>
+    <div id="notice" class="notice" role="status" hidden></div>
+    <section class="filters" aria-label="Trace 筛选">
+      <label><span>结果</span><select id="result-filter"><option value="all">全部</option><option value="slow">慢调用</option><option value="error">错误</option></select></label>
+      <label><span>入口</span><select id="source-filter"><option value="">全部来源</option><option value="HTTP">HTTP</option><option value="JOB">定时任务</option><option value="KAFKA_CONSUMER">Kafka 消费</option></select></label>
+      <label class="search"><span>搜索入口、Trace ID、SQL、依赖或错误</span><input id="search" type="search" maxlength="200" placeholder="例如 /api/orders 或 SQLException"></label>
+      <span id="result-count" class="count" role="status"></span>
+    </section>
+    <section class="trace-list" aria-label="Trace 列表">
+      <div class="table-scroll"><table>
+        <thead><tr><th>结果</th><th>入口</th><th>状态</th><th>总耗时</th><th>Trace ID</th><th>完成时间</th></tr></thead>
+        <tbody id="trace-rows"></tbody>
+      </table></div>
+      <p id="empty" class="empty" hidden>没有符合条件的 Trace</p>
+      <div class="table-footer"><span id="page-label"></span><button id="previous" type="button">上一页</button><button id="next" type="button">下一页</button></div>
+    </section>
+    <footer>Trace 历史来自当前应用实例。Spring Boot Actuator 指标仍由应用自身配置管理。</footer>
+  </main>
+  <dialog id="detail-dialog" aria-labelledby="detail-title">
+    <div class="dialog-head"><div><p class="eyebrow">TRACE DETAIL</p><h2 id="detail-title">调用详情</h2></div><button id="close-dialog" class="close" aria-label="关闭">×</button></div>
+    <div id="facts" class="facts"></div>
+    <h3>端到端调用树</h3>
+    <pre id="tree" class="tree"></pre>
+    <section id="error-section" class="error-detail" hidden>
+      <h3>异常</h3><p id="error-message" class="error-message"></p>
+      <h4>堆栈</h4><pre id="error-stack" class="stack"></pre>
+    </section>
+  </dialog>
+  <dialog id="clear-dialog" class="confirm-dialog">
+    <h2>清空 Trace 历史？</h2>
+    <p>将删除当前实例内存中的近期记录和慢错归档文件。</p>
+    <div class="dialog-actions"><button id="cancel-clear" type="button">取消</button><button id="confirm-clear" class="danger" type="button">清空</button></div>
+  </dialog>
+  <script type="module" src="/easy-observability/assets/dashboard.js?v=20261022.13"></script>
+</body>
+</html>

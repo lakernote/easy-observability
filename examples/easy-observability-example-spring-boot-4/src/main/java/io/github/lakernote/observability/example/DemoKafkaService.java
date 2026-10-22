@@ -89,12 +89,6 @@ public class DemoKafkaService {
             if (failed) throw new IllegalStateException("Example Kafka consumer failure");
     }
 
-    /** 独立 Consumer Group 消费相同演示主题，提供第二条 Listener/客户端指标曲线。 */
-    @KafkaListener(id = "demo-metrics-listener", topics = TOPIC, groupId = "easy-observability-demo-metrics")
-    public void consumeForMetrics(ConsumerRecord<String, String> record) {
-        if (record.value().startsWith("slow:")) pauseForSlowConsumer();
-    }
-
     public Map<String, Object> lastConsumed() {
         return lastConsumed.get();
     }

@@ -31,7 +31,7 @@ java -jar examples/easy-observability-example-spring-boot-4/target/easy-observab
 - `/api/demo/kafka`：发送真实 Kafka 消息，等待消费者读取并返回生产/消费 Trace ID 是否一致。
 - `/api/demo/kafka/slow`：触发真实 Kafka 消费端约 650 ms 的处理延迟；慢消费者应在关注列表中显示为 `KAFKA_CONSUMER` 入口，并可用响应中的 Trace ID 下钻。
 - `/api/demo/kafka/error`：触发真实 Kafka 消费异常，验证消费端错误入口与调用详情；示例只投递一次并恢复消费，避免重试造成重复错误记录。
-- Kafka 示例为同一演示主题配置两个独立 Consumer Group，并通过 Spring Kafka 的 `MicrometerConsumerListener` 绑定客户端指标；指标趋势页会把 Listener Timer 和 Kafka Consumer 客户端指标放在独立分组中，按 Listener/客户端标签展示多条曲线。
+- Kafka 示例通过 Spring Kafka Observation 展示 producer 和 consumer Trace，并检查消息头中的 Trace ID 是否从生产端传到消费端。
 - Kafka 首次启动时 broker 或 consumer group 可能需要一些时间完成协调；若接口仍显示待确认，可查 `/api/demo/kafka/status`。三个接口都会返回生产与消费 Trace ID 的匹配结果。
 - `/api/demo/remote`：调用 `https://httpbingo.org/delay/1` 和 `/headers`，httpbingo 响应会回显 `X-Trace-Id`；树中应出现两个远程 HTTP 子调用。
 - `/api/demo/real-flow`：真实插入并查询 H2 的 `demo_orders`，读写 Redis，再请求 httpbingo `/anything/orders/{id}`，最后向 Kafka producer 发送订单事件。返回值包含订单、Redis 读回结果、远程响应片段及 Kafka topic/partition/offset；用响应头 `X-Trace-Id` 在监控页查看整条 Trace。
@@ -39,11 +39,11 @@ java -jar examples/easy-observability-example-spring-boot-4/target/easy-observab
 - `/api/demo/okhttp`：通过 Spring 管理的 `OkHttpClient` 调用 httpbingo，验证自动注入 Trace ID、HTTP 状态/耗时 Observation 和远程调用记录。
 - `/api/demo/executor?mode=normal|slow|error`：提交到 `demoTaskExecutor` 的异步任务并返回 task ID。慢任务执行约 700 ms，失败任务抛出异常。打开监控页“线程池任务”入口筛选任务记录；`/api/demo/executor/{taskId}` 查看演示状态。示例显式使用 `TraceContextTaskDecorator` 传播提交线程的 Trace ID、当前父 Span 和 MDC，任务用 `ExecutorTaskTrace` 记录耗时、失败根因和线程信息，不额外注册 Timer。父 Trace 仍有效时，任务节点会追加到原调用树；父 Trace 已完成时任务仍沿用 Trace ID，但不会再追加节点；任务默认不创建独立入口 Trace。
 - 定时任务启动 5 秒后执行，随后每 30 秒递增 Redis 计数并非阻塞地读取队列；生成 `task DemoScheduledJob.countHeartbeat` 入口 Trace 及 Redis 子调用，不会持续制造慢调用。
-- 第二个定时任务每 45 秒执行一次独立 Redis 计数；两个任务的 Spring 原生 `tasks.scheduled.execution` Timer 会在“定时任务”指标分组中分别显示。调度器线程池指标在 Spring Boot 将其绑定到 MeterRegistry 时也会显示在同一分组。
+- 定时任务入口会生成独立 Trace，并将可观测到的 Redis 操作作为子调用展示。
 
 HTTP 请求的响应头也会返回 `X-Trace-Id`。打开 `/easy-observability/`，在“最近入口调用”或慢请求/错误请求列表中按该 ID 对照；Kafka 的 producer 和 consumer 是异步的独立调用入口，但共享相同 Trace ID。慢、错误 Kafka 示例可能同时让外层 HTTP 请求进入关注列表，这是因为接口会等待 consumer 完成。
 
-线程池整体指标由 Spring Boot Actuator 按执行器类型提供；Starter 不再对执行器重复绑定 Micrometer 指标。逐任务的耗时、慢任务、异常和根因由 `ExecutorTaskTrace` 记录为线程池任务节点，需要在任务执行边界调用；它不会注册额外的 Micrometer meter，也不会单独创建入口 Trace。
+线程池整体状态如需指标，请使用应用已有的 Spring Boot Actuator 配置。逐任务的耗时、慢任务、异常和根因由 `ExecutorTaskTrace` 记录为线程池任务节点，需要在任务执行边界调用；它不会注册 Micrometer meter，也不会单独创建入口 Trace。
 
 `/api/demo/real-flow` 的订单写入/查询运行在 Spring `@Transactional` 服务中。JDBC 观测从真实 `DataSource` 边界采集，因此 `JdbcTemplate`、MyBatis 与 JPA 的 SQL 都可在 Trace 中查看脱敏模板、耗时、错误和慢调用；Spring 管理的事务会显示耗时与提交/回滚结果。Actuator 按数据源类型提供连接池指标；SQL 绑定参数默认不记录。
 
