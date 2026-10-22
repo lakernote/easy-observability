@@ -1,21 +1,19 @@
 # 示例应用
 
-- `easy-observability-example-spring-boot-3`：Spring Boot 3，默认地址 `http://localhost:8083/`
-- `easy-observability-example-spring-boot-4`：Spring Boot 4，默认地址 `http://localhost:8084/`
+- `easy-observability-example-spring-boot-3`：Spring Boot 3，默认 `http://localhost:8083/`
+- `easy-observability-example-spring-boot-4`：Spring Boot 4，默认 `http://localhost:8084/`
 
-主页提供正常、慢、错误、高 CPU、高内存请求，以及真实 H2 数据库、Redis、Kafka、定时任务和 httpbingo 远程 HTTP 调用。`/api/demo/real-flow` 在一个 HTTP Trace 中执行数据库写入/查询、Redis SET/GET、远程 HTTP 请求和 Kafka producer；`/api/demo/trace` 保留为明确标注的模拟嵌套树。监控 API 的匿名访问限制仅适用于本地体验。
+主页按 JDBC、Redis、远程 HTTP、Kafka 和异步线程池分组。每个依赖提供正常、慢、错误场景，便于在 Trace 页面核对耗时节点和异常堆栈。示例不额外记录业务 Metrics。
 
-## 启动与验证
+## 启动
 
-先从仓库根目录启动 Redis 和 Kafka（Kafka 使用 KRaft，无需 ZooKeeper）：
+H2 是内嵌数据库，不需要额外服务。Redis 和 Kafka 示例需要先启动本地依赖：
 
 ```bash
 docker compose -f examples/docker-compose.yml up -d --wait
 ```
 
-然后选择一个 Spring Boot 示例启动：
-
-在仓库根目录运行：
+然后在仓库根目录选择一个 Spring Boot 版本启动：
 
 ```bash
 mvn -pl examples/easy-observability-example-spring-boot-3 -am package
@@ -25,29 +23,41 @@ mvn -pl examples/easy-observability-example-spring-boot-4 -am package
 java -jar examples/easy-observability-example-spring-boot-4/target/easy-observability-example-spring-boot-4-0.1.0-alpha.0.jar
 ```
 
-打开示例主页后触发这些入口：
+打开应用主页，再打开 `/easy-observability/` 查看最近 Trace。Boot 3 示例可用 `http://localhost:8083/`，Boot 4 示例可用 `http://localhost:8084/`。
 
-- `/api/demo/redis`：真实 Redis 自增、写入并读回当前 Trace ID；树中应出现 Redis 子调用。示例用 `TraceBlock` 包裹真实同步 Redis 操作，确保 Lettuce Netty 线程不会让子调用脱离父 Trace。
-- `/api/demo/kafka`：发送真实 Kafka 消息，等待消费者读取并返回生产/消费 Trace ID 是否一致。
-- `/api/demo/kafka/slow`：触发真实 Kafka 消费端约 650 ms 的处理延迟；慢消费者应在关注列表中显示为 `KAFKA_CONSUMER` 入口，并可用响应中的 Trace ID 下钻。
-- `/api/demo/kafka/error`：触发真实 Kafka 消费异常，验证消费端错误入口与调用详情；示例只投递一次并恢复消费，避免重试造成重复错误记录。
-- Kafka 示例通过 Spring Kafka Observation 展示 producer 和 consumer Trace，并检查消息头中的 Trace ID 是否从生产端传到消费端。
-- Kafka 首次启动时 broker 或 consumer group 可能需要一些时间完成协调；若接口仍显示待确认，可查 `/api/demo/kafka/status`。三个接口都会返回生产与消费 Trace ID 的匹配结果。
-- `/api/demo/remote`：调用 `https://httpbingo.org/delay/1` 和 `/headers`，httpbingo 响应会回显 `X-Trace-Id`；树中应出现两个远程 HTTP 子调用。
-- `/api/demo/real-flow`：真实插入并查询 H2 的 `demo_orders`，读写 Redis，再请求 httpbingo `/anything/orders/{id}`，最后向 Kafka producer 发送订单事件。返回值包含订单、Redis 读回结果、远程响应片段及 Kafka topic/partition/offset；用响应头 `X-Trace-Id` 在监控页查看整条 Trace。
-- `/api/demo/transaction/error`：事务内插入后主动抛错，用于观察 SQL 错误、Spring 事务回滚和根因定位；接口预期返回 HTTP 500。
-- `/api/demo/okhttp`：通过 Spring 管理的 `OkHttpClient` 调用 httpbingo，验证自动注入 Trace ID、HTTP 状态/耗时 Observation 和远程调用记录。
-- `/api/demo/executor?mode=normal|slow|error`：提交到 `demoTaskExecutor` 的异步任务并返回 task ID。慢任务执行约 700 ms，失败任务抛出异常。打开监控页“线程池任务”入口筛选任务记录；`/api/demo/executor/{taskId}` 查看演示状态。示例显式使用 `TraceContextTaskDecorator` 传播提交线程的 Trace ID、当前父 Span 和 MDC，任务用 `ExecutorTaskTrace` 记录耗时、失败根因和线程信息，不额外注册 Timer。父 Trace 仍有效时，任务节点会追加到原调用树；父 Trace 已完成时任务仍沿用 Trace ID，但不会再追加节点；任务默认不创建独立入口 Trace。
-- 定时任务启动 5 秒后执行，随后每 30 秒递增 Redis 计数并非阻塞地读取队列；生成 `task DemoScheduledJob.countHeartbeat` 入口 Trace 及 Redis 子调用，不会持续制造慢调用。
-- 定时任务入口会生成独立 Trace，并将可观测到的 Redis 操作作为子调用展示。
+## 依赖调用场景
 
-HTTP 请求的响应头也会返回 `X-Trace-Id`。打开 `/easy-observability/`，在“最近入口调用”或慢请求/错误请求列表中按该 ID 对照；Kafka 的 producer 和 consumer 是异步的独立调用入口，但共享相同 Trace ID。慢、错误 Kafka 示例可能同时让外层 HTTP 请求进入关注列表，这是因为接口会等待 consumer 完成。
+所有场景都在一个 HTTP Trace 中查看入口及依赖调用树。
 
-线程池整体状态如需指标，请使用应用已有的 Spring Boot Actuator 配置。逐任务的耗时、慢任务、异常和根因由 `ExecutorTaskTrace` 记录为线程池任务节点，需要在任务执行边界调用；它不会注册 Micrometer meter，也不会单独创建入口 Trace。
+| 依赖 | 正常 | 慢 | 错误 | 场景说明 |
+| --- | --- | --- | --- | --- |
+| JDBC / H2 | `/api/demo/db?mode=normal` | `/api/demo/db?mode=slow` | `/api/demo/db?mode=error` | 执行真实 `JdbcTemplate` 写入和查询；慢场景在查询边界模拟 900 ms 等待；错误场景重复插入主键以产生真实 SQL 约束异常 |
+| Redis | `/api/demo/redis?mode=normal` | `/api/demo/redis?mode=slow` | `/api/demo/redis?mode=error` | 执行真实 SET/GET；慢场景使用 1 秒 BLPOP 等待；错误场景对字符串键执行列表命令以触发 `WRONGTYPE` |
+| 远程 HTTP | `/api/demo/remote?mode=normal` | `/api/demo/remote?mode=slow` | `/api/demo/remote?mode=error` | 调用 httpbingo 的 `/anything`、`/delay/1` 和 `/status/500`，分别查看正常、慢和 HTTP 500 错误 Span |
+| Kafka | `/api/demo/kafka` | `/api/demo/kafka/slow` | `/api/demo/kafka/error` | 发送真实消息并等待 listener 消费；响应包含 producer/consumer Trace ID 是否一致 |
 
-`/api/demo/real-flow` 的订单写入/查询运行在 Spring `@Transactional` 服务中。JDBC 观测从真实 `DataSource` 边界采集，因此 `JdbcTemplate`、MyBatis 与 JPA 的 SQL 都可在 Trace 中查看脱敏模板、耗时、错误和慢调用；Spring 管理的事务会显示耗时与提交/回滚结果。Actuator 按数据源类型提供连接池指标；SQL 绑定参数默认不记录。
+Kafka 首次启动时 broker 和 consumer group 需要一些时间完成协调。若接口返回尚未消费，可查询 `/api/demo/kafka/status`。慢和错误场景只用于本地诊断演示，Kafka 错误消息配置为不重试，避免生成重复错误 Trace。
 
-如需更换 httpbingo 地址，可设置 `EASY_OBSERVABILITY_DEMO_HTTPBINGO_BASE_URL`。完成后关闭本地依赖：
+远程 HTTP 场景需要访问 httpbingo。可用 `EASY_OBSERVABILITY_DEMO_HTTPBINGO_BASE_URL` 指定兼容的服务地址。
+
+## 异步线程池上下文传播
+
+主页的“异步线程池上下文传播对照”提供 `normal`、`slow`、`error` 三种任务，以及带/不带 Trace 包装器两种线程池：
+
+- `propagation=wrapped`：线程池使用 `TraceContextTaskDecorator`。任务能读取父 Trace ID 和 Trace 上下文；`ExecutorTaskTrace` 将任务耗时、慢状态和异常挂到 HTTP Trace 调用树。接口会等待任务结束，保证父 Trace 仍处于活动状态。
+- `propagation=unwrapped`：线程池不使用包装器。任务状态响应显示上下文未传播，任务不会出现在请求 Trace 调用树中。
+- `/api/demo/executor/{taskId}` 可查看任务执行状态；提交入口也会等待任务完成并返回任务状态、worker 线程以及上下文传播结果。
+
+线程池任务记录为 Trace 节点，不注册 Timer 或其他 Micrometer meter。
+
+## 完整链路与事务回滚
+
+- `/api/demo/real-flow` 在一个请求中执行 H2 写入/查询、Redis SET/GET、远程 HTTP 和 Kafka producer，适合检查跨依赖 Trace 串联。
+- `/api/demo/transaction/error` 在 Spring 事务内写入后抛出异常，适合检查 SQL、事务回滚结果和根因堆栈。
+
+示例将 `easy.observability.trace.resource-sampling-enabled` 设为 `true`，Trace 详情会显示线程 CPU 时间和线程分配量；生产默认关闭。这里的分配量是该线程在请求期间新分配的对象字节数，不代表进程当前堆内存占用。HTTP 服务依赖失败仍会作为 Trace 错误保存；Redis 和 Kafka 的场景需要本地 Docker 依赖可用。
+
+完成后可关闭本地依赖：
 
 ```bash
 docker compose -f examples/docker-compose.yml down

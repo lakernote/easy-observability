@@ -105,6 +105,22 @@ function addFact(container, label, value, className = '') {
   container.append(item)
 }
 
+function formatAllocatedBytes(value) {
+  if (value == null || value === '') return '未采集'
+  const bytes = Number(value)
+  if (!Number.isFinite(bytes) || bytes < 0) return '未采集'
+  if (bytes < 1024) return `${bytes.toLocaleString()} B`
+  const units = ['KiB', 'MiB', 'GiB']
+  let amount = bytes
+  let unit = 'B'
+  for (let index = 0; index < units.length; index += 1) {
+    amount /= 1024
+    unit = units[index]
+    if (amount < 1024 || index === units.length - 1) break
+  }
+  return `${amount.toFixed(1)} ${unit}`
+}
+
 async function openTrace(summary) {
   $('detail-title').textContent = summary.name || summary.traceId || '调用详情'
   $('facts').replaceChildren()
@@ -121,6 +137,10 @@ async function openTrace(summary) {
     addFact($('facts'), '入口', `${sourceNames[detail.sourceType] || 'Trace'} · ${detail.name || detail.method || '入口'}`)
     addFact($('facts'), 'Trace ID', detail.traceId, 'wide')
     addFact($('facts'), '线程', detail.threadName || detail.threadId)
+    const cpuTimeMs = detail.cpuTimeMs == null ? NaN : Number(detail.cpuTimeMs)
+    addFact($('facts'), '线程 CPU 时间', Number.isFinite(cpuTimeMs) && cpuTimeMs >= 0
+      ? `${cpuTimeMs.toLocaleString()} ms` : '未采集')
+    addFact($('facts'), '线程分配量', formatAllocatedBytes(detail.allocatedBytes))
     $('tree').textContent = detail.tree || '没有可展示的子调用'
     if (detail.error || detail.errorType || detail.errorStackTrace) {
       $('error-section').hidden = false

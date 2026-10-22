@@ -29,4 +29,15 @@ public class DemoDatabaseService {
                 orderId, "rollback-demo", "ROLLBACK", OffsetDateTime.now());
         throw new IllegalStateException("Intentional demo failure; transaction should roll back");
     }
+
+    @Transactional
+    public void insertDuplicateOrder(String orderId) {
+        insertOrder(orderId, "first insert");
+        insertOrder(orderId, "duplicate insert");
+    }
+
+    private void insertOrder(String orderId, String customer) {
+        jdbc.update("insert into demo_orders(order_id, customer_name, status, created_at) values (?, ?, ?, ?)",
+                orderId, customer, "CREATED", OffsetDateTime.now());
+    }
 }

@@ -60,7 +60,7 @@ Spring Boot Actuator 可以按应用配置提供 JVM、进程、连接池等原�
 
 ## 慢调用与错误定位
 
-Trace 列表支持按入口、慢/错误状态和文本搜索，可匹配 Trace ID、SQL、依赖名称与错误摘要。详情包含入口总耗时、各调用节点耗时、HTTP 状态、线程信息及调用树。单个依赖错误会标记在对应 Span 上，便于直接判断慢或错发生在哪个下游操作。
+Trace 列表支持按入口、慢/错误状态和文本搜索，可匹配 Trace ID、SQL、依赖名称与错误摘要。详情包含入口总耗时、各调用节点耗时、HTTP 状态、线程信息及调用树；启用资源采样时还会显示线程 CPU 时间和线程分配量。单个依赖错误会标记在对应 Span 上，便于直接判断慢或错发生在哪个下游操作。
 
 捕获到异常时，详情和慢错归档会保存异常类型、消息及有界堆栈；HTTP 5xx 等只有状态码的错误会标记为错误，但没有异常对象时不会生成虚构堆栈。SQL 会在进入 Trace 前清理字面量和注释。调用树和异常堆栈均有大小限制，避免单条异常无限扩张存储。
 
@@ -117,7 +117,7 @@ executor.execute(() -> executorTaskTrace.observe(
 
 ## 运行示例
 
-示例演示 JDBC 查询、事务回滚、Redis、HTTP/OkHttp、Kafka 和线程池 Trace。启动本地依赖后运行任一示例：
+示例演示 JDBC 查询、事务回滚、Redis、远程 HTTP、Kafka 和异步线程池上下文传播 Trace。启动本地依赖后运行任一示例：
 
 ```bash
 docker compose -f examples/docker-compose.yml up -d --wait

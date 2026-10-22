@@ -1,108 +1,61 @@
 package io.github.lakernote.observability.example;
 
-import io.github.lakernote.observability.trace.SpanKind;
-import io.github.lakernote.observability.trace.TraceBlock;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-
-import java.util.Map;
 
 @RestController
 public class DemoController {
-    private static volatile long cpuResult;
-
     @GetMapping(value = "/", produces = "text/html;charset=UTF-8")
     public String home() {
         return """
                 <!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-                <title>Easy Observability 示例</title><style>body{font:16px system-ui;max-width:900px;margin:48px auto;padding:0 24px;color:#172033}h1{font-size:32px}a{color:#2563eb}li{margin:12px 0}.note{color:#64748b}</style>
-                <h1>Easy Observability 示例应用</h1><p>先打开监控页面，再触发几次请求生成指标、慢请求和错误记录。</p>
-                <p><a href="/easy-observability/">打开监控面板 →</a></p><h2>演示请求</h2><ul>
-                <li><a href="/api/demo/success">正常请求</a></li>
-                <li><a href="/api/demo/slow?delayMs=900">慢请求（900 ms）</a></li>
-                <li><a href="/api/demo/high-cpu?durationMs=900">高 CPU 请求（约 900 ms）</a></li>
-                <li><a href="/api/demo/high-memory?sizeMb=24">高内存分配请求（24 MiB）</a></li>
-                <li><a href="/api/demo/error">错误请求（HTTP 500）</a></li>
-                <li><a href="/api/demo/trace">嵌套调用树（模拟调用）</a></li>
-                <li><a href="/api/demo/redis">真实 Redis 读写</a></li>
-                <li><a href="/api/demo/real-flow">真实业务链路（DB 写入/查询 → Redis → 远程 HTTP → Kafka producer）</a></li>
-                <li><a href="/api/demo/remote">真实远程调用（httpbingo，含 1 秒延迟）</a></li>
-                <li><a href="/api/demo/kafka">Kafka 正常消费并验证 Trace ID</a></li>
-                <li><a href="/api/demo/kafka/slow">Kafka 慢消费（约 650 ms）</a></li>
-                <li><a href="/api/demo/kafka/error">Kafka 消费异常（验证错误 Trace）</a></li>
-                <li><a href="/api/demo/kafka/status">查看最近消费的 Trace ID</a></li>
-                <li><a href="/api/demo/executor?mode=normal">线程池正常任务</a></li>
-                <li><a href="/api/demo/executor?mode=slow">线程池慢任务</a></li>
-                <li><a href="/api/demo/executor?mode=error">线程池失败任务</a></li></ul>
-                <p class="note">真实 Redis 和 Kafka 示例需要先启动 examples/docker-compose.yml 中的依赖。定时任务每 30 秒自动执行一次 Redis 计数。</p></html>
+                <title>Easy Observability Trace 示例</title>
+                <style>
+                  body{font:16px system-ui;max-width:980px;margin:40px auto;padding:0 24px;color:#172033}
+                  h1{font-size:30px}h2{margin:26px 0 10px;font-size:19px}
+                  a{display:inline-block;margin:5px 8px 5px 0;padding:8px 11px;border:1px solid #dce3ed;border-radius:7px;color:#2457b2;text-decoration:none}
+                  a:hover{background:#f3f6fb}.note{color:#64748b;font-size:14px;line-height:1.6}
+                  .toolbar{margin:18px 0;padding:14px 16px;background:#f6f8fb;border-radius:10px}
+                  code{font-size:13px}
+                </style>
+                <h1>Easy Observability Trace 示例</h1>
+                <p>按场景触发真实依赖调用，打开监控页查看 Trace 的耗时、慢错节点、异常堆栈和线程资源。</p>
+                <p class="toolbar"><a href="/easy-observability/">打开 Trace 监控页 →</a><a href="/actuator">Actuator 端点</a></p>
+
+                <h2>JDBC · H2</h2>
+                <a href="/api/demo/db?mode=normal">正常查询</a>
+                <a href="/api/demo/db?mode=slow">模拟慢查询</a>
+                <a href="/api/demo/db?mode=error">主键冲突错误</a>
+
+                <h2>Redis</h2>
+                <a href="/api/demo/redis?mode=normal">正常读写</a>
+                <a href="/api/demo/redis?mode=slow">慢命令（阻塞等待）</a>
+                <a href="/api/demo/redis?mode=error">错误命令（WRONGTYPE）</a>
+
+                <h2>远程 HTTP · httpbingo</h2>
+                <a href="/api/demo/remote?mode=normal">正常调用</a>
+                <a href="/api/demo/remote?mode=slow">慢调用（约 1 秒）</a>
+                <a href="/api/demo/remote?mode=error">HTTP 500</a>
+
+                <h2>Kafka · producer → consumer</h2>
+                <a href="/api/demo/kafka">正常消费</a>
+                <a href="/api/demo/kafka/slow">慢消费</a>
+                <a href="/api/demo/kafka/error">消费异常</a>
+
+                <h2>异步线程池上下文传播对照</h2>
+                <p class="note">每个请求会等待异步任务完成，以便父 Trace 保持打开。带包装器时任务沿用当前 Trace；不带包装器时任务无法关联到请求 Trace。</p>
+                <a href="/api/demo/executor?mode=normal&propagation=wrapped">带包装器 · 正常</a>
+                <a href="/api/demo/executor?mode=slow&propagation=wrapped">带包装器 · 慢任务</a>
+                <a href="/api/demo/executor?mode=error&propagation=wrapped">带包装器 · 失败任务</a><br>
+                <a href="/api/demo/executor?mode=normal&propagation=unwrapped">不带包装器 · 正常</a>
+                <a href="/api/demo/executor?mode=slow&propagation=unwrapped">不带包装器 · 慢任务</a>
+                <a href="/api/demo/executor?mode=error&propagation=unwrapped">不带包装器 · 失败任务</a>
+
+                <h2>完整业务链路</h2>
+                <a href="/api/demo/real-flow">H2 → Redis → HTTP → Kafka producer</a>
+
+                <p class="note">H2 内嵌数据库无需额外启动。Redis 和 Kafka 场景需要先启动 <code>examples/docker-compose.yml</code>；远程 HTTP 场景需要可访问 httpbingo。慢和错误用例是有界的本地诊断演示。</p>
+                </html>
                 """;
-    }
-
-    @GetMapping("/api/demo/success")
-    public Map<String, Object> success() {
-        return Map.of("result", "ok", "message", "Normal request recorded");
-    }
-
-    @GetMapping("/api/demo/slow")
-    public Map<String, Object> slow(@RequestParam(defaultValue = "900") long delayMs) throws InterruptedException {
-        long boundedDelay = Math.max(0, Math.min(delayMs, 5000));
-        Thread.sleep(boundedDelay);
-        return Map.of("result", "ok", "delayMs", boundedDelay);
-    }
-
-    @GetMapping("/api/demo/high-cpu")
-    public Map<String, Object> highCpu(@RequestParam(defaultValue = "900") long durationMs) {
-        long boundedDuration = Math.max(100, Math.min(durationMs, 3000));
-        long deadline = System.nanoTime() + boundedDuration * 1_000_000L;
-        long value = 1;
-        long iterations = 0;
-        while (System.nanoTime() < deadline) {
-            value = (value * 2_862_933_555_777_941_757L + 3_037_000_493L) ^ (value >>> 17);
-            iterations++;
-        }
-        cpuResult = value;
-        return Map.of("result", "ok", "durationMs", boundedDuration, "iterations", iterations);
-    }
-
-    @GetMapping("/api/demo/high-memory")
-    public Map<String, Object> highMemory(@RequestParam(defaultValue = "24") int sizeMb) {
-        int boundedSizeMb = Math.max(8, Math.min(sizeMb, 32));
-        byte[][] blocks = new byte[boundedSizeMb][];
-        for (int i = 0; i < blocks.length; i++) {
-            blocks[i] = new byte[1024 * 1024];
-            for (int offset = 0; offset < blocks[i].length; offset += 4096) {
-                blocks[i][offset] = (byte) (i + offset);
-            }
-        }
-        pause(300); // 让示例超过默认慢请求阈值，便于在慢请求列表中下钻查看分配量。
-        long checksum = 0;
-        for (byte[] block : blocks) checksum += block[block.length - 4096];
-        return Map.of("result", "ok", "allocatedMb", boundedSizeMb, "checksum", checksum);
-    }
-
-    @GetMapping("/api/demo/error")
-    public Map<String, Object> error() {
-        throw new IllegalStateException("Example error for trace diagnosis");
-    }
-
-    @GetMapping("/api/demo/trace")
-    public Map<String, Object> trace() {
-        String value = TraceBlock.call("customer.lookup", SpanKind.DATABASE, "simulated", () -> {
-            pause(120);
-            TraceBlock.run("customer.cache", SpanKind.REDIS, "simulated", () -> pause(80));
-            TraceBlock.run("profile.remote-call", SpanKind.REMOTE, "simulated", () -> pause(120));
-            return "customer-1001";
-        });
-        return Map.of("result", "ok", "customer", value, "note", "database/Redis/remote nodes are simulated");
-    }
-
-    private static void pause(long millis) {
-        try {
-            Thread.sleep(millis);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException("Example call interrupted", e);
-        }
     }
 }
