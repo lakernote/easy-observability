@@ -118,7 +118,6 @@ dialog::backdrop { background: rgb(15 28 48 / 56%); backdrop-filter: blur(3px); 
 .dialog-head h2 { margin: 0; color: #1b2b42; font-size: 17px; font-weight: 680; line-height: 1.4; overflow-wrap: anywhere; }
 .dialog-close { display: grid; flex: 0 0 auto; width: 34px; height: 34px; place-items: center; border: 1px solid #e7ebf1; border-radius: 9px; background: #fff; color: #708097; font-size: 21px; cursor: pointer; }
 .dialog-close:hover { border-color: #d6deeb; background: #f7f9fc; color: #344762; }
-.dialog-note { margin: 14px 0; color: #738198; font-size: 12px; line-height: 1.6; }
 dialog h3 { margin: 19px 0 9px; color: #354760; font-size: 12px; font-weight: 700; }
 .trace-facts { display: flex; flex-wrap: wrap; gap: 7px; margin: 15px 0 17px; }
 .trace-facts span { padding: 7px 10px; border: 1px solid #e6ebf2; border-radius: 8px; background: #f8fafd; color: #5d6d83; font-size: 10px; font-variant-numeric: tabular-nums; }
@@ -138,33 +137,44 @@ td details pre { min-width: 360px; margin-top: 7px; font-size: 10px; }
   html { scroll-padding-top: 125px; }
   .masthead-inner { grid-template-columns: 1fr auto; gap: 2px 10px; padding: 9px 15px 0; }
   .brand-mark { width: 34px; height: 34px; border-radius: 10px; }
-  .brand-copy strong { font-size: 12px; }
-  .brand-copy small { font-size: 10px; }
+  .brand-copy strong { font-size: 13px; }
+  .brand-copy small { font-size: 11px; }
   .toolbar { gap: 7px; }
   .instance-pill { display: none; }
   .period-control>span { display: none; }
-  .period-control select { max-width: 112px; height: 33px; padding-left: 8px; font-size: 10px; }
-  .refresh-button { min-width: 36px; width: 36px; height: 34px; }
+  .period-control select { max-width: 112px; min-height: 44px; padding-left: 8px; font-size: 14px; }
+  .refresh-button { min-width: 44px; width: 44px; height: 44px; }
   .refresh-button span { display: none; }
   .primary-nav { grid-column: 1 / -1; gap: 2px; min-height: 42px; overflow-x: auto; }
-  .primary-nav a { flex: 0 0 auto; padding: 0 10px; font-size: 11px; }
+  .primary-nav a { min-height: 44px; flex: 0 0 auto; padding: 0 10px; font-size: 13px; }
   .primary-nav a.active::after { right: 9px; left: 9px; }
   .report { padding: 26px 15px 32px; }
   .page-heading { align-items: flex-start; margin-bottom: 17px; }
   .page-heading h1 { font-size: 23px; }
-  .page-description { max-width: 330px; font-size: 11px; }
+  .page-description { max-width: 330px; font-size: 14px; }
   .report-section { margin-bottom: 14px; padding: 17px 13px 14px; border-radius: 12px; scroll-margin-top: 123px; }
   .section-heading { flex-direction: column; gap: 8px; margin-bottom: 15px; }
   .section-heading h2 { font-size: 15px; }
-  .section-heading p:not(.eyebrow) { font-size: 10px; }
+  .section-heading p:not(.eyebrow) { font-size: 13px; }
   .section-heading .source-badge { margin-top: 0; }
   .section-tools { align-items: flex-start; flex-direction: column; gap: 9px; }
   .filters { gap: 5px; }
-  .filters button { min-height: 31px; padding: 0 9px; font-size: 10px; }
+  .filters button { min-height: 44px; padding: 0 12px; font-size: 13px; }
   .incident-columns { grid-template-columns: 1fr; gap: 10px; }
   .page-footer { flex-direction: column; gap: 5px; }
   dialog { padding: 16px; }
+  .dialog-close { width: 44px; height: 44px; }
   .trace-facts span { padding: 6px 8px; }
+}
+@media (max-width: 360px) {
+  .masthead-inner { grid-template-columns: minmax(0, 1fr) auto; column-gap: 5px; padding-right: 12px; padding-left: 12px; }
+  .brand { min-width: 0; gap: 6px; }
+  .brand-mark { width: 30px; height: 30px; }
+  .brand-copy strong { font-size: 11px; }
+  .brand-copy small { font-size: 10px; }
+  .toolbar { gap: 5px; }
+  .period-control select { max-width: 88px; padding-left: 5px; font-size: 12px; }
+  .primary-nav { width: 100%; min-width: 0; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }

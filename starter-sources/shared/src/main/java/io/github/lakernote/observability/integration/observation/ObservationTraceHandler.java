@@ -1,9 +1,7 @@
 package io.github.lakernote.observability.integration.observation;
 
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
-import io.github.lakernote.observability.trace.TraceOperationRecorder;
 import io.github.lakernote.observability.trace.BoundedThrowableFormatter;
-import io.github.lakernote.observability.trace.OperationRecord;
 import io.github.lakernote.observability.trace.SpanKind;
 import io.github.lakernote.observability.trace.ThreadResourceSnapshot;
 import io.github.lakernote.observability.trace.TraceContext;
@@ -14,16 +12,14 @@ import io.micrometer.common.KeyValue;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationHandler;
 
-import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Pattern;
 
 /**
- * 将 Spring/Micrometer 发布的框架 Observation 接入统一操作记录和 Trace。
+ * 将 Spring/Micrometer 发布的框架 Observation 接入统一 Trace。
  * <p>只把 HTTP、Job、Kafka 消费作为入口；Redis、数据库等作为入口下的依赖节点。</p>
  */
 public final class ObservationTraceHandler implements ObservationHandler<Observation.Context> {
@@ -32,27 +28,24 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
     private static final Pattern SQL_LITERAL = Pattern.compile("'(?:''|[^'])*'|\\b[0-9]+(?:\\.[0-9]+)?\\b");
     private static final Pattern SQL_COMMENT = Pattern.compile("(?s)/\\*.*?\\*/|--[^\\r\\n]*");
 
-    private final TraceOperationRecorder recorder;
     private final RecentTraceStore recentTraces;
     private final EasyObservabilityProperties properties;
     private final IncidentTraceStore incidentTraces;
     private final List<ObservationTraceIdResolver> traceIdResolvers;
     private final AtomicBoolean callbackFailureLogged = new AtomicBoolean();
 
-    public ObservationTraceHandler(TraceOperationRecorder recorder, RecentTraceStore recentTraces,
+    public ObservationTraceHandler(RecentTraceStore recentTraces, EasyObservabilityProperties properties) {
+        this(recentTraces, null, properties, List.of());
+    }
+
+    public ObservationTraceHandler(RecentTraceStore recentTraces, IncidentTraceStore incidentTraces,
                                    EasyObservabilityProperties properties) {
-        this(recorder, recentTraces, null, properties, List.of());
+        this(recentTraces, incidentTraces, properties, List.of());
     }
 
-    public ObservationTraceHandler(TraceOperationRecorder recorder, RecentTraceStore recentTraces,
-                                   IncidentTraceStore incidentTraces, EasyObservabilityProperties properties) {
-        this(recorder, recentTraces, incidentTraces, properties, List.of());
-    }
-
-    public ObservationTraceHandler(TraceOperationRecorder recorder, RecentTraceStore recentTraces,
-                                   IncidentTraceStore incidentTraces, EasyObservabilityProperties properties,
+    public ObservationTraceHandler(RecentTraceStore recentTraces, IncidentTraceStore incidentTraces,
+                                   EasyObservabilityProperties properties,
                                    List<ObservationTraceIdResolver> traceIdResolvers) {
-        this.recorder = recorder;
         this.recentTraces = recentTraces;
         this.incidentTraces = incidentTraces;
         this.properties = properties;
@@ -97,35 +90,28 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
             String name = operationName(context, type.name());
             String detail = observationDetail(context);
             long threadId = Thread.currentThread().getId();
-            ThreadResourceSnapshot resources = ThreadResourceSnapshot.capture(threadId,
-                    properties.getTrace().isResourceSamplingEnabled());
-            String spanId;
-            String parentSpanId;
+            // CPU and allocated bytes are sampled only at the entry boundary; child spans retain timing only.
+            ThreadResourceSnapshot resources = root ? ThreadResourceSnapshot.capture(threadId,
+                    properties.getTrace().isResourceSamplingEnabled()) : null;
             if (root) {
                 // 入口建立请求级 Trace；依赖调用只挂到当前 Trace，不会单独伪装成请求。
-                spanId = TraceContext.startRootSpan(name, type.spanKind, detail, 8, 0);
+                TraceContext.startRootSpan(name, type.spanKind, detail, 8, 0);
                 rootStarted = true;
                 traceHandle = TraceContext.currentRootTraceHandle();
                 if (installedTraceId && traceHandle != null) {
                     traceHandle.rememberOwnedTraceId(traceId);
                 }
-                parentSpanId = "";
             } else if (type == ObservationType.DATABASE || type == ObservationType.TRANSACTION) {
                 // JDBC 查询在事务方法中同步执行；用作用域 span 表达事务包住 SQL 的真实调用层级。
                 TraceContext.ScopedSpan scopedSpan = TraceContext.startScopedSpan(name, type.spanKind, detail);
                 span = scopedSpan;
-                spanId = span.spanId();
-                parentSpanId = span.parentSpanId();
             } else {
                 TraceContext.DetachedSpan detachedSpan = TraceContext.startDetachedSpan(name, type.spanKind, detail);
                 span = detachedSpan;
-                spanId = span.spanId();
-                parentSpanId = span.parentSpanId();
             }
             if (traceHandle == null && traceActive) traceHandle = TraceContext.currentRootTraceHandle();
-            context.put(STATE_KEY, new ObservationState(type, name, detail, traceId, root, traceActive,
-                    installedTraceId, System.nanoTime(), threadId, Thread.currentThread().getName(), resources,
-                    span, spanId, parentSpanId, traceHandle));
+            context.put(STATE_KEY, new ObservationState(type, name, detail, traceId, root,
+                    installedTraceId, System.nanoTime(), threadId, resources, span, traceHandle));
         } catch (RuntimeException ignored) {
             // 监控回调异常不能影响应用已有的 Trace 和业务流程。
             if (rootStarted) TraceContext.clear();
@@ -182,14 +168,10 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
             long durationMs = Math.max(0, TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - state.startedAtNanos));
             String detail = currentDetail.isBlank() ? state.startDetail : currentDetail;
             String displayName = traceDisplayName(context, state.observationType.name(), state.operationName, detail);
-            ThreadResourceSnapshot resourcesAfter = captureResourcesAtStop(state);
+            ThreadResourceSnapshot resourcesAfter = state.rootObservation ? captureResourcesAtStop(state) : null;
             Throwable error = context.getError();
             int status = httpStatus(context);
             boolean failed = error != null || status >= 500;
-            BoundedThrowableFormatter.FailureEvidence recordedFailure = state.failure;
-            BoundedThrowableFormatter.FailureEvidence failure = recordedFailure != null ? recordedFailure
-                    : error == null ? BoundedThrowableFormatter.FailureEvidence.EMPTY
-                    : BoundedThrowableFormatter.capture(error);
             if (error == null && status >= 500) {
                 BoundedThrowableFormatter.FailureEvidence statusFailure =
                         new BoundedThrowableFormatter.FailureEvidence("HTTP_" + status,
@@ -214,10 +196,12 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
                 state.traceHandle.updateRootIdentity(displayName, detail);
             }
             if (state.spanHandle != null) state.spanHandle.close();
-            String outcome = failed ? "failure" : "success";
-            recorder.record(toOperationRecord(state, outcome, durationMs, resourcesAfter, detail, failure,
-                    slow, failed, error, status), state.traceActiveAtStart || state.rootObservation);
-            completeRootTrace(state, threshold, error, displayName, detail, status, durationMs, slow, failed);
+            long cpuTimeMs = resourcesAfter == null || state.resourcesAtStart == null ? -1
+                    : resourcesAfter.cpuTimeMsSince(state.resourcesAtStart);
+            long allocatedBytes = resourcesAfter == null || state.resourcesAtStart == null ? -1
+                    : resourcesAfter.allocatedBytesSince(state.resourcesAtStart);
+            completeRootTrace(state, threshold, error, displayName, detail, status, durationMs, slow, failed,
+                    cpuTimeMs, allocatedBytes);
         } catch (RuntimeException failure) {
             if (state.rootObservation && state.traceHandle != null) {
                 state.traceHandle.discard();
@@ -246,36 +230,23 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
                 properties.getTrace().isResourceSamplingEnabled());
     }
 
-    private static OperationRecord toOperationRecord(ObservationState state, String outcome, long durationMs,
-                                                     ThreadResourceSnapshot resourcesAfter, String detail,
-                                                     BoundedThrowableFormatter.FailureEvidence failure,
-                                                     boolean slow, boolean failed, Throwable error, int status) {
-        return new OperationRecord(state.observationType.name(), state.traceId, state.operationName, state.startThreadName,
-                state.startThreadId, outcome, durationMs,
-                resourcesAfter.cpuTimeMsSince(state.resourcesAtStart),
-                resourcesAfter.allocatedBytesSince(state.resourcesAtStart),
-                detail, "", failure.stackTrace(), slow,
-                failed, slow ? List.of("SLOW_" + state.observationType.name()) : List.of(),
-                error == null ? (failed ? "HTTP_" + status : "") : error.getClass().getName(),
-                error == null && failed ? "HTTP status " + status : failure.message(),
-                Map.of(), Instant.now(), state.spanId, state.parentSpanId);
-    }
-
     private void completeRootTrace(ObservationState state, long threshold, Throwable error, String displayName,
-                                  String detail, int status, long durationMs, boolean slow, boolean failed) {
+                                  String detail, int status, long durationMs, boolean slow, boolean failed,
+                                  long cpuTimeMs, long allocatedBytes) {
         if (!state.rootObservation || state.traceHandle == null) return;
         state.traceHandle.stop(threshold, state.observationType.name() + " observation", error,
                 completion -> storeCompletedTrace(state, completion, displayName, detail, status,
-                        durationMs, slow, failed));
+                        durationMs, slow, failed, cpuTimeMs, allocatedBytes));
     }
 
     private void storeCompletedTrace(ObservationState state, TraceContext.Completion completion,
                                      String displayName, String detail, int status, long durationMs,
-                                     boolean slow, boolean failed) {
+                                     boolean slow, boolean failed, long cpuTimeMs, long allocatedBytes) {
         boolean traceSlow = slow || completion.slow();
         boolean traceFailed = failed || completion.error();
         recentTraces.add(state.traceId, displayName, detail, state.observationType.name(),
-                status > 0 ? status : failed ? 500 : 200, durationMs, traceSlow, traceFailed, completion.tree());
+                status > 0 ? status : failed ? 500 : 200, durationMs, traceSlow, traceFailed, completion.tree(),
+                state.startThreadId, cpuTimeMs, allocatedBytes, completion.errorType(), completion.errorMessage());
         if (incidentTraces == null || (!traceSlow && !traceFailed)) return;
         // 只把慢/错入口 Trace 写入持久存储；正常请求留在有界内存列表中。
         try {
@@ -408,38 +379,28 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
         private final String startDetail;
         private final String traceId;
         private final boolean rootObservation;
-        private final boolean traceActiveAtStart;
         private final boolean installedTraceId;
         private final long startedAtNanos;
         private final long startThreadId;
-        private final String startThreadName;
         private final ThreadResourceSnapshot resourcesAtStart;
         private final TraceContext.SpanHandle spanHandle;
-        private final String spanId;
-        private final String parentSpanId;
         private final TraceContext.RootTraceHandle traceHandle;
         private volatile BoundedThrowableFormatter.FailureEvidence failure;
 
         private ObservationState(ObservationType observationType, String operationName, String startDetail,
-                                 String traceId, boolean rootObservation, boolean traceActiveAtStart,
-                                 boolean installedTraceId,
-                                 long startedAtNanos, long startThreadId, String startThreadName,
-                                 ThreadResourceSnapshot resourcesAtStart, TraceContext.SpanHandle spanHandle,
-                                 String spanId, String parentSpanId, TraceContext.RootTraceHandle traceHandle) {
+                                 String traceId, boolean rootObservation, boolean installedTraceId,
+                                 long startedAtNanos, long startThreadId, ThreadResourceSnapshot resourcesAtStart,
+                                 TraceContext.SpanHandle spanHandle, TraceContext.RootTraceHandle traceHandle) {
             this.observationType = observationType;
             this.operationName = operationName;
             this.startDetail = startDetail;
             this.traceId = traceId;
             this.rootObservation = rootObservation;
-            this.traceActiveAtStart = traceActiveAtStart;
             this.installedTraceId = installedTraceId;
             this.startedAtNanos = startedAtNanos;
             this.startThreadId = startThreadId;
-            this.startThreadName = startThreadName;
             this.resourcesAtStart = resourcesAtStart;
             this.spanHandle = spanHandle;
-            this.spanId = spanId;
-            this.parentSpanId = parentSpanId;
             this.traceHandle = traceHandle;
         }
 

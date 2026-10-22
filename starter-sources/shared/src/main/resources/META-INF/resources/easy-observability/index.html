@@ -7,8 +7,8 @@
   <meta name="theme-color" content="#f4f7fb">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%234774df'/%3E%3Cpath d='M5 17h5l3-8 5 15 3-9h6' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
   <title>Easy Observability · 应用运行诊断</title>
-  <link rel="stylesheet" href="/easy-observability/assets/dashboard.css?v=20261020.3">
-  <link rel="stylesheet" href="/easy-observability/assets/dashboard-controls.css?v=20261021.1">
+  <link rel="stylesheet" href="/easy-observability/assets/dashboard.css?v=20261022.4">
+  <link rel="stylesheet" href="/easy-observability/assets/dashboard-controls.css?v=20261022.4">
 </head>
 <body>
   <a class="skip-link" href="#main-content">跳到主要内容</a>
@@ -34,7 +34,7 @@
   <main id="main-content" class="report">
     <div id="notice" class="notice" role="alert" hidden></div>
     <section id="metrics-section" class="report-section metrics-view" aria-labelledby="metrics-title">
-      <div class="page-heading metrics-page-heading"><div><p class="eyebrow">METRICS WORKSPACE</p><h1 id="metrics-title">指标趋势</h1><p class="page-description">HTTP 请求、定时任务与 Kafka 消费分别展示速率、错误和耗时，再查看进程、JVM 与基础设施资源。</p><p id="metric-range-note" class="page-description metrics-range-note" role="status">正在读取指标历史范围…</p></div><span id="metric-storage-status" class="source-badge" role="status">本地历史 · 1 分钟采样</span></div>
+      <div class="page-heading metrics-page-heading"><div><p class="eyebrow">METRICS WORKSPACE</p><h1 id="metrics-title">指标趋势</h1><p class="page-description">HTTP、定时任务与 Kafka 展示调用健康度；JVM、CPU、线程、日志、HTTP 出站、Tomcat、Redis 和 SQL 按类型查看趋势。</p><p id="metric-range-note" class="page-description metrics-range-note" role="status">正在读取指标历史范围…</p></div><span id="metric-storage-status" class="source-badge" role="status">本地历史 · 1 分钟采样</span></div>
       <section class="red-section" aria-labelledby="http-red-title">
         <div class="subsection-heading"><div><p class="eyebrow">HTTP · RED</p><h2 id="http-red-title">HTTP 请求健康度</h2><p>请求速率、错误速率和平均耗时合并在同一面板；切换指标查看趋势，点击 URI 表格中的彩色标记显隐曲线。错误包含 4xx、5xx 和异常结果；诊断页面自身的请求会排除。</p></div><span id="http-red-scope" class="source-badge">等待 HTTP 指标</span></div>
         <div class="red-dashboard-host" id="http-red-grid" aria-live="polite"><p class="empty">正在读取 HTTP 趋势…</p></div>
@@ -67,8 +67,8 @@
     <footer class="page-footer"><span>Easy Observability</span><span>数据来自当前应用实例 · 指标历史保存在本地</span></footer>
   </main>
 
-  <dialog id="trace-dialog" aria-labelledby="dialog-title"><div class="dialog-head"><div><p class="eyebrow">TRACE DETAIL</p><h2 id="dialog-title">请求详情</h2></div><button id="close-dialog" class="dialog-close" aria-label="关闭">×</button></div><div id="trace-facts" class="trace-facts"></div><h3>调用树</h3><pre id="trace-tree"></pre><p id="trace-operations-note" class="dialog-note" hidden></p><h3>调用明细</h3><div class="table-scroll"><table id="operation-table"><thead><tr><th>类型</th><th>操作</th><th>耗时</th><th>CPU</th><th>分配量</th><th>线程</th><th>结果</th><th>错误</th></tr></thead><tbody id="operation-rows"></tbody></table></div></dialog>
+  <dialog id="trace-dialog" aria-labelledby="dialog-title"><div class="dialog-head"><div><p class="eyebrow">TRACE DETAIL</p><h2 id="dialog-title">请求详情</h2></div><button id="close-dialog" class="dialog-close" aria-label="关闭">×</button></div><div id="trace-facts" class="trace-facts"></div><h3>调用树</h3><pre id="trace-tree"></pre></dialog>
   <script defer src="/easy-observability/assets/vendor/echarts.min.js?v=6.1.0"></script>
-  <script type="module" src="/easy-observability/assets/dashboard.js?v=20261022.1"></script>
+  <script type="module" src="/easy-observability/assets/dashboard.js?v=20261022.4"></script>
 </body>
 </html>

@@ -174,7 +174,6 @@ public class EasyObservabilityProperties {
         private boolean enabled = true;
         private boolean allowAnonymous;
         private int traceLimit = 500;
-        private int operationLimit = 2_000;
 
         public boolean isEnabled() {
             return enabled;
@@ -200,13 +199,6 @@ public class EasyObservabilityProperties {
             this.traceLimit = traceLimit;
         }
 
-        public int getOperationLimit() {
-            return operationLimit;
-        }
-
-        public void setOperationLimit(int operationLimit) {
-            this.operationLimit = operationLimit;
-        }
     }
 
     public static class Metrics {

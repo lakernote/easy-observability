@@ -1,6 +1,5 @@
 package io.github.lakernote.observability.trace.store;
 
-import io.github.lakernote.observability.trace.OperationRecord;
 import io.github.lakernote.observability.trace.BoundedHistoryWriter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -17,7 +16,7 @@ import java.util.List;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.function.Consumer;
 
-/** 持久化已完成的慢/错入口 Trace 树及其操作级资源信息，供进程重启后查询。 */
+/** 持久化已完成的慢/错入口 Trace 树及入口资源摘要，供进程重启后查询。 */
 public final class IncidentTraceStore {
     private static final Logger log = LoggerFactory.getLogger(IncidentTraceStore.class);
     private final ObjectMapper mapper;

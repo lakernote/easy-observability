@@ -2,7 +2,6 @@ package io.github.lakernote.observability.integration.job;
 
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
 import io.github.lakernote.observability.integration.observation.ObservationTraceHandler;
-import io.github.lakernote.observability.trace.TraceOperationRecorder;
 import io.github.lakernote.observability.trace.store.RecentTraceStore;
 import io.micrometer.core.instrument.observation.DefaultMeterObservationHandler;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -18,18 +17,16 @@ class ScheduledObservationTraceTest {
         ObservationRegistry registry = ObservationRegistry.create();
         EasyObservabilityProperties properties = new EasyObservabilityProperties();
         RecentTraceStore history = new RecentTraceStore(10);
-        TraceOperationRecorder recorder = new TraceOperationRecorder(history, properties);
-        registry.observationConfig().observationHandler(new ObservationTraceHandler(recorder, history, properties));
+        registry.observationConfig().observationHandler(new ObservationTraceHandler(history, properties));
 
         Observation.createNotStarted("tasks.scheduled.execution", registry)
                 .contextualName("nightly-reconciliation")
                 .observe(() -> { });
 
         var trace = history.recent(10).get(0);
-        assertThat(history.find(trace.traceId(), "JOB").operations()).singleElement().satisfies(operation -> {
-            assertThat(operation.type()).isEqualTo("JOB");
-            assertThat(operation.name()).isEqualTo("nightly-reconciliation");
-        });
+        assertThat(trace.name()).isEqualTo("nightly-reconciliation");
+        // A root-only successful observation is retained without rendering a tree string.
+        assertThat(trace.tree()).isEmpty();
     }
 
     @Test
@@ -40,8 +37,7 @@ class ScheduledObservationTraceTest {
         SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
         registry.observationConfig().observationHandler(new DefaultMeterObservationHandler(meterRegistry));
         RecentTraceStore history = new RecentTraceStore(10);
-        TraceOperationRecorder recorder = new TraceOperationRecorder(history, properties);
-        registry.observationConfig().observationHandler(new ObservationTraceHandler(recorder, history, properties));
+        registry.observationConfig().observationHandler(new ObservationTraceHandler(history, properties));
 
         Observation.createNotStarted("tasks.scheduled.execution", registry)
                 .contextualName("nightly-reconciliation")

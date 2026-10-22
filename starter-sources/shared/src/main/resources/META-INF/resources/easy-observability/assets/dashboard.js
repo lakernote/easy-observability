@@ -277,129 +277,20 @@ async function openTrace(trace) {
   byId('trace-facts').replaceChildren()
   const facts = [
     `状态 ${trace.status ?? '—'}`, `耗时 ${formatNumber(trace.durationMs, ' ms')}`,
-    `CPU ${formatNumber(trace.cpuTimeMs, ' ms')}`, `分配量 ${formatBytes(trace.allocatedBytes)}`,
-    `线程 ${formatNumber(trace.threadId)}`, `Trace ID ${trace.traceId || '—'}`,
+    `入口 CPU ${formatNumber(trace.cpuTimeMs, ' ms')}`, `入口分配量 ${formatBytes(trace.allocatedBytes)}`,
+    `入口线程 ${formatNumber(trace.threadId)}`, `Trace ID ${trace.traceId || '—'}`,
     `完成 ${formatTime(trace.finishedAt)}`
   ]
+  if (trace.error && (trace.errorType || trace.errorMessage)) facts.splice(1, 0,
+    `错误 ${[trace.errorType, trace.errorMessage].filter(Boolean).join(': ')}`)
   for (const fact of facts) { const span = document.createElement('span'); span.textContent = fact; byId('trace-facts').append(span) }
-  byId('trace-tree').textContent = '正在读取调用树和下游明细…'
-  byId('operation-rows').replaceChildren()
-  byId('trace-operations-note').hidden = true
-  byId('trace-operations-note').textContent = ''
+  byId('trace-tree').textContent = '正在读取调用树…'
   byId('trace-dialog').showModal()
   let detail = trace
   const sourceQuery = trace.sourceType ? `?source=${encodeURIComponent(trace.sourceType)}` : ''
   try { detail = await getJson(`/traces/${encodeURIComponent(trace.traceId)}${sourceQuery}`) || trace }
   catch (error) { byId('trace-tree').textContent = error?.message || '读取 Trace 明细失败'; return }
-  byId('trace-tree').textContent = detail.tree || renderOperationTree(detail)
-  const treeNodeCount = String(detail.tree || '').split('\n').filter(line => line.trim()).length
-  const hasStructuredChild = (detail.operations || []).some(operation =>
-    operation.type !== detail.sourceType || Boolean(operation.parentSpanId))
-  if (treeNodeCount > 1 && detail.tree && hasStructuredChild) {
-    byId('trace-operations-note').textContent = '调用树展示执行层级；下表展示已采集的结构化操作。自定义代码段可能只出现在调用树中，CPU 和分配量取决于对应集成。'
-    byId('trace-operations-note').hidden = false
-  } else if (treeNodeCount > 1 && !hasStructuredChild) {
-    byId('trace-operations-note').textContent = '调用树包含下游节点，但当前集成只采集了入口级结构化明细；下游节点的独立 CPU、分配量和线程数据尚未采集。'
-    byId('trace-operations-note').hidden = false
-  }
-  const operationRows = byId('operation-rows'); operationRows.replaceChildren()
-  const renderedRows = new Set()
-  for (const { operation, depth } of orderOperations(detail.operations || [])) {
-    const row = document.createElement('tr')
-    td(row, labels[operation.type] || operation.type)
-    const displayName = operationDisplayName(operation)
-    const operationName = `${depth ? `${'　'.repeat(depth)}↳ ` : ''}${displayName}`
-    td(row, operationName)
-    td(row, formatNumber(operation.durationMs, ' ms'), 'number')
-    td(row, formatNumber(operation.cpuTimeMs, ' ms'), 'number')
-    td(row, formatBytes(operation.allocatedBytes), 'number')
-    td(row, `${operation.threadName || '—'} (${formatNumber(operation.threadId)})`)
-    td(row, operation.error ? '错误' : operation.slow ? '慢' : '正常', operation.error ? 'status error' : operation.slow ? 'status slow' : 'status ok')
-    const errorCell = td(row, [operation.errorType, operation.errorMessage].filter(Boolean).join(': '))
-    if (operation.stackTrace) {
-      const details = document.createElement('details')
-      const summary = document.createElement('summary'); summary.textContent = '查看异常堆栈'
-      const stack = document.createElement('pre'); stack.textContent = operation.stackTrace
-      details.append(summary, stack); errorCell.append(details)
-    }
-    const visibleRow = row.textContent
-    if (renderedRows.has(visibleRow)) continue
-    renderedRows.add(visibleRow)
-    operationRows.append(row)
-  }
-}
-
-function orderOperations(operations) {
-  const unique = []
-  const seen = new Set()
-  for (const operation of operations) {
-    // Span IDs may differ when the same dependency was captured through two adapters. Collapse only
-    // rows that are indistinguishable in the table; different timing/resource values remain separate.
-    const identity = JSON.stringify([
-      operation.traceId, labels[operation.type] || operation.type,
-      operation.name, operation.detail, operation.threadName, operation.threadId,
-      formatNumber(operation.durationMs, ' ms'), formatNumber(operation.cpuTimeMs, ' ms'),
-      formatBytes(operation.allocatedBytes), operation.outcome,
-      operation.errorType, operation.errorMessage
-    ])
-    if (seen.has(identity)) continue
-    seen.add(identity)
-    unique.push(operation)
-  }
-  const byId = new Map(unique.filter(item => item.spanId).map(item => [item.spanId, item]))
-  const children = new Map()
-  const roots = []
-  const operationStart = operation => {
-    const finishedAt = new Date(operation.finishedAt).getTime()
-    return Number.isFinite(finishedAt) ? finishedAt - Math.max(0, Number(operation.durationMs) || 0) : 0
-  }
-  const ordered = unique.sort((left, right) => operationStart(left) - operationStart(right))
-  for (const operation of ordered) {
-    const parentId = operation.parentSpanId
-    if (parentId && parentId !== operation.spanId && byId.has(parentId)) {
-      const siblings = children.get(parentId) || []
-      siblings.push(operation)
-      children.set(parentId, siblings)
-    } else roots.push(operation)
-  }
-  const result = []
-  const visitedOperations = new Set()
-  const visitedSpanIds = new Set()
-  const visit = (operation, depth) => {
-    if (visitedOperations.has(operation)) return
-    if (operation.spanId && visitedSpanIds.has(operation.spanId)) {
-      visitedOperations.add(operation)
-      return
-    }
-    visitedOperations.add(operation)
-    if (operation.spanId) visitedSpanIds.add(operation.spanId)
-    result.push({ operation, depth })
-    for (const child of children.get(operation.spanId) || []) visit(child, depth + 1)
-  }
-  roots.forEach(root => visit(root, 0))
-  ordered.forEach(operation => {
-    if (!visitedOperations.has(operation)) visit(operation, 0)
-  })
-  return result
-}
-
-function operationDisplayName(operation) {
-  if (['http.server.requests', 'http.client.requests'].includes(operation.name) && operation.detail) {
-    return operation.detail
-  }
-  return `${operation.name || ''}${operation.detail ? ` · ${operation.detail}` : ''}`
-}
-
-function renderOperationTree(trace) {
-  const ordered = orderOperations(trace.operations || [])
-  if (!ordered.length) return '没有可展示的调用树或下游操作记录。'
-  const lines = ordered.map(({ operation, depth }) => {
-    const kind = labels[operation.type] || operation.type || '操作'
-    const name = operationDisplayName(operation) || kind
-    return `${'  '.repeat(depth)}${depth ? '↳ ' : ''}[${kind}] ${name} · ${formatNumber(operation.durationMs, ' ms')}`
-  })
-  lines.push('', '根据已采集操作的父子关系和开始时间整理；未采集的代码段不会显示。')
-  return lines.join('\n')
+  byId('trace-tree').textContent = detail.tree || '这条 Trace 暂无调用树。'
 }
 
 function traceRow(trace, target) {
@@ -413,8 +304,7 @@ function traceRow(trace, target) {
     td(row, formatNumber(trace.threadId), 'number')
   } else {
     td(row, formatNumber(trace.status), 'number')
-    const root = (trace.operations || []).find(op => op.type === trace.sourceType)
-    td(row, root ? [root.errorType, root.errorMessage].filter(Boolean).join(': ') : trace.tree?.split('\n').find(line => /ERROR|HTTP_5/.test(line)) || '—')
+    td(row, [trace.errorType, trace.errorMessage].filter(Boolean).join(': ') || '—')
     td(row, formatNumber(trace.durationMs, ' ms'), 'number')
     td(row, formatNumber(trace.threadId), 'number')
   }
@@ -714,25 +604,26 @@ function trendGroup(series, category, measurement) {
   return { key: `${category}|${name}|${measurement}`, title: metricLabel(series) }
 }
 const metricCategoryLabels = {
-  HTTP: 'HTTP', SCHEDULED: '定时任务', KAFKA_CONSUMER: 'Kafka 消费', CPU: 'CPU', JVM: 'JVM', TOMCAT: 'Tomcat', LOGGING: '日志', PROCESS: '进程', SYSTEM: '系统',
-  DATABASE: '数据库', MIDDLEWARE: '中间件', THREADS: '线程池', APPLICATION: '应用指标'
+  HTTP: 'HTTP', SCHEDULED: '定时任务', KAFKA: 'Kafka', JVM: 'JVM', CPU: 'CPU', THREADS: '线程', LOGGING: '日志',
+  HTTP_OUTGOING: 'HTTP 出站', TOMCAT: 'Tomcat', REDIS: 'Redis', SQL: 'SQL', PROCESS: '进程', SYSTEM: '系统', APPLICATION: '应用指标'
 }
 function metricCategory(series) {
   const name = String(series.name || '')
   if (name === 'tasks.scheduled.execution') return 'SCHEDULED'
   if (name.startsWith('executor.') && /scheduler/i.test(series.tags?.name || '')) return 'SCHEDULED'
-  if (name === 'spring.kafka.listener' || name.startsWith('spring.kafka.container.') || name.startsWith('kafka.consumer.')) return 'KAFKA_CONSUMER'
+  if (name === 'spring.kafka.listener' || name.startsWith('spring.kafka.') || name.startsWith('kafka.')) return 'KAFKA'
+  if (/^jvm\.threads\./.test(name) || /^executor\./.test(name)) return 'THREADS'
   if (name === 'process.cpu.usage' || name === 'system.cpu.usage') return 'CPU'
-  if (/^(http\.client\.|kafka\.|spring\.kafka\.|redis\.|lettuce\.|cache\.|elasticsearch\.)/.test(name)) return 'MIDDLEWARE'
+  if (/^http\.client\./.test(name)) return 'HTTP_OUTGOING'
+  if (/^(redis\.|lettuce\.)/.test(name)) return 'REDIS'
+  if (/^(cache\.|elasticsearch\.)/.test(name)) return 'APPLICATION'
   if (/^(http\.|tomcat\.global\.request)/.test(name)) return 'HTTP'
   if (/^jvm\./.test(name)) return 'JVM'
-  if (/^tomcat\.(threads\.|sessions\.)/.test(name)) return 'TOMCAT'
   if (/^tomcat\./.test(name)) return 'TOMCAT'
   if (/^(logback|log4j2|logging)\./.test(name)) return 'LOGGING'
   if (/^process\./.test(name)) return 'PROCESS'
   if (/^system\./.test(name)) return 'SYSTEM'
-  if (/^(hikaricp\.|jdbc\.|db\.)/.test(name)) return 'DATABASE'
-  if (/^executor\./.test(name)) return 'THREADS'
+  if (/^(hikaricp\.|jdbc\.|db\.)/.test(name)) return 'SQL'
   if (/^easy\./.test(name)) return 'APPLICATION'
   return null
 }

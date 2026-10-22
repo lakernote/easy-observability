@@ -2,16 +2,9 @@ package io.github.lakernote.observability.integration.executor;
 
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
 import io.github.lakernote.observability.trace.BoundedThrowableFormatter;
-import io.github.lakernote.observability.trace.OperationRecord;
 import io.github.lakernote.observability.trace.SpanKind;
-import io.github.lakernote.observability.trace.ThreadResourceSnapshot;
 import io.github.lakernote.observability.trace.TraceContext;
-import io.github.lakernote.observability.trace.TraceIdContext;
-import io.github.lakernote.observability.trace.TraceOperationRecorder;
 
-import java.time.Instant;
-import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -21,12 +14,10 @@ import java.util.function.Supplier;
 public final class ExecutorTaskTrace {
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(ExecutorTaskTrace.class);
 
-    private final TraceOperationRecorder recorder;
     private final EasyObservabilityProperties properties;
     private final AtomicBoolean failureLogged = new AtomicBoolean();
 
-    public ExecutorTaskTrace(TraceOperationRecorder recorder, EasyObservabilityProperties properties) {
-        this.recorder = Objects.requireNonNull(recorder, "recorder");
+    public ExecutorTaskTrace(EasyObservabilityProperties properties) {
         this.properties = Objects.requireNonNull(properties, "properties");
     }
 
@@ -64,19 +55,14 @@ public final class ExecutorTaskTrace {
         String name = safeName(taskName, "executor-task");
         String executor = safeName(executorName, "unknown");
         Thread thread = Thread.currentThread();
-        ThreadResourceSnapshot resources = ThreadResourceSnapshot.capture(thread.getId(),
-                properties.getTrace().isResourceSamplingEnabled());
         TraceContext.RootTraceHandle traceHandle = traceActive ? TraceContext.currentRootTraceHandle() : null;
         TraceContext.DetachedSpan span = TraceContext.startDetachedSpan(name, SpanKind.CODE, executor);
-        return new TaskState(name, executor, TraceIdContext.currentTraceId(), traceActive, traceHandle, span,
-                thread.getName(), thread.getId(), System.nanoTime(), resources);
+        return new TaskState(name, traceHandle, span, thread.getId(), System.nanoTime());
     }
 
     private void finish(TaskState state, Throwable error) {
         try {
             long durationMs = Math.max(0, TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - state.startedAtNanos));
-            ThreadResourceSnapshot after = ThreadResourceSnapshot.capture(state.threadId,
-                    properties.getTrace().isResourceSamplingEnabled());
             long threshold = properties.getTrace().getExecutorTaskSlowThresholdMs();
             boolean slow = threshold > 0 && durationMs >= threshold;
             boolean failed = error != null;
@@ -88,13 +74,6 @@ public final class ExecutorTaskTrace {
                 if (failed) state.traceHandle.markError("EXECUTOR_TASK_ERROR", failure);
             }
             state.span.close();
-            recorder.record(new OperationRecord("EXECUTOR_TASK", state.traceId, state.taskName,
-                    state.threadName, state.threadId, failed ? "failure" : "success", durationMs,
-                    after.cpuTimeMsSince(state.resourcesAtStart), after.allocatedBytesSince(state.resourcesAtStart),
-                    state.executorName, "", failure.stackTrace(), slow, failed,
-                    slow ? List.of("SLOW_EXECUTOR_TASK") : List.of(),
-                    failed ? failure.type() : "", failed ? failure.message() : "", Map.of(), Instant.now(),
-                    state.span.spanId(), state.span.parentSpanId()), state.traceActiveAtStart);
         } catch (RuntimeException failure) {
             logFailure(failure);
         }
@@ -113,8 +92,6 @@ public final class ExecutorTaskTrace {
         return clean.length() <= 200 ? clean : clean.substring(0, 200);
     }
 
-    private record TaskState(String taskName, String executorName, String traceId, boolean traceActiveAtStart,
-                             TraceContext.RootTraceHandle traceHandle, TraceContext.DetachedSpan span,
-                             String threadName, long threadId, long startedAtNanos,
-                             ThreadResourceSnapshot resourcesAtStart) { }
+    private record TaskState(String taskName, TraceContext.RootTraceHandle traceHandle,
+                             TraceContext.DetachedSpan span, long threadId, long startedAtNanos) { }
 }

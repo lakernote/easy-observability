@@ -1,8 +1,6 @@
 package io.github.lakernote.observability.integration.transaction;
 
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
-import io.github.lakernote.observability.trace.TraceOperationRecorder;
-import io.github.lakernote.observability.trace.OperationRecord;
 import io.github.lakernote.observability.trace.TraceIdContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -11,9 +9,7 @@ import org.springframework.transaction.TransactionExecution;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class TransactionTraceListenerTest {
@@ -24,10 +20,9 @@ class TransactionTraceListenerTest {
 
     @Test
     void attachesTransactionAsSingleChildOfExistingHttpTrace() {
-        TraceOperationRecorder recorder = mock(TraceOperationRecorder.class);
         EasyObservabilityProperties properties = new EasyObservabilityProperties();
         AtomicLong clock = new AtomicLong();
-        TransactionTraceListener listener = new TransactionTraceListener(recorder, properties, clock::get);
+        TransactionTraceListener listener = new TransactionTraceListener(properties, clock::get);
         TransactionExecution execution = execution("OrderService#create", true);
         io.github.lakernote.observability.trace.TraceContext.startRoot("POST /orders",
                 io.github.lakernote.observability.trace.SpanKind.HTTP, "", 8, 0);
@@ -55,14 +50,12 @@ class TransactionTraceListenerTest {
                 .isLessThan(completion.get().tree().indexOf("getConnection"));
         assertThat(completion.get().tree().indexOf("getConnection"))
                 .isLessThan(completion.get().tree().indexOf("OrderMapper#insert"));
-        verify(recorder).record(any(OperationRecord.class));
     }
 
     @Test
     void closesTransactionSpanWhenBeginFails() {
-        TraceOperationRecorder recorder = mock(TraceOperationRecorder.class);
         EasyObservabilityProperties properties = new EasyObservabilityProperties();
-        TransactionTraceListener listener = new TransactionTraceListener(recorder, properties, () -> 0L);
+        TransactionTraceListener listener = new TransactionTraceListener(properties, () -> 0L);
         TransactionExecution execution = execution("OrderService#create", false);
         io.github.lakernote.observability.trace.TraceContext.startRoot("POST /orders",
                 io.github.lakernote.observability.trace.SpanKind.HTTP, "", 8, 0);
@@ -79,7 +72,6 @@ class TransactionTraceListenerTest {
         assertThat(completion.get().tree()).contains("OrderService#create");
         assertThat(completion.get().error()).isTrue();
         assertThat(completion.get().errorMessage()).isEqualTo("connection unavailable");
-        verify(recorder).record(any(OperationRecord.class));
     }
 
     private static TransactionExecution execution(String name, boolean readOnly) {

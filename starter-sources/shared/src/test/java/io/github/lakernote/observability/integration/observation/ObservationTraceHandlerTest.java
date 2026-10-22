@@ -1,8 +1,6 @@
 package io.github.lakernote.observability.integration.observation;
 
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
-import io.github.lakernote.observability.trace.TraceOperationRecorder;
-import io.github.lakernote.observability.trace.OperationRecord;
 import io.github.lakernote.observability.trace.SpanKind;
 import io.github.lakernote.observability.trace.TraceContext;
 import io.github.lakernote.observability.trace.store.RecentTraceStore;
@@ -24,13 +22,12 @@ class ObservationTraceHandlerTest {
     }
 
     @Test
-    void convertsFrameworkObservationToChildSpanAndOperationRecord() throws Exception {
+    void convertsFrameworkObservationToChildSpanInTheTraceTree() throws Exception {
         EasyObservabilityProperties properties = new EasyObservabilityProperties();
         properties.getTrace().setRedisSlowThresholdMs(1);
-        RecentTraceStore history = new RecentTraceStore(10, 10);
-        TraceOperationRecorder recorder = new TraceOperationRecorder(history, properties);
+        RecentTraceStore history = new RecentTraceStore(10);
         ObservationRegistry registry = ObservationRegistry.create();
-        registry.observationConfig().observationHandler(new ObservationTraceHandler(recorder, history, properties));
+        registry.observationConfig().observationHandler(new ObservationTraceHandler(history, properties));
         TraceIdContext.putTraceId("trace-redis-1");
         TraceContext.startRoot("GET /cache", SpanKind.HTTP);
 
@@ -46,22 +43,16 @@ class ObservationTraceHandlerTest {
         assertThat(completion[0].tree()).contains("[Redis] GET");
         history.add("trace-redis-1", "GET /cache", "GET", "HTTP", 200, 20,
                 false, false, completion[0].tree());
-        assertThat(history.find("trace-redis-1", "HTTP").operations()).singleElement()
-                .satisfies(operation -> {
-                    assertThat(operation.traceId()).isEqualTo("trace-redis-1");
-                    assertThat(operation.spanId()).isNotBlank();
-                    assertThat(operation.parentSpanId()).isEqualTo("1");
-                });
+        assertThat(history.find("trace-redis-1", "HTTP").tree()).contains("[Redis] GET");
     }
 
     @Test
     void recordsStandaloneDependencyWithoutInventingTraceRoot() {
         EasyObservabilityProperties properties = new EasyObservabilityProperties();
         properties.getTrace().setRedisSlowThresholdMs(0);
-        RecentTraceStore history = new RecentTraceStore(10, 10);
-        TraceOperationRecorder recorder = new TraceOperationRecorder(history, properties);
+        RecentTraceStore history = new RecentTraceStore(10);
         ObservationRegistry registry = ObservationRegistry.create();
-        registry.observationConfig().observationHandler(new ObservationTraceHandler(recorder, history, properties));
+        registry.observationConfig().observationHandler(new ObservationTraceHandler(history, properties));
         Observation observation = Observation.createNotStarted("spring.data.redis", registry)
                 .contextualName("GET")
                 .lowCardinalityKeyValue("db.operation", "GET");
@@ -69,22 +60,18 @@ class ObservationTraceHandlerTest {
         observation.start().stop();
 
         assertThat(history.recent(10)).isEmpty();
-        recorder.record(new OperationRecord("REDIS", "orphan-trace", "GET", "worker", 7,
-                "success", 1, -1, -1, "Redis command", "", "",
-                false, false, java.util.List.of(), "", "", java.util.Map.of(), java.time.Instant.now(), "", ""));
         history.add("orphan-trace", "GET /cache", "GET", "HTTP", 200, 10,
                 false, false, "tree");
 
-        assertThat(history.find("orphan-trace", "HTTP").operations()).isEmpty();
+        assertThat(history.find("orphan-trace", "HTTP").tree()).isEqualTo("tree");
     }
 
     @Test
     void recordsHttpServerErrorStatusAsFailedTraceWithoutThrowable() {
         EasyObservabilityProperties properties = new EasyObservabilityProperties();
-        RecentTraceStore history = new RecentTraceStore(10, 10);
-        TraceOperationRecorder recorder = new TraceOperationRecorder(history, properties);
+        RecentTraceStore history = new RecentTraceStore(10);
         ObservationRegistry registry = ObservationRegistry.create();
-        registry.observationConfig().observationHandler(new ObservationTraceHandler(recorder, history, properties));
+        registry.observationConfig().observationHandler(new ObservationTraceHandler(history, properties));
 
         Observation.createNotStarted("http.server.requests", registry)
                 .lowCardinalityKeyValue("http.request.method", "GET")
@@ -98,10 +85,8 @@ class ObservationTraceHandlerTest {
             assertThat(trace.tree()).isNotBlank();
         });
         assertThat(history.recent(10)).singleElement().satisfies(trace -> {
-            assertThat(trace.operations()).singleElement().satisfies(operation -> {
-                assertThat(operation.error()).isTrue();
-                assertThat(operation.errorMessage()).isEqualTo("HTTP status 503");
-            });
+            assertThat(trace.errorType()).isEqualTo("HTTP_503");
+            assertThat(trace.errorMessage()).isEqualTo("HTTP status 503");
         });
     }
 
@@ -109,10 +94,9 @@ class ObservationTraceHandlerTest {
     void canLeaveHttpEntryToAHostSpecificAsyncAwareAdapter() {
         EasyObservabilityProperties properties = new EasyObservabilityProperties();
         properties.getTrace().setHttpServerObservationEnabled(false);
-        RecentTraceStore history = new RecentTraceStore(10, 10);
-        TraceOperationRecorder recorder = new TraceOperationRecorder(history, properties);
+        RecentTraceStore history = new RecentTraceStore(10);
         ObservationRegistry registry = ObservationRegistry.create();
-        registry.observationConfig().observationHandler(new ObservationTraceHandler(recorder, history, properties));
+        registry.observationConfig().observationHandler(new ObservationTraceHandler(history, properties));
 
         Observation.createNotStarted("http.server.requests", registry)
                 .lowCardinalityKeyValue("http.request.method", "GET")
@@ -129,8 +113,7 @@ class ObservationTraceHandlerTest {
         properties.getTrace().setRedisObservationEnabled(false);
         properties.getTrace().setDatabaseObservationEnabled(false);
         ObservationTraceHandler handler = new ObservationTraceHandler(
-                new TraceOperationRecorder(new RecentTraceStore(10, 10), properties),
-                new RecentTraceStore(10, 10), properties);
+                new RecentTraceStore(10), properties);
 
         Observation.Context redis = new Observation.Context();
         redis.setName("spring.data.redis");
@@ -148,10 +131,9 @@ class ObservationTraceHandlerTest {
     @Test
     void recordsHttpObservationAsTraceWithoutCustomMetrics() {
         EasyObservabilityProperties properties = new EasyObservabilityProperties();
-        RecentTraceStore history = new RecentTraceStore(10, 10);
-        TraceOperationRecorder recorder = new TraceOperationRecorder(history, properties);
+        RecentTraceStore history = new RecentTraceStore(10);
         ObservationRegistry registry = ObservationRegistry.create();
-        registry.observationConfig().observationHandler(new ObservationTraceHandler(recorder, history, properties));
+        registry.observationConfig().observationHandler(new ObservationTraceHandler(history, properties));
 
         Observation.createNotStarted("http.server.requests", registry)
                 .lowCardinalityKeyValue("http.request.method", "GET")
@@ -165,10 +147,9 @@ class ObservationTraceHandlerTest {
     @Test
     void excludesBundledDashboardTrafficFromEasyObservabilityRecords() {
         EasyObservabilityProperties properties = new EasyObservabilityProperties();
-        RecentTraceStore history = new RecentTraceStore(10, 10);
-        TraceOperationRecorder recorder = new TraceOperationRecorder(history, properties);
+        RecentTraceStore history = new RecentTraceStore(10);
         ObservationRegistry registry = ObservationRegistry.create();
-        registry.observationConfig().observationHandler(new ObservationTraceHandler(recorder, history, properties));
+        registry.observationConfig().observationHandler(new ObservationTraceHandler(history, properties));
 
         Observation.createNotStarted("http.server.requests", registry)
                 .lowCardinalityKeyValue("http.request.method", "GET")
@@ -181,10 +162,9 @@ class ObservationTraceHandlerTest {
     @Test
     void excludesDashboardTrafficWhenSpringAddsRouteOnlyAtObservationStop() {
         EasyObservabilityProperties properties = new EasyObservabilityProperties();
-        RecentTraceStore history = new RecentTraceStore(10, 10);
-        TraceOperationRecorder recorder = new TraceOperationRecorder(history, properties);
+        RecentTraceStore history = new RecentTraceStore(10);
         ObservationRegistry registry = ObservationRegistry.create();
-        registry.observationConfig().observationHandler(new ObservationTraceHandler(recorder, history, properties));
+        registry.observationConfig().observationHandler(new ObservationTraceHandler(history, properties));
 
         Observation observation = Observation.createNotStarted("http.server.requests", registry)
                 .lowCardinalityKeyValue("http.request.method", "GET").start();
@@ -198,10 +178,9 @@ class ObservationTraceHandlerTest {
     void recordsHttpObservationWhenContextualNameIsNotAvailableAtStart() throws Exception {
         EasyObservabilityProperties properties = new EasyObservabilityProperties();
         properties.getTrace().setHttpSlowThresholdMs(1);
-        RecentTraceStore history = new RecentTraceStore(10, 10);
-        TraceOperationRecorder recorder = new TraceOperationRecorder(history, properties);
+        RecentTraceStore history = new RecentTraceStore(10);
         ObservationRegistry registry = ObservationRegistry.create();
-        registry.observationConfig().observationHandler(new ObservationTraceHandler(recorder, history, properties));
+        registry.observationConfig().observationHandler(new ObservationTraceHandler(history, properties));
 
         Observation observation = Observation.createNotStarted("http.server.requests", registry)
                 .lowCardinalityKeyValue("http.request.method", "GET")
@@ -219,10 +198,9 @@ class ObservationTraceHandlerTest {
     @Test
     void asyncStopFinishesItsTraceWithoutEndingAnotherThreadsTrace() {
         EasyObservabilityProperties properties = new EasyObservabilityProperties();
-        RecentTraceStore history = new RecentTraceStore(10, 10);
-        TraceOperationRecorder recorder = new TraceOperationRecorder(history, properties);
+        RecentTraceStore history = new RecentTraceStore(10);
         ObservationRegistry registry = ObservationRegistry.create();
-        registry.observationConfig().observationHandler(new ObservationTraceHandler(recorder, history, properties));
+        registry.observationConfig().observationHandler(new ObservationTraceHandler(history, properties));
         Observation observation = Observation.createNotStarted("http.server.requests", registry)
                 .lowCardinalityKeyValue("http.request.method", "GET")
                 .lowCardinalityKeyValue("http.route", "/async")

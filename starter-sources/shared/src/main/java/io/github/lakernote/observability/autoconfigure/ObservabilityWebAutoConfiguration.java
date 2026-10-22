@@ -4,10 +4,8 @@ import io.github.lakernote.observability.web.ObservabilityController;
 import io.github.lakernote.observability.web.ObservabilityAccessPolicy;
 import io.github.lakernote.observability.web.ObservabilityDashboardController;
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
-import io.github.lakernote.observability.trace.TraceOperationRecorder;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
@@ -23,7 +21,6 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
 @ConditionalOnProperty(prefix = "easy.observability", name = "enabled", havingValue = "true", matchIfMissing = true)
 @ConditionalOnProperty(prefix = "easy.observability.web", name = "enabled", havingValue = "true", matchIfMissing = true)
-@ConditionalOnBean(TraceOperationRecorder.class)
 @Import({ObservabilityController.class, ObservabilityDashboardController.class})
 public class ObservabilityWebAutoConfiguration implements WebMvcConfigurer {
     @Bean

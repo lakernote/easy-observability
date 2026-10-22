@@ -5,7 +5,6 @@ import io.github.lakernote.observability.config.EasyObservabilityProperties;
 import io.github.lakernote.observability.integration.executor.ExecutorTaskTrace;
 import io.github.lakernote.observability.integration.observation.ObservationTraceHandler;
 import io.github.lakernote.observability.integration.observation.ObservationTraceIdResolver;
-import io.github.lakernote.observability.trace.TraceOperationRecorder;
 import io.github.lakernote.observability.metrics.history.MetricHistoryStore;
 import io.github.lakernote.observability.trace.BoundedHistoryWriter;
 import io.github.lakernote.observability.trace.TraceContextTaskDecorator;
@@ -13,7 +12,6 @@ import io.github.lakernote.observability.trace.store.IncidentTraceStore;
 import io.github.lakernote.observability.trace.store.RecentTraceStore;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -54,12 +52,12 @@ public class ObservabilityAutoConfiguration {
     }
 
     /**
-     * 保存供监控页面查询的近期 Trace 和操作记录。
+     * 保存供监控页面查询的近期 Trace 树。
      */
     @Bean
     @ConditionalOnMissingBean
     RecentTraceStore recentTraces(EasyObservabilityProperties properties) {
-        return new RecentTraceStore(properties.getWeb().getTraceLimit(), properties.getWeb().getOperationLimit());
+        return new RecentTraceStore(properties.getWeb().getTraceLimit());
     }
 
     /**
@@ -86,21 +84,12 @@ public class ObservabilityAutoConfiguration {
     }
 
     /**
-     * 在 Trace 活跃时保存被观测操作明细。
+     * 为执行器任务添加 Trace 子节点，不向 Micrometer 注册独立 Meter。
      */
     @Bean
     @ConditionalOnMissingBean
-    TraceOperationRecorder traceOperationRecorder(RecentTraceStore recentTraces, EasyObservabilityProperties properties) {
-        return new TraceOperationRecorder(recentTraces, properties);
-    }
-
-    /**
-     * 为执行器任务记录 Trace 诊断，不向 Micrometer 注册独立 Meter。
-     */
-    @Bean
-    @ConditionalOnMissingBean
-    ExecutorTaskTrace executorTaskTrace(TraceOperationRecorder recorder, EasyObservabilityProperties properties) {
-        return new ExecutorTaskTrace(recorder, properties);
+    ExecutorTaskTrace executorTaskTrace(EasyObservabilityProperties properties) {
+        return new ExecutorTaskTrace(properties);
     }
 
     /**
@@ -115,18 +104,16 @@ public class ObservabilityAutoConfiguration {
     }
 
     /**
-     * 接收 Spring Observation，将操作记录关联到指标、近期 Trace 和慢错历史。
+     * 接收 Spring Observation，将框架调用挂入 Trace 树并保存入口级资源数据。
      */
     @Bean
     @ConditionalOnProperty(prefix = "easy.observability.trace", name = "enabled",
             havingValue = "true", matchIfMissing = true)
-    @ConditionalOnBean(TraceOperationRecorder.class)
     @ConditionalOnMissingBean
-    ObservationTraceHandler observationTraceHandler(TraceOperationRecorder recorder, RecentTraceStore history,
-                                                    IncidentTraceStore archive,
+    ObservationTraceHandler observationTraceHandler(RecentTraceStore history, IncidentTraceStore archive,
                                                     EasyObservabilityProperties properties,
                                                     ObjectProvider<ObservationTraceIdResolver> resolvers) {
-        return new ObservationTraceHandler(recorder, history, archive, properties, resolvers.orderedStream().toList());
+        return new ObservationTraceHandler(history, archive, properties, resolvers.orderedStream().toList());
     }
 
 }

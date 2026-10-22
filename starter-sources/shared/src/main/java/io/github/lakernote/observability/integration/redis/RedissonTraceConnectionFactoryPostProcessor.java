@@ -1,12 +1,8 @@
 package io.github.lakernote.observability.integration.redis;
 
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
-import io.github.lakernote.observability.trace.TraceOperationRecorder;
-import io.github.lakernote.observability.trace.OperationRecord;
 import io.github.lakernote.observability.trace.SpanKind;
-import io.github.lakernote.observability.trace.ThreadResourceSnapshot;
 import io.github.lakernote.observability.trace.TraceContext;
-import io.github.lakernote.observability.trace.TraceIdContext;
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.config.BeanPostProcessor;
@@ -18,21 +14,14 @@ import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
-import java.time.Instant;
 import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.TimeUnit;
 
 /** Uses Spring Data's connection extension point for the Redisson community client. */
 public final class RedissonTraceConnectionFactoryPostProcessor implements BeanPostProcessor {
-    private final ObjectProvider<TraceOperationRecorder> recorderProvider;
     private final ObjectProvider<EasyObservabilityProperties> propertiesProvider;
 
-    public RedissonTraceConnectionFactoryPostProcessor(ObjectProvider<TraceOperationRecorder> recorderProvider,
-                                                        ObjectProvider<EasyObservabilityProperties> propertiesProvider) {
-        this.recorderProvider = recorderProvider;
+    public RedissonTraceConnectionFactoryPostProcessor(ObjectProvider<EasyObservabilityProperties> propertiesProvider) {
         this.propertiesProvider = propertiesProvider;
     }
 
@@ -42,36 +31,31 @@ public final class RedissonTraceConnectionFactoryPostProcessor implements BeanPo
                 || !ClassUtils.getUserClass(bean).getName().startsWith("org.redisson.spring.data.connection.RedissonConnectionFactory")) {
             return bean;
         }
-        TraceOperationRecorder recorder = recorderProvider.getIfAvailable();
         EasyObservabilityProperties properties = propertiesProvider.getIfAvailable();
-        if (recorder == null || properties == null) return bean;
+        if (properties == null) return bean;
         Set<Class<?>> interfaces = publicInterfaces(bean.getClass());
         interfaces.add(RedisConnectionFactory.class);
         return Proxy.newProxyInstance(bean.getClass().getClassLoader(), interfaces.toArray(Class<?>[]::new),
                 (proxy, method, args) -> {
                     if (method.getDeclaringClass() == Object.class) return invokeTarget(method, factory, args);
                     Object result = invokeTarget(method, factory, args);
-                    return result instanceof RedisConnection connection ? wrap(connection, recorder, properties) : result;
+                    return result instanceof RedisConnection connection ? wrap(connection, properties) : result;
                 });
     }
 
-    private RedisConnection wrap(RedisConnection connection, TraceOperationRecorder recorder,
-                                 EasyObservabilityProperties properties) {
+    private RedisConnection wrap(RedisConnection connection, EasyObservabilityProperties properties) {
         Set<Class<?>> interfaces = publicInterfaces(connection.getClass());
         interfaces.add(RedisConnection.class);
         return (RedisConnection) Proxy.newProxyInstance(connection.getClass().getClassLoader(),
-                interfaces.toArray(Class<?>[]::new), new ConnectionHandler(connection, recorder, properties));
+                interfaces.toArray(Class<?>[]::new), new ConnectionHandler(connection, properties));
     }
 
     private final class ConnectionHandler implements InvocationHandler {
         private final RedisConnection delegate;
-        private final TraceOperationRecorder recorder;
         private final EasyObservabilityProperties properties;
 
-        private ConnectionHandler(RedisConnection delegate, TraceOperationRecorder recorder,
-                                  EasyObservabilityProperties properties) {
+        private ConnectionHandler(RedisConnection delegate, EasyObservabilityProperties properties) {
             this.delegate = delegate;
-            this.recorder = recorder;
             this.properties = properties;
         }
 
@@ -80,12 +64,8 @@ public final class RedissonTraceConnectionFactoryPostProcessor implements BeanPo
             if (method.getDeclaringClass() == Object.class || !isCommand(method)) return invokeTarget(method, delegate, args);
             // Redis is always a dependency operation. Only an inbound HTTP, job, or Kafka
             // consumer observation may create a trace root.
-            String traceId = TraceIdContext.currentTraceId();
             String name = method.getName();
-            long threadId = Thread.currentThread().getId();
             long startedNanos = System.nanoTime();
-            ThreadResourceSnapshot before = ThreadResourceSnapshot.capture(threadId,
-                    properties.getTrace().isResourceSamplingEnabled());
             TraceContext.DetachedSpan span = TraceContext.startDetachedSpan("Redis " + name, SpanKind.REDIS, name);
             Throwable failure = null;
             try {
@@ -94,29 +74,20 @@ public final class RedissonTraceConnectionFactoryPostProcessor implements BeanPo
                 failure = error;
                 throw error;
             } finally {
-                finish(name, traceId, threadId, startedNanos, before, span, failure,
-                        recorder, properties);
+                finish(startedNanos, span, failure, properties);
             }
         }
     }
 
-    private void finish(String name, String traceId, long threadId,
-                        long startedNanos, ThreadResourceSnapshot before, TraceContext.DetachedSpan span,
-                        Throwable failure, TraceOperationRecorder recorder, EasyObservabilityProperties properties) {
-        long durationMs = Math.max(0, TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedNanos));
-        ThreadResourceSnapshot after = ThreadResourceSnapshot.capture(threadId,
-                properties.getTrace().isResourceSamplingEnabled());
+    private void finish(long startedNanos, TraceContext.DetachedSpan span, Throwable failure,
+                        EasyObservabilityProperties properties) {
+        long durationMs = Math.max(0, (System.nanoTime() - startedNanos) / 1_000_000);
         long threshold = properties.getTrace().getRedisSlowThresholdMs();
         boolean slow = threshold > 0 && durationMs >= threshold;
         try {
             span.close();
             if (slow) TraceContext.markSlow("SLOW_REDIS");
             if (failure != null) TraceContext.markError("REDIS_ERROR", failure);
-            recorder.record(new OperationRecord("REDIS", traceId, name, Thread.currentThread().getName(), threadId,
-                    failure == null ? "success" : "failure", durationMs, after.cpuTimeMsSince(before),
-                    after.allocatedBytesSince(before), "Redis command", "", "", slow, failure != null,
-                    slow ? List.of("SLOW_REDIS") : List.of(), failure == null ? "" : failure.getClass().getName(),
-                    "", Map.of(), Instant.now(), span.spanId(), span.parentSpanId()));
         } catch (Throwable ignored) {
             // Instrumentation must never change the application's Redis result.
         }

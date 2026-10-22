@@ -9,8 +9,6 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
 import java.time.Instant;
-import java.util.List;
-import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -18,17 +16,13 @@ class HistoryPersistenceTest {
     @TempDir Path directory;
 
     @Test
-    void persistsSlowAndErrorResourcesAndTraceTreeAcrossRestart() {
+    void persistsSlowAndErrorTraceTreeAndEntryResourcesAcrossRestart() {
         ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
         Path tracesFile = directory.resolve("traces.jsonl");
         BoundedHistoryWriter writer = new BoundedHistoryWriter();
-        OperationRecord operation = new OperationRecord("HTTP", "trace-123", "GET /orders/{id}",
-                "http-nio-8080-exec-7", 77, "failure", 845, 51, 2048,
-                "GET /orders/{id}", "", "", true, true, List.of("SLOW_HTTP"),
-                "HTTP_5XX", "500", Map.of(), Instant.parse("2026-10-15T10:00:00Z"), "1", "");
         RecentTraceStore.TraceRecord trace = new RecentTraceStore.TraceRecord(1, "trace-123", "GET /orders/{id}",
-                "GET /orders/{id}", 500, 845, true, true, "HTTP GET\n  SQL select", operation.finishedAt(),
-                operation.threadId(), operation.cpuTimeMs(), operation.allocatedBytes(), List.of(operation));
+                "GET /orders/{id}", 500, 845, true, true, "HTTP GET\n  SQL select",
+                Instant.parse("2026-10-15T10:00:00Z"), 77, 51, 2048, "HTTP", "HTTP_5XX", "500");
         IncidentTraceStore archive = new IncidentTraceStore(mapper, tracesFile.toString(), 1000,
                 4 * 1024 * 1024, writer);
         archive.restore();
@@ -41,14 +35,11 @@ class HistoryPersistenceTest {
         assertThat(restoredTraces.find("trace-123")).satisfies(saved -> {
             assertThat(saved).isNotNull();
             assertThat(saved.tree()).contains("SQL select");
-            assertThat(saved.operations()).singleElement().satisfies(item ->
-                    assertThat(item).satisfies(restored -> {
-                        assertThat(restored.allocatedBytes()).isEqualTo(2048);
-                        assertThat(restored.cpuTimeMs()).isEqualTo(51);
-                        assertThat(restored.threadId()).isEqualTo(77);
-                        assertThat(restored.threadName()).isEqualTo("http-nio-8080-exec-7");
-                        assertThat(restored.spanId()).isEqualTo("1");
-                    }));
+            assertThat(saved.allocatedBytes()).isEqualTo(2048);
+            assertThat(saved.cpuTimeMs()).isEqualTo(51);
+            assertThat(saved.threadId()).isEqualTo(77);
+            assertThat(saved.errorType()).isEqualTo("HTTP_5XX");
+            assertThat(saved.errorMessage()).isEqualTo("500");
         });
     }
 
@@ -77,6 +68,6 @@ class HistoryPersistenceTest {
 
     private static RecentTraceStore.TraceRecord trace(String traceId, String source, Instant finishedAt) {
         return new RecentTraceStore.TraceRecord(1, traceId, source, "", 500, 5,
-                false, true, source + " tree", finishedAt, -1, -1, -1, List.of(), source);
+                false, true, source + " tree", finishedAt, -1, -1, -1, source);
     }
 }

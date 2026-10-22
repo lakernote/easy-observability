@@ -58,7 +58,7 @@ class ObservabilityAutoConfigurationTest {
                     assertThat(context.getBean(io.github.lakernote.observability.config.EasyObservabilityProperties.class)
                             .getMetrics().getHistory().getRetentionDays()).isEqualTo(15);
                     assertThat(context).hasSingleBean(io.github.lakernote.observability.trace.store.RecentTraceStore.class);
-                    assertThat(context).hasSingleBean(io.github.lakernote.observability.trace.TraceOperationRecorder.class);
+                    assertThat(context).doesNotHaveBean("traceOperationRecorder");
                     assertThat(context).doesNotHaveBean(MeterRegistry.class);
                 });
     }

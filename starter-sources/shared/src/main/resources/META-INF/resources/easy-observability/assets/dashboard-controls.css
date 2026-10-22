@@ -61,25 +61,44 @@
 .chart-skeleton { position: relative; height: 160px; margin-top: 8px; border-radius: 7px; background: repeating-linear-gradient(to bottom, transparent 0, transparent 38px, #edf1f6 39px, transparent 40px); }
 .chart-skeleton::after { position: absolute; right: 4%; bottom: 30px; left: 4%; height: 54px; border-top: 2px solid #dfe7f7; border-radius: 50%; content: ""; transform: rotate(-5deg); }
 .chart-error { padding: 30px 12px; color: #bd5258; font-size: 11px; text-align: center; }
-#operation-table { min-width: 980px; }
 
 @media (max-width: 760px) {
   .trend-category-grid { grid-template-columns: 1fr; }
+  .trend-category-heading h3 { font-size: 14px; }
+  .trend-category-heading span, .trend-category-note { font-size: 12px; }
   .metrics-view { padding-top: 18px; }
   .metrics-page-heading { align-items: flex-start; flex-direction: column; gap: 10px; }
   .metrics-page-heading .source-badge { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+  .subsection-heading p:not(.eyebrow) { font-size: 13px; }
+  .subsection-heading .source-badge { font-size: 12px; }
   .red-section { padding: 13px 11px; }
   .subsection-heading { flex-direction: column; }
   .red-summary-grid { gap: 6px; padding: 9px; }
   .red-summary-card { min-height: 72px; padding: 8px; }
   .red-summary-card strong { font-size: 12px; }
+  .red-summary-card > span { font-size: 12px; }
+  .red-summary-card small { color: #7c899b; font-size: 11px; }
+  .red-chart-heading h3 { font-size: 13px; }
+  .red-chart-heading span { font-size: 11px; }
   .red-chart-panel { padding: 11px 9px 0; }
   .red-chart-panel .metric-chart { height: 225px; }
   .red-detail-scroll { margin: 0 9px 10px; }
   .red-uri-toggle { min-height: 44px; }
+  .red-detail-table { font-size: 12px; }
+  .red-detail-table th { font-size: 11px; }
   .red-detail-table th, .red-detail-table td { padding-right: 6px; padding-left: 6px; }
   .trend-card { min-height: 202px; padding: 12px; }
   .trend-card-heading { padding-right: 90px; }
+  .trend-card h3 { font-size: 13px; }
+  .series-kind { font-size: 11px; }
   .trend-current { top: 11px; right: 11px; font-size: 14px; }
+  .metrics-range-note { font-size: 12px; }
+  .incident-heading h3 { font-size: 14px; }
+  table { font-size: 12px; }
+  th { font-size: 11px; }
+  .table-footer { font-size: 12px; }
+  .table-footer button { min-height: 44px; font-size: 13px; }
+  .trace-facts span { font-size: 12px; }
+  pre { font-size: 12px; }
   .trend-card .metric-chart, .chart-skeleton { height: 195px; }
 }

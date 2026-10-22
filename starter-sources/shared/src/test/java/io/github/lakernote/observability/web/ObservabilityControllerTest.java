@@ -1,7 +1,6 @@
 package io.github.lakernote.observability.web;
 
 import io.github.lakernote.observability.trace.store.RecentTraceStore;
-import io.github.lakernote.observability.trace.OperationRecord;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 
@@ -41,15 +40,12 @@ class ObservabilityControllerTest {
 
     @Test
     void slowAndErrorListsReturnRootTracesFilteredByTheirEntrySource() {
-        RecentTraceStore history = new RecentTraceStore(10, 10);
+        RecentTraceStore history = new RecentTraceStore(10);
         history.add("http-slow", "OrdersController#list", "GET /orders", "HTTP",
                 200, 900, true, false, "http tree");
         history.add("job-error", "NightlyJob#run", "nightly-job", "JOB",
-                500, 120, false, true, "job tree");
-        history.addOperation(new OperationRecord("DATABASE", "http-slow", "OrderMapper#select", "worker",
-                7, "failure", 800, 10, 100, "SELECT orders", "", "",
-                true, true, java.util.List.of("SLOW_DATABASE"), "SQLException", "query failed",
-                java.util.Map.of(), java.time.Instant.now(), "2", "1"));
+                500, 120, false, true, "job tree", 7, 2, 100,
+                "TransactionRollback", "query failed");
         ObservabilityController controller = new ObservabilityController(new SimpleMeterRegistry(), history, () -> true);
 
         var slow = controller.incidents("slow", "", 100);
@@ -64,7 +60,7 @@ class ObservabilityControllerTest {
 
     @Test
     void traceListAndIncidentDrillDownNeverExposeDependencyOperationsAsRoots() {
-        RecentTraceStore history = new RecentTraceStore(10, 10);
+        RecentTraceStore history = new RecentTraceStore(10);
         history.add("http-1", "GET /orders", "GET", "HTTP", 200, 40, false, false, "http tree");
         history.add("redis-1", "Redis get", "get", "REDIS", 200, 1, true, false, "redis tree");
         history.add("transaction-1", "OrderService#create", "write", "TRANSACTION",
@@ -80,7 +76,7 @@ class ObservabilityControllerTest {
 
     @Test
     void keepsDistinctEntryRootsWhenHttpAndKafkaShareOneTraceId() {
-        RecentTraceStore history = new RecentTraceStore(10, 10);
+        RecentTraceStore history = new RecentTraceStore(10);
         history.add("shared-trace", "/api/demo/kafka/error", "GET", "HTTP",
                 200, 35, false, false, "http tree");
         history.add("shared-trace", "receive", "", "KAFKA_CONSUMER",
