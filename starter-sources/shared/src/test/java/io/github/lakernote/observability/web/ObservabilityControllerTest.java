@@ -39,6 +39,29 @@ class ObservabilityControllerTest {
     }
 
     @Test
+    void clearsRecentTraceWindowThroughProtectedClearAction() throws Exception {
+        RecentTraceStore history = new RecentTraceStore(10);
+        history.add("trace-1", "GET /orders", "GET", "HTTP", 200, 12, false, false, "tree");
+        ObservabilityController controller = new ObservabilityController(
+                new SimpleMeterRegistry(), history, () -> true);
+
+        var result = controller.clearLocalHistory();
+
+        assertThat(result.recentTraces()).isEqualTo(1);
+        assertThat(controller.traces(10)).isEmpty();
+    }
+
+    @Test
+    void deniesClearActionWhenTheHostPolicyDeniesAccess() {
+        ObservabilityController controller = new ObservabilityController(new SimpleMeterRegistry(),
+                new RecentTraceStore(10), () -> false);
+
+        assertThatThrownBy(controller::clearLocalHistory)
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .hasMessageContaining("403 FORBIDDEN");
+    }
+
+    @Test
     void slowAndErrorListsReturnRootTracesFilteredByTheirEntrySource() {
         RecentTraceStore history = new RecentTraceStore(10);
         history.add("http-slow", "OrdersController#list", "GET /orders", "HTTP",

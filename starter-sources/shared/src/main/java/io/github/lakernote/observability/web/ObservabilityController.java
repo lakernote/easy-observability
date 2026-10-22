@@ -12,6 +12,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -174,6 +175,15 @@ public class ObservabilityController {
         return metricHistoryStore == null ? null : metricHistoryStore.getStatus();
     }
 
+    @PostMapping("/storage/clear")
+    public ClearStorageResult clearLocalHistory() throws java.io.IOException {
+        requireAccess();
+        int metricSeries = metricHistoryStore == null ? 0 : metricHistoryStore.clearHistory();
+        int archivedTraces = incidentTraces == null ? 0 : incidentTraces.clear();
+        int recentTraces = this.recentTraces.clear();
+        return new ClearStorageResult(metricSeries, archivedTraces, recentTraces);
+    }
+
     private void requireAccess() {
         if (!accessPolicy.canView()) throw new ResponseStatusException(HttpStatus.FORBIDDEN);
     }
@@ -193,6 +203,8 @@ public class ObservabilityController {
 
     public record TraceStorageStatus(int recentCount, int recentCapacity, int archivedIncidentCount,
                                      int archivedIncidentCapacity, long archiveBytes, long archiveMaxBytes) { }
+
+    public record ClearStorageResult(int metricSeries, int archivedTraces, int recentTraces) { }
 
     private record TraceIdentity(String traceId, String sourceType, Instant finishedAt) { }
 }

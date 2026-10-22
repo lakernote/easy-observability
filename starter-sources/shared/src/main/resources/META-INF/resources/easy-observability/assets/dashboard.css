@@ -122,6 +122,20 @@ dialog h3 { margin: 19px 0 9px; color: #354760; font-size: 12px; font-weight: 70
 .trace-facts { display: flex; flex-wrap: wrap; gap: 7px; margin: 15px 0 17px; }
 .trace-facts span { padding: 7px 10px; border: 1px solid #e6ebf2; border-radius: 8px; background: #f8fafd; color: #5d6d83; font-size: 10px; font-variant-numeric: tabular-nums; }
 pre { min-height: 55px; max-height: 320px; overflow: auto; margin: 0; padding: 14px; border: 1px solid #e7ecf3; border-radius: 9px; background: #f8fafd; color: #3e4f66; font: 11px/1.65 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.confirm-dialog { width: min(480px, calc(100% - 32px)); max-height: min(88vh, 640px); margin: auto; padding: 23px; }
+.confirm-dialog-heading { display: flex; align-items: center; gap: 12px; }
+.confirm-dialog-icon { display: grid; width: 38px; height: 38px; flex: 0 0 auto; place-items: center; border-radius: 11px; background: #fff0f1; color: #b6424b; font-size: 20px; font-weight: 750; }
+.confirm-dialog-heading .eyebrow { margin: 0 0 3px; }
+.confirm-dialog-heading h2 { margin: 0; color: #1b2b42; font-size: 17px; font-weight: 700; }
+.confirm-dialog-description { margin: 15px 0 22px; color: #596a80; font-size: 12px; line-height: 1.75; }
+.confirm-dialog-actions { display: flex; justify-content: flex-end; gap: 9px; }
+.confirm-dialog-actions button { min-height: 40px; border: 1px solid #dfe6f0; border-radius: 8px; padding: 0 14px; font: inherit; font-size: 11px; font-weight: 650; cursor: pointer; }
+.confirm-dialog-actions button:focus-visible { outline: 3px solid #afc5ff; outline-offset: 2px; }
+.confirm-cancel { background: #fff; color: #52637a; }
+.confirm-cancel:hover { background: #f7f9fc; }
+.confirm-dialog-actions .confirm-delete { border-color: #b6424b; background: #b6424b; color: #fff; }
+.confirm-delete:hover { background: #9f3540; }
+.confirm-dialog-actions button:disabled { opacity: .6; cursor: progress; }
 td details { margin-top: 5px; }
 td details summary { color: var(--blue); cursor: pointer; font-size: 10px; }
 td details pre { min-width: 360px; margin-top: 7px; font-size: 10px; }

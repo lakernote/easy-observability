@@ -299,6 +299,47 @@ public class MetricHistoryStore {
         return historyReads.execute(this::statusAdmitted);
     }
 
+    /** Deletes persisted RRD4J history and its index while preserving the live Micrometer registry. */
+    public int clearHistory() throws IOException {
+        ensureRestored();
+        synchronized (fileLock) {
+            int clearedRrdFiles = 0;
+            if (Files.isDirectory(storageDirectory)) {
+                try (var paths = Files.list(storageDirectory)) {
+                    for (Path path : paths.filter(Files::isRegularFile).toList()) {
+                        String filename = path.getFileName().toString();
+                        if (isManagedHistoryFile(filename)) {
+                            if (filename.endsWith(RRD_SUFFIX)) clearedRrdFiles++;
+                            Files.deleteIfExists(path);
+                        }
+                    }
+                }
+            }
+            // The in-memory catalog and the RRD files represent the same series; avoid double-counting.
+            int clearedSeries = Math.max(seriesByKey.size(), clearedRrdFiles);
+            seriesByKey.clear();
+            observedRangesById.clear();
+            rejectedSeriesUntilByKey.clear();
+            droppedWrites.set(0);
+            rejectedSeries.set(0);
+            evictedSeries.set(0);
+            refreshStorageBytesLocked();
+            return clearedSeries;
+        }
+    }
+
+    private static boolean isManagedHistoryFile(String filename) {
+        String[] suffixes = {RRD_SUFFIX, METADATA_SUFFIX, LEGACY_SUFFIX, ".rrd.tmp",
+                ".meta.json.tmp", ".rrd.resize.tmp", ".bak"};
+        for (String suffix : suffixes) {
+            if (filename.endsWith(suffix)) {
+                String id = filename.substring(0, filename.length() - suffix.length());
+                if (id.matches("series-[0-9a-f]{64}")) return true;
+            }
+        }
+        return false;
+    }
+
     private StorageStatus statusAdmitted() {
         if (enabled) ensureRestored();
         synchronized (fileLock) {
@@ -318,47 +359,6 @@ public class MetricHistoryStore {
     private StorageStatus disabledStatus() {
         return new StorageStatus(false, storageDirectory.toString(), retentionDays, maxStorageBytes,
                 maxSeriesBytes, 0, "", 0, 0, droppedWrites.get(), rejectedSeries.get(), evictedSeries.get());
-    }
-
-    public long getStorageBytes() {
-        return getStatus().storageBytes();
-    }
-
-    public String getOldestSegmentDate() {
-        return getStatus().oldestSegmentDate();
-    }
-
-    public long getSegmentCoverageDays() {
-        return getStatus().coverageDays();
-    }
-
-    public long getDroppedWrites() {
-        return droppedWrites.get();
-    }
-
-    public long getRejectedSeries() {
-        return rejectedSeries.get();
-    }
-
-    public long getEvictedSeries() {
-        return evictedSeries.get();
-    }
-
-    public int getRetentionDays() {
-        return retentionDays;
-    }
-
-    public long getMaxStorageBytes() {
-        return maxStorageBytes;
-    }
-
-    /** Kept for the existing diagnosis API; this is now the upper bound for one RRD series file. */
-    public long getMaxSegmentBytes() {
-        return maxSeriesBytes;
-    }
-
-    public boolean isEnabled() {
-        return enabled;
     }
 
     long directoryScanCount() {

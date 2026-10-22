@@ -7,8 +7,8 @@
   <meta name="theme-color" content="#f4f7fb">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%234774df'/%3E%3Cpath d='M5 17h5l3-8 5 15 3-9h6' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
   <title>Easy Observability · 应用运行诊断</title>
-  <link rel="stylesheet" href="/easy-observability/assets/dashboard.css?v=20261022.7">
-  <link rel="stylesheet" href="/easy-observability/assets/dashboard-controls.css?v=20261022.7">
+  <link rel="stylesheet" href="/easy-observability/assets/dashboard.css?v=20261022.8">
+  <link rel="stylesheet" href="/easy-observability/assets/dashboard-controls.css?v=20261022.8">
 </head>
 <body>
   <a class="skip-link" href="#main-content">跳到主要内容</a>
@@ -34,7 +34,7 @@
   <main id="main-content" class="report">
     <div id="notice" class="notice" role="alert" hidden></div>
     <section id="metrics-section" class="report-section metrics-view" aria-labelledby="metrics-title">
-      <div class="page-heading metrics-page-heading"><div><p class="eyebrow">METRICS WORKSPACE</p><h1 id="metrics-title">指标趋势</h1><p class="page-description">HTTP、定时任务与 Kafka 展示调用健康度；JVM、CPU、线程、日志、HTTP 出站、Tomcat、Redis 和 SQL 按类型查看趋势。</p><p id="metric-range-note" class="page-description metrics-range-note" role="status">正在读取指标历史范围…</p></div><span id="metric-storage-status" class="source-badge" role="status">本地历史 · 1 分钟采样</span></div>
+      <div class="page-heading metrics-page-heading"><div><p class="eyebrow">METRICS WORKSPACE</p><h1 id="metrics-title">指标趋势</h1><p class="page-description">HTTP、定时任务与 Kafka 展示调用健康度；JVM、CPU、线程、日志、HTTP 出站、Tomcat、Redis 和 SQL 按类型查看趋势。</p><p id="metric-range-note" class="page-description metrics-range-note" role="status">正在读取指标历史范围…</p></div><div class="metric-storage-actions"><span id="metric-storage-status" class="source-badge" role="status">本地历史 · 1 分钟采样</span><button id="clear-local-history" class="clear-history-button" type="button" title="删除本地 RRD4J 指标历史和 Trace JSONL 历史">清空本地历史</button></div></div>
       <section class="red-section" aria-labelledby="http-red-title">
         <div class="subsection-heading"><div><p class="eyebrow">HTTP · RED</p><h2 id="http-red-title">HTTP 请求健康度</h2><p>请求速率、错误速率和平均耗时合并在同一面板；切换指标查看趋势，点击 URI 表格中的彩色标记显隐曲线。错误包含 4xx、5xx 和异常结果；诊断页面自身的请求会排除。</p></div><span id="http-red-scope" class="source-badge">等待 HTTP 指标</span></div>
         <div class="red-dashboard-host" id="http-red-grid" aria-live="polite"><p class="empty">正在读取 HTTP 趋势…</p></div>
@@ -69,7 +69,12 @@
   </main>
 
   <dialog id="trace-dialog" aria-labelledby="dialog-title"><div class="dialog-head"><div><p class="eyebrow">TRACE DETAIL</p><h2 id="dialog-title">请求详情</h2></div><button id="close-dialog" class="dialog-close" aria-label="关闭">×</button></div><div id="trace-facts" class="trace-facts"></div><h3>调用树</h3><pre id="trace-tree"></pre></dialog>
+  <dialog id="clear-history-dialog" class="confirm-dialog" aria-labelledby="clear-history-title" aria-describedby="clear-history-description">
+    <div class="confirm-dialog-heading"><span class="confirm-dialog-icon" aria-hidden="true">!</span><div><p class="eyebrow">LOCAL STORAGE</p><h2 id="clear-history-title">清空本地历史？</h2></div></div>
+    <p id="clear-history-description" class="confirm-dialog-description">这会永久删除本地 RRD4J 指标历史和 Trace JSONL 慢错归档，并清空当前进程中的近期 Trace。应用仍会继续采集；之后的新指标采样会重新生成历史。</p>
+    <div class="confirm-dialog-actions"><button id="cancel-clear-history" class="confirm-cancel" type="button" autofocus>取消</button><button id="confirm-clear-history" class="confirm-delete" type="button">永久删除历史</button></div>
+  </dialog>
   <script defer src="/easy-observability/assets/vendor/echarts.min.js?v=6.1.0"></script>
-  <script type="module" src="/easy-observability/assets/dashboard.js?v=20261022.11"></script>
+  <script type="module" src="/easy-observability/assets/dashboard.js?v=20261022.12"></script>
 </body>
 </html>

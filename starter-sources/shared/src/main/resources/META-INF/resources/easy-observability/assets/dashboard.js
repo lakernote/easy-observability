@@ -162,6 +162,15 @@ async function getJson(path) {
   if (!response.ok) throw new Error(`读取监控数据失败：${response.status}`)
   return response.json()
 }
+async function postJson(path) {
+  const headers = { Accept: 'application/json', 'Content-Type': 'application/json' }
+  const token = typeof window.EasyObservabilityAuth?.token === 'function' ? window.EasyObservabilityAuth.token() : ''
+  if (token) headers.Authorization = `Bearer ${token}`
+  const response = await fetch(`${api}${path}`, { method: 'POST', headers, body: '{}' })
+  if (response.status === 401 || response.status === 403) throw new Error('监控数据访问受限，请登录或配置 ObservabilityAccessPolicy')
+  if (!response.ok) throw new Error(`清理本地历史失败：${response.status}`)
+  return response.json()
+}
 function getHistoryJson(path) {
   const request = historyRequestQueue.then(() => getJson(path))
   historyRequestQueue = request.catch(() => {})
@@ -1475,6 +1484,40 @@ async function refresh() {
 }
 
 byId('refresh').addEventListener('click', refresh)
+const clearHistoryButton = byId('clear-local-history')
+const clearHistoryDialog = byId('clear-history-dialog')
+const confirmClearHistoryButton = byId('confirm-clear-history')
+clearHistoryButton.addEventListener('click', () => clearHistoryDialog.showModal())
+byId('cancel-clear-history').addEventListener('click', () => clearHistoryDialog.close())
+confirmClearHistoryButton.addEventListener('click', async () => {
+  clearHistoryButton.disabled = true
+  confirmClearHistoryButton.disabled = true
+  confirmClearHistoryButton.textContent = '正在清理…'
+  clearHistoryDialog.close()
+  try {
+    const result = await postJson('/storage/clear')
+    metricDataLoaded = false
+    seriesCacheGeneration++
+    seriesCache.clear()
+    seriesLoading.clear()
+    redHistoryCache = null
+    observationRedCache.clear()
+    renderedMetricRangeKey = ''
+    traceExplorerRows = null
+    recentPage = 0
+    traces = []
+    slowIncidents = []
+    errorIncidents = []
+    await refresh()
+    showNotice(`已清空本地历史：删除 ${formatNumber(result.metricSeries)} 条指标序列，清理 ${formatNumber(result.archivedTraces)} 条慢错归档和 ${formatNumber(result.recentTraces)} 条近期 Trace。`)
+  } catch (error) {
+    showNotice(error?.message || '清理本地历史失败')
+  } finally {
+    clearHistoryButton.disabled = false
+    confirmClearHistoryButton.disabled = false
+    confirmClearHistoryButton.textContent = '永久删除历史'
+  }
+})
 byId('metrics-section').addEventListener('click', event => {
   const metricButton = event.target.closest('button[data-red-metric]')
   const uriButton = event.target.closest('button[data-uri]')

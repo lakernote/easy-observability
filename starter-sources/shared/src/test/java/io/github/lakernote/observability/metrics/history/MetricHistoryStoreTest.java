@@ -45,7 +45,7 @@ class MetricHistoryStoreTest {
 
         assertThat(rrdFiles()).hasSize(1);
         assertThat(metricMetadataFiles()).hasSize(1);
-        assertThat(store.getStorageBytes()).isPositive().isLessThan(64 * MEBIBYTE);
+        assertThat(store.getStatus().storageBytes()).isPositive().isLessThan(64 * MEBIBYTE);
 
         MetricHistoryStore restarted = store(64 * MEBIBYTE, 8 * MEBIBYTE);
         restarted.restore();
@@ -62,6 +62,23 @@ class MetricHistoryStoreTest {
             assertThat(series.tags()).containsEntry("area", "heap").containsEntry("node", "local");
             assertThat(series.measurements()).containsExactly("VALUE");
         });
+    }
+
+    @Test
+    void clearsPersistedRrdSeriesAndMetadataButLeavesUnrelatedFiles() throws Exception {
+        MetricHistoryStore store = store(64 * MEBIBYTE, 8 * MEBIBYTE);
+        store.restore();
+        store.recordMetricsSnapshot(List.of(metric("jvm.memory.used", 42, "VALUE")));
+        Path unrelated = tempDirectory.resolve("keep.txt");
+        Files.writeString(unrelated, "keep");
+
+        assertThat(store.clearHistory()).isEqualTo(1);
+
+        assertThat(store.listSeries()).isEmpty();
+        assertThat(rrdFiles()).isEmpty();
+        assertThat(metricMetadataFiles()).isEmpty();
+        assertThat(Files.exists(unrelated)).isTrue();
+        assertThat(store.getStatus().storageBytes()).isEqualTo(Files.size(unrelated));
     }
 
     @Test

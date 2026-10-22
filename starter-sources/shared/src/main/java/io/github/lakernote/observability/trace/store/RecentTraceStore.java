@@ -43,7 +43,7 @@ public class RecentTraceStore {
                 allocatedBytes, errorType, errorMessage);
     }
 
-    public void add(String traceId, String name, String method, String sourceType, int status, long durationMs,
+    public synchronized void add(String traceId, String name, String method, String sourceType, int status, long durationMs,
                     boolean slow, boolean error, String tree, String threadName, long threadId, long cpuTimeMs,
                     long allocatedBytes, String errorType, String errorMessage) {
         if (!isEntrySource(sourceType)) return;
@@ -70,6 +70,13 @@ public class RecentTraceStore {
 
     public int size() {
         return recordCount.get();
+    }
+
+    /** Clears the in-memory trace window without resetting the monotonically increasing record ID. */
+    public synchronized int clear() {
+        int cleared = recordCount.getAndSet(0);
+        records.clear();
+        return cleared;
     }
 
     public int capacity() {

@@ -26,6 +26,7 @@ public final class IncidentTraceStore {
     private final Consumer<Runnable> writeExecutor;
     private final ConcurrentLinkedDeque<RecentTraceStore.TraceRecord> records = new ConcurrentLinkedDeque<>();
     private final Object lock = new Object();
+    private long generation;
 
     public IncidentTraceStore(ObjectMapper mapper, String file, int capacity, long maxBytes) {
         this(mapper, file, capacity, maxBytes, Runnable::run);
@@ -66,13 +67,18 @@ public final class IncidentTraceStore {
     public void record(RecentTraceStore.TraceRecord trace) {
         if (trace == null || !RecentTraceStore.isEntrySource(trace.sourceType())
                 || (!trace.slow() && !trace.error())) return;
-        add(trace);
+        long writeGeneration;
+        synchronized (lock) {
+            add(trace);
+            writeGeneration = generation;
+        }
         // Starter 默认通过有界后台队列写文件，避免磁盘 I/O 占用请求线程。
-        writeExecutor.accept(() -> append(trace));
+        writeExecutor.accept(() -> append(trace, writeGeneration));
     }
 
-    private void append(RecentTraceStore.TraceRecord trace) {
+    private void append(RecentTraceStore.TraceRecord trace, long writeGeneration) {
         synchronized (lock) {
+            if (writeGeneration != generation) return;
             try {
                 Files.createDirectories(file.getParent());
                 byte[] bytes = (mapper.writeValueAsString(trace) + "\n").getBytes(StandardCharsets.UTF_8);
@@ -80,6 +86,18 @@ public final class IncidentTraceStore {
                 Files.write(file, bytes, java.nio.file.StandardOpenOption.CREATE,
                         java.nio.file.StandardOpenOption.WRITE, java.nio.file.StandardOpenOption.APPEND);
             } catch (Exception failure) { log.warn("写入 Easy Observability Trace 历史失败", failure); }
+        }
+    }
+
+    /** Clears the JSONL archive and its in-memory index; queued writes from before the clear are discarded. */
+    public int clear() throws java.io.IOException {
+        synchronized (lock) {
+            generation++;
+            int cleared = records.size();
+            records.clear();
+            Files.deleteIfExists(file);
+            Files.deleteIfExists(file.resolveSibling(file.getFileName() + ".tmp"));
+            return cleared;
         }
     }
 
