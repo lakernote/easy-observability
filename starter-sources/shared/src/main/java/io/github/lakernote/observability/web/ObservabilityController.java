@@ -63,19 +63,47 @@ public class ObservabilityController {
 
     @GetMapping("/traces")
     public List<RecentTraceStore.TraceRecord> traces(@RequestParam(defaultValue = "100") int limit,
-                                                     @RequestParam(defaultValue = "") String source) {
+                                                     @RequestParam(defaultValue = "") String source,
+                                                     @RequestParam(defaultValue = "") String q) {
         requireAccess();
-        if (!source.isBlank()) {
-            return recentTraces.recent(500).stream()
+        if (!source.isBlank() || !q.isBlank()) {
+            String normalizedQuery = q.trim().toLowerCase(java.util.Locale.ROOT);
+            final String query = normalizedQuery.length() > 200
+                    ? normalizedQuery.substring(0, 200) : normalizedQuery;
+            return allTraces(500).stream()
                     .filter(trace -> source.isBlank() || source.equalsIgnoreCase(trace.sourceType()))
+                    .filter(trace -> query.isEmpty() || matchesTrace(trace, query))
                     .limit(Math.max(1, Math.min(limit, 500))).toList();
         }
         return allTraces(limit);
     }
 
+    private static boolean matchesTrace(RecentTraceStore.TraceRecord trace, String query) {
+        return containsIgnoreCase(trace.name(), query) || containsIgnoreCase(trace.method(), query)
+                || containsIgnoreCase(trace.traceId(), query) || containsIgnoreCase(trace.tree(), query)
+                || containsIgnoreCase(trace.threadName(), query);
+    }
+
+    private static boolean containsIgnoreCase(String value, String query) {
+        return value != null && value.toLowerCase(java.util.Locale.ROOT).contains(query);
+    }
+
     /** 保留普通 Java 调用方的原有签名。 */
     public List<RecentTraceStore.TraceRecord> traces(int limit) {
         return traces(limit, "");
+    }
+
+    public List<RecentTraceStore.TraceRecord> traces(int limit, String source) {
+        return traces(limit, source, "");
+    }
+
+    @GetMapping("/traces/storage")
+    public TraceStorageStatus traceStorage() {
+        requireAccess();
+        IncidentTraceStore.StorageStatus archive = incidentTraces == null ? null : incidentTraces.status();
+        return new TraceStorageStatus(recentTraces.size(), recentTraces.capacity(),
+                archive == null ? 0 : archive.recordCount(), archive == null ? 0 : archive.capacity(),
+                archive == null ? 0 : archive.bytes(), archive == null ? 0 : archive.maxBytes());
     }
 
     @GetMapping("/incidents")
@@ -162,6 +190,9 @@ public class ObservabilityController {
     }
 
     public record MetricRecord(String name, String type, Map<String, String> tags, Map<String, Double> values) { }
+
+    public record TraceStorageStatus(int recentCount, int recentCapacity, int archivedIncidentCount,
+                                     int archivedIncidentCapacity, long archiveBytes, long archiveMaxBytes) { }
 
     private record TraceIdentity(String traceId, String sourceType, Instant finishedAt) { }
 }

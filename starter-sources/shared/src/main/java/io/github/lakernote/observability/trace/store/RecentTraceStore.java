@@ -39,10 +39,17 @@ public class RecentTraceStore {
     public void add(String traceId, String name, String method, String sourceType, int status, long durationMs,
                     boolean slow, boolean error, String tree, long threadId, long cpuTimeMs, long allocatedBytes,
                     String errorType, String errorMessage) {
+        add(traceId, name, method, sourceType, status, durationMs, slow, error, tree, "", threadId, cpuTimeMs,
+                allocatedBytes, errorType, errorMessage);
+    }
+
+    public void add(String traceId, String name, String method, String sourceType, int status, long durationMs,
+                    boolean slow, boolean error, String tree, String threadName, long threadId, long cpuTimeMs,
+                    long allocatedBytes, String errorType, String errorMessage) {
         if (!isEntrySource(sourceType)) return;
         records.addFirst(new TraceRecord(nextId.incrementAndGet(), traceId, name, method, status,
                 Math.max(0, durationMs), slow, error, tree, Instant.now(), threadId, cpuTimeMs, allocatedBytes,
-                sourceType, errorType, errorMessage));
+                sourceType, errorType, errorMessage, threadName));
         recordCount.incrementAndGet();
         while (recordCount.get() > capacity) {
             if (records.pollLast() == null) break;
@@ -59,6 +66,14 @@ public class RecentTraceStore {
             result.add(record);
         }
         return List.copyOf(result);
+    }
+
+    public int size() {
+        return recordCount.get();
+    }
+
+    public int capacity() {
+        return capacity;
     }
 
     public TraceRecord find(String traceId) {
@@ -88,31 +103,40 @@ public class RecentTraceStore {
     public record TraceRecord(long id, String traceId, String name, String method, int status,
                               long durationMs, boolean slow, boolean error, String tree, Instant finishedAt,
                               long threadId, long cpuTimeMs, long allocatedBytes, String sourceType,
-                              String errorType, String errorMessage) {
+                              String errorType, String errorMessage, String threadName) {
         public TraceRecord {
             sourceType = sourceType == null ? "" : sourceType;
             errorType = errorType == null ? "" : errorType;
             errorMessage = errorMessage == null ? "" : errorMessage;
+            threadName = threadName == null ? "" : threadName;
+        }
+
+        public TraceRecord(long id, String traceId, String name, String method, int status,
+                           long durationMs, boolean slow, boolean error, String tree, Instant finishedAt,
+                           long threadId, long cpuTimeMs, long allocatedBytes, String sourceType,
+                           String errorType, String errorMessage) {
+            this(id, traceId, name, method, status, durationMs, slow, error, tree, finishedAt,
+                    threadId, cpuTimeMs, allocatedBytes, sourceType, errorType, errorMessage, "");
         }
 
         public TraceRecord(long id, String traceId, String name, String method, int status,
                            long durationMs, boolean slow, boolean error, String tree, Instant finishedAt) {
             this(id, traceId, name, method, status, durationMs, slow, error, tree, finishedAt,
-                    -1, -1, -1, "", "", "");
+                    -1, -1, -1, "", "", "", "");
         }
 
         public TraceRecord(long id, String traceId, String name, String method, int status,
                            long durationMs, boolean slow, boolean error, String tree, Instant finishedAt,
                            long threadId, long cpuTimeMs, long allocatedBytes) {
             this(id, traceId, name, method, status, durationMs, slow, error, tree, finishedAt,
-                    threadId, cpuTimeMs, allocatedBytes, "", "", "");
+                    threadId, cpuTimeMs, allocatedBytes, "", "", "", "");
         }
 
         public TraceRecord(long id, String traceId, String name, String method, int status,
                            long durationMs, boolean slow, boolean error, String tree, Instant finishedAt,
                            long threadId, long cpuTimeMs, long allocatedBytes, String sourceType) {
             this(id, traceId, name, method, status, durationMs, slow, error, tree, finishedAt,
-                    threadId, cpuTimeMs, allocatedBytes, sourceType, "", "");
+                    threadId, cpuTimeMs, allocatedBytes, sourceType, "", "", "");
         }
     }
 }

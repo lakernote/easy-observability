@@ -81,8 +81,12 @@ public final class Rrd4jStepMeterRegistry extends StepMeterRegistry {
     private static boolean useful(String name) {
         return name.startsWith("jvm.") || name.startsWith("process.")
                 || name.startsWith("system.") || name.startsWith("http.server.requests")
+                || name.startsWith("http.client.")
                 || name.equals("tasks.scheduled.execution") || name.equals("spring.kafka.listener")
                 || name.startsWith("spring.kafka.container.") || name.startsWith("kafka.consumer.")
+                || name.startsWith("kafka.producer.")
+                || name.startsWith("spring.data.redis") || name.startsWith("redis.") || name.startsWith("lettuce.")
+                || name.startsWith("cache.") || name.startsWith("elasticsearch.")
                 || name.startsWith("hikaricp.") || name.startsWith("jdbc.connections.")
                 || name.startsWith("tomcat.") || name.startsWith("logback.") || name.startsWith("executor.");
     }

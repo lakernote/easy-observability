@@ -94,6 +94,15 @@ public final class IncidentTraceStore {
         return List.copyOf(result);
     }
 
+    public StorageStatus status() {
+        long bytes = 0;
+        try {
+            if (Files.isRegularFile(file)) bytes = Files.size(file);
+        } catch (Exception ignored) {
+        }
+        return new StorageStatus(records.size(), capacity, bytes, maxBytes);
+    }
+
     public RecentTraceStore.TraceRecord find(String traceId) {
         return find(traceId, "");
     }
@@ -142,4 +151,6 @@ public final class IncidentTraceStore {
             Files.move(temporary, file, StandardCopyOption.REPLACE_EXISTING);
         }
     }
+
+    public record StorageStatus(int recordCount, int capacity, long bytes, long maxBytes) { }
 }

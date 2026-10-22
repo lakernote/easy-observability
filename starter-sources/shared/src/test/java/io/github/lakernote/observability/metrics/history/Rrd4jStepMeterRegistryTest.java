@@ -44,6 +44,30 @@ class Rrd4jStepMeterRegistryTest {
     }
 
     @Test
+    void persistsOutgoingDependencyMetricsShownByTheDashboard() {
+        TestClock clock = new TestClock(Instant.parse("2026-10-14T02:00:00Z"));
+        MetricHistoryStore store = new MetricHistoryStore(new ObjectMapper(), tempDirectory.toString(), 15,
+                64L * 1024 * 1024, 8L * 1024 * 1024, new StoreClock(clock), true);
+        store.restore();
+        Rrd4jStepMeterRegistry registry = new Rrd4jStepMeterRegistry(store, clock, false);
+
+        Timer.builder("http.client.requests").tag("method", "GET").tag("uri", "/orders")
+                .register(registry).record(25, TimeUnit.MILLISECONDS);
+        Timer.builder("spring.data.redis").tag("command", "GET")
+                .register(registry).record(3, TimeUnit.MILLISECONDS);
+        Timer.builder("kafka.producer.record.send").tag("topic", "orders")
+                .register(registry).record(8, TimeUnit.MILLISECONDS);
+        Timer.builder("application.unlisted.metric").register(registry).record(1, TimeUnit.MILLISECONDS);
+        clock.advance(Duration.ofMinutes(1));
+        registry.publish();
+
+        assertThat(store.listSeries()).extracting(MetricHistoryStore.MetricSeriesDescriptor::name)
+                .contains("http.client.requests", "spring.data.redis", "kafka.producer.record.send")
+                .doesNotContain("application.unlisted.metric");
+        registry.close();
+    }
+
+    @Test
     void persistsCompletedTimerStepsAsPerWindowCountsAndDurations() throws Exception {
         TestClock clock = new TestClock(Instant.parse("2026-10-14T02:00:00Z"));
         MetricHistoryStore store = new MetricHistoryStore(new ObjectMapper(), tempDirectory.toString(), 15,

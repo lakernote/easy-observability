@@ -103,4 +103,42 @@ class ObservabilityControllerTest {
             assertThat(trace.name()).isEqualTo("nightly cleanup");
         });
     }
+
+    @Test
+    void searchesRecentTraceTreesForSqlAndDependencyDetails() {
+        RecentTraceStore history = new RecentTraceStore(10);
+        history.add("sql-trace", "GET /orders", "GET", "HTTP", 200, 20, false, false,
+                "`- [Database] query tag=\"select * from orders where id = ?\" 7ms");
+        history.add("other-trace", "GET /health", "GET", "HTTP", 200, 3, false, false, "health tree");
+        ObservabilityController controller = new ObservabilityController(new SimpleMeterRegistry(), history, () -> true);
+
+        var matches = controller.traces(100, "HTTP", "select * from orders");
+
+        assertThat(matches).singleElement().satisfies(trace -> assertThat(trace.traceId()).isEqualTo("sql-trace"));
+    }
+
+    @Test
+    void searchesKafkaTraceByListenerThreadNameForMetricDrillDown() {
+        RecentTraceStore history = new RecentTraceStore(10);
+        history.add("kafka-trace", "receive", "", "KAFKA_CONSUMER", 200, 8, false, false,
+                "kafka tree", "demo-metrics-listener-0-C-1", 11, 1, 512, "", "");
+        ObservabilityController controller = new ObservabilityController(new SimpleMeterRegistry(), history, () -> true);
+
+        var matches = controller.traces(100, "KAFKA_CONSUMER", "demo-metrics-listener-0");
+
+        assertThat(matches).singleElement().satisfies(trace -> assertThat(trace.traceId()).isEqualTo("kafka-trace"));
+    }
+
+    @Test
+    void reportsTheMemoryTraceHistoryCapacity() {
+        RecentTraceStore history = new RecentTraceStore(12);
+        history.add("trace-1", "GET /orders", "GET", "HTTP", 200, 20, false, false, "tree");
+        ObservabilityController controller = new ObservabilityController(new SimpleMeterRegistry(), history, () -> true);
+
+        var status = controller.traceStorage();
+
+        assertThat(status.recentCount()).isEqualTo(1);
+        assertThat(status.recentCapacity()).isEqualTo(12);
+        assertThat(status.archivedIncidentCapacity()).isZero();
+    }
 }

@@ -90,6 +90,7 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
             String name = operationName(context, type.name());
             String detail = observationDetail(context);
             long threadId = Thread.currentThread().getId();
+            String threadName = root ? safe(Thread.currentThread().getName(), 128) : "";
             // CPU and allocated bytes are sampled only at the entry boundary; child spans retain timing only.
             ThreadResourceSnapshot resources = root ? ThreadResourceSnapshot.capture(threadId,
                     properties.getTrace().isResourceSamplingEnabled()) : null;
@@ -111,7 +112,7 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
             }
             if (traceHandle == null && traceActive) traceHandle = TraceContext.currentRootTraceHandle();
             context.put(STATE_KEY, new ObservationState(type, name, detail, traceId, root,
-                    installedTraceId, System.nanoTime(), threadId, resources, span, traceHandle));
+                    installedTraceId, System.nanoTime(), threadId, threadName, resources, span, traceHandle));
         } catch (RuntimeException ignored) {
             // 监控回调异常不能影响应用已有的 Trace 和业务流程。
             if (rootStarted) TraceContext.clear();
@@ -246,7 +247,8 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
         boolean traceFailed = failed || completion.error();
         recentTraces.add(state.traceId, displayName, detail, state.observationType.name(),
                 status > 0 ? status : failed ? 500 : 200, durationMs, traceSlow, traceFailed, completion.tree(),
-                state.startThreadId, cpuTimeMs, allocatedBytes, completion.errorType(), completion.errorMessage());
+                state.startThreadName, state.startThreadId, cpuTimeMs, allocatedBytes,
+                completion.errorType(), completion.errorMessage());
         if (incidentTraces == null || (!traceSlow && !traceFailed)) return;
         // 只把慢/错入口 Trace 写入持久存储；正常请求留在有界内存列表中。
         try {
@@ -382,6 +384,7 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
         private final boolean installedTraceId;
         private final long startedAtNanos;
         private final long startThreadId;
+        private final String startThreadName;
         private final ThreadResourceSnapshot resourcesAtStart;
         private final TraceContext.SpanHandle spanHandle;
         private final TraceContext.RootTraceHandle traceHandle;
@@ -389,7 +392,8 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
 
         private ObservationState(ObservationType observationType, String operationName, String startDetail,
                                  String traceId, boolean rootObservation, boolean installedTraceId,
-                                 long startedAtNanos, long startThreadId, ThreadResourceSnapshot resourcesAtStart,
+                                 long startedAtNanos, long startThreadId, String startThreadName,
+                                 ThreadResourceSnapshot resourcesAtStart,
                                  TraceContext.SpanHandle spanHandle, TraceContext.RootTraceHandle traceHandle) {
             this.observationType = observationType;
             this.operationName = operationName;
@@ -399,6 +403,7 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
             this.installedTraceId = installedTraceId;
             this.startedAtNanos = startedAtNanos;
             this.startThreadId = startThreadId;
+            this.startThreadName = startThreadName;
             this.resourcesAtStart = resourcesAtStart;
             this.spanHandle = spanHandle;
             this.traceHandle = traceHandle;

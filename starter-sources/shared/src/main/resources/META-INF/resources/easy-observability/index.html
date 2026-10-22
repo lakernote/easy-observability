@@ -7,8 +7,8 @@
   <meta name="theme-color" content="#f4f7fb">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%234774df'/%3E%3Cpath d='M5 17h5l3-8 5 15 3-9h6' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
   <title>Easy Observability · 应用运行诊断</title>
-  <link rel="stylesheet" href="/easy-observability/assets/dashboard.css?v=20261022.4">
-  <link rel="stylesheet" href="/easy-observability/assets/dashboard-controls.css?v=20261022.4">
+  <link rel="stylesheet" href="/easy-observability/assets/dashboard.css?v=20261022.7">
+  <link rel="stylesheet" href="/easy-observability/assets/dashboard-controls.css?v=20261022.7">
 </head>
 <body>
   <a class="skip-link" href="#main-content">跳到主要内容</a>
@@ -54,13 +54,14 @@
     <section id="incidents-section" class="report-section" aria-labelledby="incidents-title" hidden>
       <div class="section-heading"><div><p class="eyebrow">SLOW &amp; ERRORS</p><h2 id="incidents-title">需要关注的调用</h2><p>展示较慢或失败的入口请求与异步任务；点击可查看关联 Trace，下游操作在 Trace 详情中展开。表格最多展示前 50 条。</p></div><span class="source-badge">按所选时间范围</span></div>
       <div class="incident-columns">
-        <section class="incident-panel slow-panel" aria-labelledby="slow-title"><div class="incident-heading"><span class="incident-symbol" aria-hidden="true">!</span><h3 id="slow-title">慢调用</h3><b id="slow-total">0</b></div><div class="table-scroll"><table><thead><tr><th>调用</th><th>耗时</th><th>CPU</th><th>分配量</th><th>线程</th><th>完成时间</th></tr></thead><tbody id="slow-rows"></tbody></table></div><p id="slow-empty" class="empty" hidden>当前范围内没有慢调用</p></section>
+        <section class="incident-panel slow-panel" aria-labelledby="slow-title"><div class="incident-heading"><span class="incident-symbol" aria-hidden="true">!</span><h3 id="slow-title">慢调用</h3><b id="slow-total">0</b></div><div class="table-scroll"><table><thead><tr><th>调用</th><th>耗时</th><th>CPU 时间</th><th>分配量</th><th>线程</th><th>完成时间</th></tr></thead><tbody id="slow-rows"></tbody></table></div><p id="slow-empty" class="empty" hidden>当前范围内没有慢调用</p></section>
         <section class="incident-panel error-panel" aria-labelledby="error-title"><div class="incident-heading"><span class="incident-symbol" aria-hidden="true">×</span><h3 id="error-title">失败调用</h3><b id="error-total">0</b></div><div class="table-scroll"><table><thead><tr><th>调用</th><th>状态</th><th>错误</th><th>耗时</th><th>线程</th><th>完成时间</th></tr></thead><tbody id="error-rows"></tbody></table></div><p id="error-empty" class="empty" hidden>当前范围内没有失败调用</p></section>
       </div>
     </section>
 
     <section id="traces-section" class="report-section" aria-labelledby="traces-title" hidden>
-      <div class="section-heading"><div><p class="eyebrow">TRACE EXPLORER</p><h2 id="traces-title">最近入口调用</h2><p>成功、慢、错误入口均可查看 Trace 和下游调用。</p></div><span class="source-badge">最多读取最近 100 条</span></div>
+      <div class="section-heading"><div><p class="eyebrow">TRACE EXPLORER</p><h2 id="traces-title">最近入口调用</h2><p>成功、慢、错误入口均可查看 Trace 和下游调用；搜索也会匹配调用树中的 SQL 与依赖名称。</p></div><span id="trace-storage-status" class="source-badge" role="status">最近读取 100 条</span></div>
+      <div class="trace-toolbar"><label><span>来源</span><select id="trace-source"><option value="">全部</option><option value="HTTP">HTTP</option><option value="JOB">定时任务</option><option value="KAFKA_CONSUMER">Kafka 消费</option></select></label><label class="trace-search"><span>搜索入口、Trace ID、SQL 或依赖</span><input id="trace-search" type="search" maxlength="200" placeholder="例如 /api/orders 或 select …"></label><button id="trace-search-clear" type="button">清除</button></div>
       <div class="table-scroll"><table><thead><tr><th>结果</th><th>入口</th><th>状态</th><th>耗时</th><th>Trace ID</th><th>完成时间</th></tr></thead><tbody id="trace-rows"></tbody></table></div><p id="trace-empty" class="empty" hidden>尚无已完成 Trace</p>
       <div class="table-footer"><span id="trace-page"></span><button id="trace-prev" type="button">上一页</button><button id="trace-next" type="button">下一页</button></div>
     </section>
@@ -69,6 +70,6 @@
 
   <dialog id="trace-dialog" aria-labelledby="dialog-title"><div class="dialog-head"><div><p class="eyebrow">TRACE DETAIL</p><h2 id="dialog-title">请求详情</h2></div><button id="close-dialog" class="dialog-close" aria-label="关闭">×</button></div><div id="trace-facts" class="trace-facts"></div><h3>调用树</h3><pre id="trace-tree"></pre></dialog>
   <script defer src="/easy-observability/assets/vendor/echarts.min.js?v=6.1.0"></script>
-  <script type="module" src="/easy-observability/assets/dashboard.js?v=20261022.4"></script>
+  <script type="module" src="/easy-observability/assets/dashboard.js?v=20261022.11"></script>
 </body>
 </html>

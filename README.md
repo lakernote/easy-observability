@@ -66,6 +66,8 @@ Boot 3 示例页面在 `http://localhost:8083/`；Boot 4 示例用 `easy-observa
 
 HTTP、Spring 定时任务和 Kafka Consumer 的耗时趋势读取 Spring/Micrometer 注册的原生 Timer。RRD4J StepMeterRegistry 与 Actuator registry 一起接收这些 meters，每分钟发布窗口内的 count 和耗时，并按 URI、任务或监听器标签保留趋势。Kafka 客户端指标通过 Spring Kafka 提供的 `MicrometerConsumerListener` 注册后也会进入独立的 Kafka 指标分组。Actuator 提供当前 Meter 查询与导出能力，本地趋势由 RRD4J 保存。
 
+HTTP 出站、Redis、Kafka producer、缓存与 Elasticsearch 的低基数 Micrometer meters 也会进入 RRD4J 历史；前提是对应客户端集成已注册这些 meters。SQL 查询耗时目前显示在单次 Trace 调用树中，历史 SQL 指标主要是 Hikari/JDBC 连接池状态，不提供 JavaMelody 那种按 SQL 归并的长期命中数、平均/最大耗时和错误统计。
+
 JDBC 代理默认观测连接、SQL 执行和 generated keys，不记录 SQL 参数。SQL 字面量和注释会被清理后用于诊断。需要逐次 ResultSet 读取数据时，显式设置：
 
 ```yaml
@@ -127,6 +129,8 @@ easy:
 按需诊断时可开启 `easy.observability.trace.resource-sampling-enabled`，采集操作线程的 CPU 时间和分配字节。分配量表示这次调用在线程上累计分配的内存，不是调用结束后仍存活的堆内存，也不代表峰值堆占用；它适合发现高分配调用，OOM 还需结合堆转储、GC 和堆使用趋势分析。数据受 JVM 支持情况影响，异步跨线程结束时线程级差值可能为空。
 
 Metrics 历史按 60 秒 step 发布，默认保留 15 天、总容量 64 MiB、单 series 文件最多 8 MiB；序列数量随可用存储容量决定。HTTP、定时任务和 Kafka Consumer 的原生 Timer 提供 RED 窗口数据；升级后首次收到 step 数据时，对应的旧累计 Counter/Timer 历史会重建为新口径，Gauge 历史保留。逐 operation 的 CPU 和分配量保留在 Trace 中。慢错事件和 Trace 文件各自最多 8 MiB，进程内慢错历史默认最多 1,000 条；单棵 Trace 最多 512 个节点。关闭历史趋势可设置 `easy.observability.metrics.history.enabled=false`，关闭整个 Starter 可设置 `easy.observability.enabled=false`。
+
+本地文件按用途分开：示例的 `data/easy-observability-example-spring-boot-3/metrics/` 下，`series-<hash>.rrd` 是紧凑的 RRD4J 时序数据，配对的 `series-<hash>.meta.json` 保存可读的指标名和 tags；`traces.jsonl` 只追加慢/错误入口 Trace，包含调用树和错误摘要。Metrics 主存储不是 JSONL：RRD4J 更适合固定分辨率、可控保留期的持续时序；JSONL 更适合逐条事件和离线排查。JavaMelody 也将图表保存在 RRD 文件中，另把请求统计保存在压缩统计文件；它没有用 JSONL 作为图表时序主存储。[JavaMelody 存储说明](https://github.com/javamelody/javamelody/wiki/UserGuideAdvanced#clearing-all-statistics-and-all-graphs)
 
 ## 页面与安全
 

@@ -36,6 +36,7 @@ class RecentTraceStoreTest {
         assertThat(history.find("trace-2")).satisfies(trace -> {
             assertThat(trace.tree()).isEqualTo("second tree");
             assertThat(trace.threadId()).isEqualTo(12);
+            assertThat(trace.threadName()).isEmpty();
             assertThat(trace.cpuTimeMs()).isEqualTo(8);
             assertThat(trace.allocatedBytes()).isEqualTo(4096);
             assertThat(trace.errorType()).isEqualTo("HTTP_500");

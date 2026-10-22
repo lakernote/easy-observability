@@ -38,6 +38,7 @@ class HistoryPersistenceTest {
             assertThat(saved.allocatedBytes()).isEqualTo(2048);
             assertThat(saved.cpuTimeMs()).isEqualTo(51);
             assertThat(saved.threadId()).isEqualTo(77);
+            assertThat(saved.threadName()).isEmpty();
             assertThat(saved.errorType()).isEqualTo("HTTP_5XX");
             assertThat(saved.errorMessage()).isEqualTo("500");
         });
