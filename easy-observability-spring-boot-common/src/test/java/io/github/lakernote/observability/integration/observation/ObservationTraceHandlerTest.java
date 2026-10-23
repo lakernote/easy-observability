@@ -129,7 +129,7 @@ class ObservationTraceHandlerTest {
     }
 
     @Test
-    void recordsHttpObservationAsTraceWithoutCustomMetrics() {
+    void doesNotRetainFastSuccessfulHttpObservations() {
         EasyObservabilityProperties properties = new EasyObservabilityProperties();
         RecentTraceStore history = new RecentTraceStore(10);
         ObservationRegistry registry = ObservationRegistry.create();
@@ -140,8 +140,7 @@ class ObservationTraceHandlerTest {
                 .lowCardinalityKeyValue("http.route", "/orders/{id}")
                 .start().stop();
 
-        assertThat(history.recent(10)).singleElement()
-                .satisfies(trace -> assertThat(trace.sourceType()).isEqualTo("HTTP"));
+        assertThat(history.recent(10)).isEmpty();
     }
 
     @Test
@@ -196,8 +195,9 @@ class ObservationTraceHandlerTest {
     }
 
     @Test
-    void asyncStopFinishesItsTraceWithoutEndingAnotherThreadsTrace() {
+    void asyncSlowStopFinishesItsTraceWithoutEndingAnotherThreadsTrace() throws Exception {
         EasyObservabilityProperties properties = new EasyObservabilityProperties();
+        properties.getTrace().setHttpSlowThresholdMs(1);
         RecentTraceStore history = new RecentTraceStore(10);
         ObservationRegistry registry = ObservationRegistry.create();
         registry.observationConfig().observationHandler(new ObservationTraceHandler(history, properties));
@@ -205,6 +205,7 @@ class ObservationTraceHandlerTest {
                 .lowCardinalityKeyValue("http.request.method", "GET")
                 .lowCardinalityKeyValue("http.route", "/async")
                 .start();
+        Thread.sleep(5);
 
         boolean unrelatedTraceWasPreserved = CompletableFuture.supplyAsync(() -> {
             TraceContext.startRoot("GET /unrelated", SpanKind.HTTP);

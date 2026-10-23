@@ -86,8 +86,9 @@ class KafkaTraceAutoConfigurationTest {
     }
 
     @Test
-    void consumerObservationUsesTraceIdFromKafkaRecordHeader() {
+    void slowConsumerObservationUsesTraceIdFromKafkaRecordHeader() throws Exception {
         EasyObservabilityProperties properties = new EasyObservabilityProperties();
+        properties.getTrace().setKafkaConsumerSlowThresholdMs(1);
         RecentTraceStore history = new RecentTraceStore(10);
         new ApplicationContextRunner()
                 .withConfiguration(AutoConfigurations.of(KafkaTraceAutoConfiguration.class))
@@ -104,6 +105,7 @@ class KafkaTraceAutoConfigurationTest {
                     receiver.setName("spring.kafka.listener");
 
                     handler.onStart(receiver);
+                    Thread.sleep(5);
                     handler.onStop(receiver);
 
                     assertThat(history.recent(10)).singleElement()

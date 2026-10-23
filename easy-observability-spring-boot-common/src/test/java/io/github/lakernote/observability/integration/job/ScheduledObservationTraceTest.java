@@ -13,20 +13,24 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class ScheduledObservationTraceTest {
     @Test
-    void recordsSpringScheduledObservationWithoutAStarterWrapper() {
+    void recordsSlowSpringScheduledObservationWithoutAStarterWrapper() {
         ObservationRegistry registry = ObservationRegistry.create();
         EasyObservabilityProperties properties = new EasyObservabilityProperties();
+        properties.getTrace().setJobSlowThresholdMs(1);
         RecentTraceStore history = new RecentTraceStore(10);
         registry.observationConfig().observationHandler(new ObservationTraceHandler(history, properties));
 
         Observation.createNotStarted("tasks.scheduled.execution", registry)
                 .contextualName("nightly-reconciliation")
-                .observe(() -> { });
+                .observe(() -> {
+                    try { Thread.sleep(5); }
+                    catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
+                });
 
         var trace = history.recent(10).get(0);
         assertThat(trace.name()).isEqualTo("nightly-reconciliation");
-        // A root-only successful observation is retained without rendering a tree string.
-        assertThat(trace.tree()).isEmpty();
+        // A slow root-only observation is retained with its diagnostic marker.
+        assertThat(trace.tree()).contains("nightly-reconciliation", "[SLOW]");
     }
 
     @Test

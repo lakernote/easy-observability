@@ -8,15 +8,15 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ObservabilityControllerTest {
     @Test
-    void returnsRecentTraces() {
+    void returnsOnlySlowAndErrorTraces() {
         RecentTraceStore history = new RecentTraceStore(10);
         history.add("trace-1", "OrdersController#create", "POST /orders", 201, 12, false, false, "");
+        history.add("trace-2", "OrdersController#slow", "GET /orders", "HTTP", 200, 900, true, false, "");
         ObservabilityController controller = new ObservabilityController(history, () -> true);
 
         var traces = controller.traces(100);
 
-        assertThat(traces).hasSize(1);
-        assertThat(traces.get(0).traceId()).isEqualTo("trace-1");
+        assertThat(traces).extracting(RecentTraceStore.TraceRecord::traceId).containsExactly("trace-2");
     }
 
     @Test
@@ -78,7 +78,7 @@ class ObservabilityControllerTest {
                 500, 100, false, true, "transaction tree");
         ObservabilityController controller = new ObservabilityController(history, () -> true);
 
-        assertThat(controller.traces(100)).extracting(RecentTraceStore.TraceRecord::traceId).containsExactly("http-1");
+        assertThat(controller.traces(100)).isEmpty();
         assertThat(controller.incidents("slow", "", 100)).isEmpty();
         assertThat(controller.incidents("error", "", 100)).isEmpty();
         assertThat(controller.trace("redis-1")).isNull();
@@ -95,7 +95,7 @@ class ObservabilityControllerTest {
         ObservabilityController controller = new ObservabilityController(history, () -> true);
 
         assertThat(controller.traces(10)).extracting(RecentTraceStore.TraceRecord::sourceType)
-                .containsExactly("KAFKA_CONSUMER", "HTTP");
+                .containsExactly("KAFKA_CONSUMER");
         assertThat(controller.incidents("error", "", 10))
                 .extracting(RecentTraceStore.TraceRecord::sourceType).containsExactly("KAFKA_CONSUMER");
     }
@@ -118,7 +118,7 @@ class ObservabilityControllerTest {
     @Test
     void searchesRecentTraceTreesForSqlAndDependencyDetails() {
         RecentTraceStore history = new RecentTraceStore(10);
-        history.add("sql-trace", "GET /orders", "GET", "HTTP", 200, 20, false, false,
+        history.add("sql-trace", "GET /orders", "GET", "HTTP", 200, 400, true, false,
                 "`- [Database] query tag=\"select * from orders where id = ?\" 7ms");
         history.add("other-trace", "GET /health", "GET", "HTTP", 200, 3, false, false, "health tree");
         ObservabilityController controller = new ObservabilityController(history, () -> true);
@@ -131,7 +131,7 @@ class ObservabilityControllerTest {
     @Test
     void searchesKafkaTraceByListenerThreadName() {
         RecentTraceStore history = new RecentTraceStore(10);
-        history.add("kafka-trace", "receive", "", "KAFKA_CONSUMER", 200, 8, false, false,
+        history.add("kafka-trace", "receive", "", "KAFKA_CONSUMER", 500, 8, false, true,
                 "kafka tree", "demo-listener-0-C-1", 11, 1, 512, "", "");
         ObservabilityController controller = new ObservabilityController(history, () -> true);
 

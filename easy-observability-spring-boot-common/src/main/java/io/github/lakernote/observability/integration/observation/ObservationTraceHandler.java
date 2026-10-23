@@ -252,12 +252,15 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
                                      boolean slow, boolean failed, long cpuTimeMs, long allocatedBytes) {
         boolean traceSlow = slow || completion.slow();
         boolean traceFailed = failed || completion.error();
+        // Keep the bounded in-memory window focused on incidents too; successful, fast
+        // roots otherwise crowd out the traces that are useful for troubleshooting.
+        if (!traceSlow && !traceFailed) return;
         recentTraces.add(state.traceId, displayName, detail, state.observationType.name(),
                 status > 0 ? status : failed ? 500 : 200, durationMs, traceSlow, traceFailed, completion.tree(),
                 state.startThreadName, state.startThreadId, cpuTimeMs, allocatedBytes,
                 completion.errorType(), completion.errorMessage(), completion.stackTrace());
-        if (incidentTraces == null || (!traceSlow && !traceFailed)) return;
-        // 只把慢/错入口 Trace 写入持久存储；正常请求留在有界内存列表中。
+        if (incidentTraces == null) return;
+        // 内存近期列表和持久存储都只保留慢/错入口 Trace。
         try {
             incidentTraces.record(recentTraces.find(state.traceId, state.observationType.name()));
         } catch (RuntimeException failure) {

@@ -5,7 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
   <title>Easy Observability · Trace</title>
-  <link rel="stylesheet" href="/easy-observability/assets/dashboard.css?v=20261022.13">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/easy-observability/assets/dashboard.css?v=20261022.17">
 </head>
 <body>
   <a class="skip-link" href="#main-content">跳到主要内容</a>
@@ -24,21 +25,23 @@
     <section class="intro">
       <p class="eyebrow">TRACE EXPLORER</p>
       <h1>从慢调用和错误开始排查</h1>
-      <p>每条入口 Trace 展示端到端耗时和依赖调用树。失败节点会标出异常类型，详情保留异常消息与堆栈。</p>
+      <p>这里只保留慢调用和错误 Trace，帮助你快速定位耗时步骤与异常堆栈。正常请求不会进入列表。</p>
     </section>
     <div id="notice" class="notice" role="status" hidden></div>
     <section class="filters" aria-label="Trace 筛选">
-      <label><span>结果</span><select id="result-filter"><option value="all">全部</option><option value="slow">慢调用</option><option value="error">错误</option></select></label>
+      <label><span>结果</span><select id="result-filter"><option value="all">全部慢/错</option><option value="slow">慢调用</option><option value="error">错误</option></select></label>
       <label><span>入口</span><select id="source-filter"><option value="">全部来源</option><option value="HTTP">HTTP</option><option value="JOB">定时任务</option><option value="KAFKA_CONSUMER">Kafka 消费</option></select></label>
       <label class="search"><span>搜索入口、Trace ID、SQL、依赖或错误</span><input id="search" type="search" maxlength="200" placeholder="例如 /api/orders 或 SQLException"></label>
       <span id="result-count" class="count" role="status"></span>
     </section>
-    <section class="trace-list" aria-label="Trace 列表">
+    <section class="trace-list" aria-label="慢调用和错误 Trace 列表">
+      <p class="scroll-hint">表格可横向滚动查看全部字段</p>
       <div class="table-scroll"><table>
-        <thead><tr><th>结果</th><th>入口</th><th>状态</th><th>总耗时</th><th>Trace ID</th><th>完成时间</th></tr></thead>
+        <caption class="sr-only">慢调用和错误 Trace；分配内存为请求线程累计分配量，不代表当前堆占用</caption>
+        <thead><tr><th scope="col">结果</th><th scope="col">入口</th><th scope="col">状态</th><th scope="col">总耗时</th><th scope="col" title="请求线程在 Trace 执行期间累计分配的对象内存；不是当前堆占用">分配内存</th><th scope="col">Trace ID</th><th scope="col">完成时间</th></tr></thead>
         <tbody id="trace-rows"></tbody>
       </table></div>
-      <p id="empty" class="empty" hidden>没有符合条件的 Trace</p>
+      <p id="empty" class="empty" hidden>暂无慢调用或错误 Trace；正常请求不会显示在此列表中</p>
       <div class="table-footer"><span id="page-label"></span><button id="previous" type="button">上一页</button><button id="next" type="button">下一页</button></div>
     </section>
     <footer>Trace 历史来自当前应用实例。Spring Boot Actuator 指标仍由应用自身配置管理。</footer>
@@ -58,6 +61,6 @@
     <p>将删除当前实例内存中的近期记录和慢错归档文件。</p>
     <div class="dialog-actions"><button id="cancel-clear" type="button">取消</button><button id="confirm-clear" class="danger" type="button">清空</button></div>
   </dialog>
-  <script type="module" src="/easy-observability/assets/dashboard.js?v=20261022.13"></script>
+  <script type="module" src="/easy-observability/assets/dashboard.js?v=20261022.17"></script>
 </body>
 </html>

@@ -60,11 +60,11 @@ Spring Boot Actuator 可以按应用配置提供 JVM、进程、连接池等原�
 
 ## 慢调用与错误定位
 
-Trace 列表支持按入口、慢/错误状态和文本搜索，可匹配 Trace ID、SQL、依赖名称与错误摘要。详情包含入口总耗时、各调用节点耗时、HTTP 状态、线程信息及调用树；启用资源采样时还会显示线程 CPU 时间和线程分配量。单个依赖错误会标记在对应 Span 上，便于直接判断慢或错发生在哪个下游操作。
+Trace 列表只保留慢调用和错误入口，不会显示正常请求。列表支持按入口、慢/错误状态和文本搜索，可匹配 Trace ID、SQL、依赖名称与错误摘要。详情包含入口总耗时、各调用节点耗时、HTTP 状态、线程信息及调用树；启用资源采样时还会显示线程 CPU 时间和线程分配量。列表中的分配内存也是请求线程累计分配量，不代表当前堆占用。单个依赖错误会标记在对应 Span 上，便于直接判断慢或错发生在哪个下游操作。
 
 捕获到异常时，详情和慢错归档会保存异常类型、消息及有界堆栈；HTTP 5xx 等只有状态码的错误会标记为错误，但没有异常对象时不会生成虚构堆栈。SQL 会在进入 Trace 前清理字面量和注释。调用树和异常堆栈均有大小限制，避免单条异常无限扩张存储。
 
-慢错 Trace 会写入本地 JSONL 文件，最近 Trace 保留在有界内存中。默认文件为 `./data/easy-observability/traces.jsonl`；多实例之间不会自动汇总。Trace ID 默认通过 `X-Trace-Id` 请求头传递。页面路径为 `/easy-observability/`，只读 API 路径为 `/api/easy-observability`。
+慢错 Trace 会同时保留在有界内存近期列表和本地 JSONL 文件中；正常 Trace 不会占用这两处历史记录。默认文件为 `./data/easy-observability/traces.jsonl`；多实例之间不会自动汇总。Trace ID 默认通过 `X-Trace-Id` 请求头传递。页面路径为 `/easy-observability/`，只读 API 路径为 `/api/easy-observability`。
 
 ## 配置
 
@@ -95,7 +95,7 @@ easy:
 | `easy.observability.trace.dependency-slow-threshold-ms` | `250` | 依赖调用慢阈值 |
 | `easy.observability.trace.database-observation-enabled` | `true` | 是否在 Trace 中记录 JDBC SQL Span |
 | `easy.observability.trace.resource-sampling-enabled` | `false` | 是否在入口 Trace 附带线程 CPU 和分配量；逐操作读取 JVM 管理接口 |
-| `easy.observability.trace.slow-error-history-limit` | `1000` | 内存近期 Trace 与慢错归档条数上限 |
+| `easy.observability.trace.slow-error-history-limit` | `1000` | 内存近期慢错 Trace 与慢错归档条数上限 |
 | `easy.observability.trace.slow-error-max-bytes` | `8MB` | Trace JSONL 文件容量上限 |
 | `easy.observability.web.allow-anonymous` | `false` | 是否允许匿名读取 Trace 页面/API；生产环境保持关闭 |
 

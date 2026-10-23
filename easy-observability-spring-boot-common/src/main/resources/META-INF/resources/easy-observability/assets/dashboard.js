@@ -44,7 +44,7 @@ function initializeEmbeddedAuth() {
 
 function time(value) {
   const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? escText(value) : date.toLocaleString()
+  return Number.isNaN(date.getTime()) ? escText(value) : date.toLocaleString('zh-CN')
 }
 
 function node(tag, className, text) {
@@ -59,7 +59,8 @@ function filtered() {
   const result = $('result-filter').value
   const source = $('source-filter').value
   return traces.filter(trace => {
-    if (result === 'slow' && !trace.slow) return false
+    if (!trace.slow && !trace.error) return false
+    if (result === 'slow' && (!trace.slow || trace.error)) return false
     if (result === 'error' && !trace.error) return false
     if (source && trace.sourceType !== source) return false
     if (!query) return true
@@ -77,31 +78,40 @@ function render() {
   tbody.replaceChildren()
   for (const trace of visible) {
     const tr = document.createElement('tr')
-    const status = trace.error ? ['error', '错误'] : trace.slow ? ['slow', '慢'] : ['ok', '正常']
+    const status = trace.error ? ['error', '错误'] : ['slow', '慢调用']
     const badge = node('span', `badge ${status[0]}`, status[1])
     const resultCell = node('td'); resultCell.append(badge); tr.append(resultCell)
     tr.append(node('td', 'entry', `${sourceNames[trace.sourceType] || 'Trace'} · ${trace.name || trace.method || '入口'}`))
     tr.append(node('td', '', trace.status ? String(trace.status) : '—'))
     tr.append(node('td', 'duration', `${Number(trace.durationMs || 0).toLocaleString()} ms`))
+    const allocation = node('td', 'allocated', formatAllocatedBytes(trace.allocatedBytes))
+    allocation.title = '当前请求线程在 Trace 执行期间累计分配的对象内存；不是当前堆占用'
+    tr.append(allocation)
     tr.append(node('td', 'trace-id', trace.traceId))
     tr.append(node('td', 'time', time(trace.finishedAt)))
     tr.tabIndex = 0
     tr.setAttribute('role', 'button')
-    tr.setAttribute('aria-label', `查看 ${trace.name || trace.traceId} 的 Trace 详情`)
+    tr.setAttribute('aria-label', `查看 ${trace.name || trace.traceId} 的${trace.error ? '错误' : '慢调用'} Trace 详情`)
     tr.addEventListener('click', () => openTrace(trace))
     tr.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openTrace(trace) } })
     tbody.append(tr)
   }
   $('empty').hidden = rows.length > 0
-  $('result-count').textContent = `${rows.length} 条 Trace`
+  $('result-count').textContent = `${rows.length} 条慢/错 Trace`
+  const noFilters = $('result-filter').value === 'all' && !$('source-filter').value && !$('search').value.trim()
+  $('empty').textContent = noFilters
+    ? '暂无慢调用或错误 Trace；正常请求不会显示在此列表中'
+    : '没有符合当前筛选条件的 Trace'
   $('page-label').textContent = rows.length ? `第 ${page + 1} / ${lastPage + 1} 页` : ''
   $('previous').disabled = page <= 0
   $('next').disabled = page >= lastPage
 }
 
-function addFact(container, label, value, className = '') {
+function addFact(container, label, value, className = '', title = '') {
   const item = node('div', `fact ${className}`)
-  item.append(node('small', '', label), node('span', '', escText(value)))
+  const content = node('span', '', escText(value))
+  if (title) content.title = title
+  item.append(node('small', '', label), content)
   container.append(item)
 }
 
@@ -132,7 +142,7 @@ async function openTrace(summary) {
     if (!detail) throw new Error('这条 Trace 已不在保留范围内')
     $('facts').replaceChildren()
     addFact($('facts'), '结果', detail.error ? '错误' : detail.slow ? '慢调用' : '正常', detail.error ? 'bad' : detail.slow ? 'warn' : '')
-    addFact($('facts'), 'HTTP 状态', detail.status || '—')
+    addFact($('facts'), '状态', detail.status || '—')
     addFact($('facts'), '总耗时', `${Number(detail.durationMs || 0).toLocaleString()} ms`)
     addFact($('facts'), '入口', `${sourceNames[detail.sourceType] || 'Trace'} · ${detail.name || detail.method || '入口'}`)
     addFact($('facts'), 'Trace ID', detail.traceId, 'wide')
@@ -140,7 +150,8 @@ async function openTrace(summary) {
     const cpuTimeMs = detail.cpuTimeMs == null ? NaN : Number(detail.cpuTimeMs)
     addFact($('facts'), '线程 CPU 时间', Number.isFinite(cpuTimeMs) && cpuTimeMs >= 0
       ? `${cpuTimeMs.toLocaleString()} ms` : '未采集')
-    addFact($('facts'), '线程分配量', formatAllocatedBytes(detail.allocatedBytes))
+    addFact($('facts'), '线程分配量', formatAllocatedBytes(detail.allocatedBytes), '',
+      '请求线程在 Trace 执行期间累计分配的对象内存；不是当前堆占用')
     $('tree').textContent = detail.tree || '没有可展示的子调用'
     if (detail.error || detail.errorType || detail.errorStackTrace) {
       $('error-section').hidden = false

@@ -103,10 +103,16 @@ public class ObservabilityController {
     private List<RecentTraceStore.TraceRecord> allTraces(int limit) {
         Map<TraceIdentity, RecentTraceStore.TraceRecord> merged = new LinkedHashMap<>();
         if (incidentTraces != null) incidentTraces.recent(limit)
+                .stream().filter(ObservabilityController::isIncident)
                 .forEach(trace -> merged.put(traceIdentity(trace), trace));
-        recentTraces.recent(limit).forEach(trace -> merged.putIfAbsent(traceIdentity(trace), trace));
+        recentTraces.recent(limit).stream().filter(ObservabilityController::isIncident)
+                .forEach(trace -> merged.putIfAbsent(traceIdentity(trace), trace));
         return merged.values().stream().sorted(Comparator.comparing(RecentTraceStore.TraceRecord::finishedAt).reversed())
                 .limit(Math.max(1, Math.min(limit, 500))).toList();
+    }
+
+    private static boolean isIncident(RecentTraceStore.TraceRecord trace) {
+        return trace.slow() || trace.error();
     }
 
     private static TraceIdentity traceIdentity(RecentTraceStore.TraceRecord trace) {

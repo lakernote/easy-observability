@@ -77,7 +77,8 @@ public class DemoKafkaService {
         }
     }
 
-    @KafkaListener(id = "demo-primary-listener", topics = TOPIC, groupId = "easy-observability-demo")
+    @KafkaListener(id = "demo-primary-listener", topics = TOPIC,
+            groupId = "${spring.kafka.consumer.group-id:easy-observability-demo}")
     public void consume(ConsumerRecord<String, String> record) {
         // TraceIdRecordInterceptor 从消息头恢复 ID；这里读取的是消费者当前 Trace 上下文。
             String payload = record.value();
