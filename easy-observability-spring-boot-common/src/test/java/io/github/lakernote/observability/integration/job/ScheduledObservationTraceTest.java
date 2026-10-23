@@ -16,7 +16,7 @@ class ScheduledObservationTraceTest {
         EasyObservabilityProperties properties = new EasyObservabilityProperties();
         properties.getTrace().setJobSlowThresholdMs(1);
         RecentTraceStore history = new RecentTraceStore(10);
-        registry.observationConfig().observationHandler(new ObservationTraceHandler(history, properties));
+        registry.observationConfig().observationHandler(new ObservationTraceHandler(history, null, properties, java.util.List.of()));
 
         Observation.createNotStarted("tasks.scheduled.execution", registry)
                 .contextualName("nightly-reconciliation")

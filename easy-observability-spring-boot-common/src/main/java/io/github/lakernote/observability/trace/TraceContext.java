@@ -235,7 +235,7 @@ public final class TraceContext {
         void close();
     }
 
-    public static final class ScopedSpan implements SpanHandle, Runnable {
+    public static final class ScopedSpan implements SpanHandle {
         private static final ScopedSpan NOOP = new ScopedSpan(null, -1, null, null, null);
         private final TraceTree trace;
         private final long threadId;
@@ -284,14 +284,9 @@ public final class TraceContext {
             }
         }
 
-        /** Compatibility for callers that previously used Runnable as a span handle. */
-        @Override
-        public void run() {
-            close();
-        }
     }
 
-    public static final class DetachedSpan implements SpanHandle, Runnable {
+    public static final class DetachedSpan implements SpanHandle {
         private static final DetachedSpan NOOP = new DetachedSpan(null, null);
         private final TraceTree trace;
         private final Span span;
@@ -331,11 +326,6 @@ public final class TraceContext {
             if (span != null && stopped.compareAndSet(false, true)) trace.stopSpan(span);
         }
 
-        /** Compatibility for callers that previously used Runnable as a span handle. */
-        @Override
-        public void run() {
-            close();
-        }
     }
 
     public static void stopRoot(long slowThresholdMs, String description) {
@@ -343,13 +333,7 @@ public final class TraceContext {
     }
 
     public static void stopRoot(long slowThresholdMs, String description, Throwable throwable) {
-        stopRoot(slowThresholdMs, description, throwable, (tree, cost) -> { });
-    }
-
-    public static void stopRoot(long slowThresholdMs, String description, Throwable throwable,
-                                java.util.function.BiConsumer<String, Long> completion) {
-        stopRoot(slowThresholdMs, description, throwable,
-                result -> completion.accept(result.tree(), result.costMs()));
+        stopRoot(slowThresholdMs, description, throwable, completion -> { });
     }
 
     public static void stopRoot(long slowThresholdMs, String description, Throwable throwable,

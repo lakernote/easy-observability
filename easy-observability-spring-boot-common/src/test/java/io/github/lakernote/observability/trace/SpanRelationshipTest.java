@@ -36,9 +36,9 @@ class SpanRelationshipTest {
         assertThat(transaction.parentSpanId()).isEqualTo(rootId);
         assertThat(query.parentSpanId()).isEqualTo(transaction.spanId());
 
-        query.run();
+        query.close();
         assertThat(TraceContext.currentSpanId()).isEqualTo(transaction.spanId());
-        transaction.run();
+        transaction.close();
         assertThat(TraceContext.currentSpanId()).isEqualTo(rootId);
 
         TraceContext.markSlow("test");

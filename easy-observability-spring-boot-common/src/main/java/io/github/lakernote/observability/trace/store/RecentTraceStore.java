@@ -1,7 +1,5 @@
 package io.github.lakernote.observability.trace.store;
 
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -18,36 +16,6 @@ public class RecentTraceStore {
 
     public RecentTraceStore(int capacity) {
         this.capacity = Math.max(1, capacity);
-    }
-
-    public void add(String traceId, String name, String method, int status, long durationMs,
-                    boolean slow, boolean error, String tree) {
-        add(traceId, name, method, "", status, durationMs, slow, error, tree);
-    }
-
-    public void add(String traceId, String name, String method, String sourceType, int status, long durationMs,
-                    boolean slow, boolean error, String tree) {
-        add(traceId, name, method, sourceType, status, durationMs, slow, error, tree, -1, -1, -1);
-    }
-
-    public void add(String traceId, String name, String method, String sourceType, int status, long durationMs,
-                    boolean slow, boolean error, String tree, long threadId, long cpuTimeMs, long allocatedBytes) {
-        add(traceId, name, method, sourceType, status, durationMs, slow, error, tree, threadId, cpuTimeMs,
-                allocatedBytes, "", "");
-    }
-
-    public void add(String traceId, String name, String method, String sourceType, int status, long durationMs,
-                    boolean slow, boolean error, String tree, long threadId, long cpuTimeMs, long allocatedBytes,
-                    String errorType, String errorMessage) {
-        add(traceId, name, method, sourceType, status, durationMs, slow, error, tree, "", threadId, cpuTimeMs,
-                allocatedBytes, errorType, errorMessage);
-    }
-
-    public synchronized void add(String traceId, String name, String method, String sourceType, int status, long durationMs,
-                    boolean slow, boolean error, String tree, String threadName, long threadId, long cpuTimeMs,
-                    long allocatedBytes, String errorType, String errorMessage) {
-        add(traceId, name, method, sourceType, status, durationMs, slow, error, tree, threadName, threadId,
-                cpuTimeMs, allocatedBytes, errorType, errorMessage, "");
     }
 
     public synchronized void add(String traceId, String name, String method, String sourceType, int status,
@@ -91,10 +59,6 @@ public class RecentTraceStore {
         return capacity;
     }
 
-    public TraceRecord find(String traceId) {
-        return find(traceId, "");
-    }
-
     public TraceRecord find(String traceId, String sourceType) {
         if (traceId == null || traceId.isBlank()) return null;
         var candidates = records.stream().filter(item -> traceId.equals(item.traceId())
@@ -109,12 +73,11 @@ public class RecentTraceStore {
 
     /** Trace history contains entry points; dependencies remain in the entry's single tree. */
     public static boolean isEntrySource(String sourceType) {
-        if (sourceType == null || sourceType.isBlank()) return true; // legacy caller without a source tag
+        if (sourceType == null || sourceType.isBlank()) return false;
         return "HTTP".equals(sourceType) || "KAFKA_CONSUMER".equals(sourceType) || "JOB".equals(sourceType);
     }
 
     /** One completed request or manually recorded trace. */
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record TraceRecord(long id, String traceId, String name, String method, int status,
                               long durationMs, boolean slow, boolean error, String tree, Instant finishedAt,
                               long threadId, long cpuTimeMs, long allocatedBytes, String sourceType,
@@ -127,40 +90,5 @@ public class RecentTraceStore {
             errorStackTrace = errorStackTrace == null ? "" : errorStackTrace;
         }
 
-        public TraceRecord(long id, String traceId, String name, String method, int status,
-                           long durationMs, boolean slow, boolean error, String tree, Instant finishedAt,
-                           long threadId, long cpuTimeMs, long allocatedBytes, String sourceType,
-                           String errorType, String errorMessage, String threadName) {
-            this(id, traceId, name, method, status, durationMs, slow, error, tree, finishedAt, threadId,
-                    cpuTimeMs, allocatedBytes, sourceType, errorType, errorMessage, threadName, "");
-        }
-
-        public TraceRecord(long id, String traceId, String name, String method, int status,
-                           long durationMs, boolean slow, boolean error, String tree, Instant finishedAt,
-                           long threadId, long cpuTimeMs, long allocatedBytes, String sourceType,
-                           String errorType, String errorMessage) {
-            this(id, traceId, name, method, status, durationMs, slow, error, tree, finishedAt,
-                    threadId, cpuTimeMs, allocatedBytes, sourceType, errorType, errorMessage, "", "");
-        }
-
-        public TraceRecord(long id, String traceId, String name, String method, int status,
-                           long durationMs, boolean slow, boolean error, String tree, Instant finishedAt) {
-            this(id, traceId, name, method, status, durationMs, slow, error, tree, finishedAt,
-                    -1, -1, -1, "", "", "", "", "");
-        }
-
-        public TraceRecord(long id, String traceId, String name, String method, int status,
-                           long durationMs, boolean slow, boolean error, String tree, Instant finishedAt,
-                           long threadId, long cpuTimeMs, long allocatedBytes) {
-            this(id, traceId, name, method, status, durationMs, slow, error, tree, finishedAt,
-                    threadId, cpuTimeMs, allocatedBytes, "", "", "", "", "");
-        }
-
-        public TraceRecord(long id, String traceId, String name, String method, int status,
-                           long durationMs, boolean slow, boolean error, String tree, Instant finishedAt,
-                           long threadId, long cpuTimeMs, long allocatedBytes, String sourceType) {
-            this(id, traceId, name, method, status, durationMs, slow, error, tree, finishedAt,
-                    threadId, cpuTimeMs, allocatedBytes, sourceType, "", "", "", "");
-        }
     }
 }

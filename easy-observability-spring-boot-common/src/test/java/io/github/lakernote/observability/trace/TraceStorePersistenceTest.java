@@ -12,7 +12,7 @@ import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-class HistoryPersistenceTest {
+class TraceStorePersistenceTest {
     @TempDir Path directory;
 
     @Test
@@ -22,7 +22,7 @@ class HistoryPersistenceTest {
         BoundedHistoryWriter writer = new BoundedHistoryWriter();
         RecentTraceStore.TraceRecord trace = new RecentTraceStore.TraceRecord(1, "trace-123", "GET /orders/{id}",
                 "GET /orders/{id}", 500, 845, true, true, "HTTP GET\n  SQL select",
-                Instant.parse("2026-10-15T10:00:00Z"), 77, 51, 2048, "HTTP", "HTTP_5XX", "500");
+                Instant.parse("2026-10-15T10:00:00Z"), 77, 51, 2048, "HTTP", "HTTP_5XX", "500", "", "");
         SlowErrorTraceStore slowErrorStore = new SlowErrorTraceStore(mapper, tracesFile.toString(), 1000,
                 4 * 1024 * 1024, writer);
         slowErrorStore.restoreHistory();
@@ -69,6 +69,6 @@ class HistoryPersistenceTest {
 
     private static RecentTraceStore.TraceRecord trace(String traceId, String source, Instant finishedAt) {
         return new RecentTraceStore.TraceRecord(1, traceId, source, "", 500, 5,
-                false, true, source + " tree", finishedAt, -1, -1, -1, source);
+                false, true, source + " tree", finishedAt, -1, -1, -1, source, "", "", "", "");
     }
 }

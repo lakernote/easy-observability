@@ -32,12 +32,12 @@ class TransactionTraceListenerTest {
         var connection = io.github.lakernote.observability.trace.TraceContext.startScopedSpan(
                 "getConnection", io.github.lakernote.observability.trace.SpanKind.DATABASE, "");
         assertThat(connection.parentSpanId()).isEqualTo(transactionSpanId);
-        connection.run();
+        connection.close();
         listener.afterBegin(execution, null);
         var query = io.github.lakernote.observability.trace.TraceContext.startScopedSpan(
                 "OrderMapper#insert", io.github.lakernote.observability.trace.SpanKind.DATABASE, "INSERT");
         assertThat(query.parentSpanId()).isEqualTo(transactionSpanId);
-        query.run();
+        query.close();
         clock.addAndGet(20_000_000L);
         listener.afterCommit(execution, null);
         java.util.concurrent.atomic.AtomicReference<io.github.lakernote.observability.trace.TraceContext.Completion> completion =

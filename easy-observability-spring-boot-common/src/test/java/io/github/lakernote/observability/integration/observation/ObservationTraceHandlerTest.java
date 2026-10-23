@@ -27,7 +27,7 @@ class ObservationTraceHandlerTest {
         properties.getTrace().setRedisSlowThresholdMs(1);
         RecentTraceStore history = new RecentTraceStore(10);
         ObservationRegistry registry = ObservationRegistry.create();
-        registry.observationConfig().observationHandler(new ObservationTraceHandler(history, properties));
+        registry.observationConfig().observationHandler(new ObservationTraceHandler(history, null, properties, java.util.List.of()));
         TraceIdContext.putTraceId("trace-redis-1");
         TraceContext.startRoot("GET /cache", SpanKind.HTTP);
 
@@ -41,8 +41,7 @@ class ObservationTraceHandlerTest {
         TraceContext.Completion[] completion = new TraceContext.Completion[1];
         TraceContext.stopRoot(Long.MAX_VALUE, "test", null, result -> completion[0] = result);
         assertThat(completion[0].tree()).contains("[Redis] GET");
-        history.add("trace-redis-1", "GET /cache", "GET", "HTTP", 200, 20,
-                false, false, completion[0].tree());
+        history.add("trace-redis-1", "GET /cache", "GET", "HTTP", 200, 20, false, false, completion[0].tree(), "", -1, -1, -1, "", "", "");
         assertThat(history.find("trace-redis-1", "HTTP").tree()).contains("[Redis] GET");
     }
 
@@ -52,7 +51,7 @@ class ObservationTraceHandlerTest {
         properties.getTrace().setRedisSlowThresholdMs(0);
         RecentTraceStore history = new RecentTraceStore(10);
         ObservationRegistry registry = ObservationRegistry.create();
-        registry.observationConfig().observationHandler(new ObservationTraceHandler(history, properties));
+        registry.observationConfig().observationHandler(new ObservationTraceHandler(history, null, properties, java.util.List.of()));
         Observation observation = Observation.createNotStarted("spring.data.redis", registry)
                 .contextualName("GET")
                 .lowCardinalityKeyValue("db.operation", "GET");
@@ -60,8 +59,7 @@ class ObservationTraceHandlerTest {
         observation.start().stop();
 
         assertThat(history.recent(10)).isEmpty();
-        history.add("orphan-trace", "GET /cache", "GET", "HTTP", 200, 10,
-                false, false, "tree");
+        history.add("orphan-trace", "GET /cache", "GET", "HTTP", 200, 10, false, false, "tree", "", -1, -1, -1, "", "", "");
 
         assertThat(history.find("orphan-trace", "HTTP").tree()).isEqualTo("tree");
     }
@@ -71,7 +69,7 @@ class ObservationTraceHandlerTest {
         EasyObservabilityProperties properties = new EasyObservabilityProperties();
         RecentTraceStore history = new RecentTraceStore(10);
         ObservationRegistry registry = ObservationRegistry.create();
-        registry.observationConfig().observationHandler(new ObservationTraceHandler(history, properties));
+        registry.observationConfig().observationHandler(new ObservationTraceHandler(history, null, properties, java.util.List.of()));
 
         Observation.createNotStarted("http.server.requests", registry)
                 .lowCardinalityKeyValue("http.request.method", "GET")
@@ -96,7 +94,7 @@ class ObservationTraceHandlerTest {
         properties.getTrace().setHttpServerObservationEnabled(false);
         RecentTraceStore history = new RecentTraceStore(10);
         ObservationRegistry registry = ObservationRegistry.create();
-        registry.observationConfig().observationHandler(new ObservationTraceHandler(history, properties));
+        registry.observationConfig().observationHandler(new ObservationTraceHandler(history, null, properties, java.util.List.of()));
 
         Observation.createNotStarted("http.server.requests", registry)
                 .lowCardinalityKeyValue("http.request.method", "GET")
@@ -113,7 +111,7 @@ class ObservationTraceHandlerTest {
         properties.getTrace().setRedisObservationEnabled(false);
         properties.getTrace().setDatabaseObservationEnabled(false);
         ObservationTraceHandler handler = new ObservationTraceHandler(
-                new RecentTraceStore(10), properties);
+                new RecentTraceStore(10), null, properties, java.util.List.of());
 
         Observation.Context redis = new Observation.Context();
         redis.setName("spring.data.redis");
@@ -133,7 +131,7 @@ class ObservationTraceHandlerTest {
         EasyObservabilityProperties properties = new EasyObservabilityProperties();
         RecentTraceStore history = new RecentTraceStore(10);
         ObservationRegistry registry = ObservationRegistry.create();
-        registry.observationConfig().observationHandler(new ObservationTraceHandler(history, properties));
+        registry.observationConfig().observationHandler(new ObservationTraceHandler(history, null, properties, java.util.List.of()));
 
         Observation.createNotStarted("http.server.requests", registry)
                 .lowCardinalityKeyValue("http.request.method", "GET")
@@ -148,7 +146,7 @@ class ObservationTraceHandlerTest {
         EasyObservabilityProperties properties = new EasyObservabilityProperties();
         RecentTraceStore history = new RecentTraceStore(10);
         ObservationRegistry registry = ObservationRegistry.create();
-        registry.observationConfig().observationHandler(new ObservationTraceHandler(history, properties));
+        registry.observationConfig().observationHandler(new ObservationTraceHandler(history, null, properties, java.util.List.of()));
 
         Observation.createNotStarted("http.server.requests", registry)
                 .lowCardinalityKeyValue("http.request.method", "GET")
@@ -163,7 +161,7 @@ class ObservationTraceHandlerTest {
         EasyObservabilityProperties properties = new EasyObservabilityProperties();
         RecentTraceStore history = new RecentTraceStore(10);
         ObservationRegistry registry = ObservationRegistry.create();
-        registry.observationConfig().observationHandler(new ObservationTraceHandler(history, properties));
+        registry.observationConfig().observationHandler(new ObservationTraceHandler(history, null, properties, java.util.List.of()));
 
         Observation observation = Observation.createNotStarted("http.server.requests", registry)
                 .lowCardinalityKeyValue("http.request.method", "GET").start();
@@ -179,7 +177,7 @@ class ObservationTraceHandlerTest {
         properties.getTrace().setHttpSlowThresholdMs(1);
         RecentTraceStore history = new RecentTraceStore(10);
         ObservationRegistry registry = ObservationRegistry.create();
-        registry.observationConfig().observationHandler(new ObservationTraceHandler(history, properties));
+        registry.observationConfig().observationHandler(new ObservationTraceHandler(history, null, properties, java.util.List.of()));
 
         Observation observation = Observation.createNotStarted("http.server.requests", registry)
                 .lowCardinalityKeyValue("http.request.method", "GET")
@@ -200,7 +198,7 @@ class ObservationTraceHandlerTest {
         properties.getTrace().setHttpSlowThresholdMs(1);
         RecentTraceStore history = new RecentTraceStore(10);
         ObservationRegistry registry = ObservationRegistry.create();
-        registry.observationConfig().observationHandler(new ObservationTraceHandler(history, properties));
+        registry.observationConfig().observationHandler(new ObservationTraceHandler(history, null, properties, java.util.List.of()));
         Observation observation = Observation.createNotStarted("http.server.requests", registry)
                 .lowCardinalityKeyValue("http.request.method", "GET")
                 .lowCardinalityKeyValue("http.route", "/async")

@@ -2,7 +2,6 @@ package io.github.lakernote.observability.web;
 
 import io.github.lakernote.observability.trace.store.SlowErrorTraceStore;
 import io.github.lakernote.observability.trace.store.RecentTraceStore;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -27,16 +26,11 @@ public class ObservabilityController {
     private final SlowErrorTraceStore slowErrorTraceStore;
     private final ObservabilityAccessPolicy accessPolicy;
 
-    @Autowired
     public ObservabilityController(RecentTraceStore recentTraceStore, SlowErrorTraceStore slowErrorTraceStore,
                                    ObservabilityAccessPolicy accessPolicy) {
         this.recentTraceStore = recentTraceStore;
         this.slowErrorTraceStore = slowErrorTraceStore;
         this.accessPolicy = accessPolicy;
-    }
-
-    public ObservabilityController(RecentTraceStore recentTraceStore, ObservabilityAccessPolicy accessPolicy) {
-        this(recentTraceStore, null, accessPolicy);
     }
 
     @GetMapping("/traces")
@@ -67,15 +61,6 @@ public class ObservabilityController {
         return value != null && value.toLowerCase(java.util.Locale.ROOT).contains(query);
     }
 
-    /** Retains the direct Java caller signature used by integrations and tests. */
-    public List<RecentTraceStore.TraceRecord> traces(int limit) {
-        return traces(limit, "");
-    }
-
-    public List<RecentTraceStore.TraceRecord> traces(int limit, String source) {
-        return traces(limit, source, "");
-    }
-
     @GetMapping("/traces/storage")
     public TraceStorageStatus traceStorage() {
         requireAccess();
@@ -88,8 +73,7 @@ public class ObservabilityController {
                 slowErrorStorage == null ? 0 : slowErrorStorage.maxFileBytes());
     }
 
-    // /incidents 作为旧 API 路径保留；新调用统一使用语义更明确的 /slow-errors。
-    @GetMapping({"/slow-errors", "/incidents"})
+    @GetMapping("/slow-errors")
     public List<RecentTraceStore.TraceRecord> slowErrors(@RequestParam String kind,
                                                          @RequestParam(defaultValue = "") String source,
                                                          @RequestParam(defaultValue = "100") int limit) {
@@ -130,11 +114,6 @@ public class ObservabilityController {
         RecentTraceStore.TraceRecord trace = recentTraceStore.find(traceId, source);
         return trace != null || slowErrorTraceStore == null ? trace
                 : slowErrorTraceStore.findByTraceId(traceId, source);
-    }
-
-    /** Preserves the direct Java caller signature used by integrations and tests. */
-    public RecentTraceStore.TraceRecord trace(String traceId) {
-        return trace(traceId, "");
     }
 
     @PostMapping("/storage/clear")

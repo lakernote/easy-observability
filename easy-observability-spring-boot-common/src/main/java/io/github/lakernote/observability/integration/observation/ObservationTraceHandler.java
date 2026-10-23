@@ -30,10 +30,6 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
     private final List<ObservationTraceIdResolver> traceIdResolvers;
     private final AtomicBoolean callbackFailureLogged = new AtomicBoolean();
 
-    public ObservationTraceHandler(RecentTraceStore recentTraceStore, EasyObservabilityProperties properties) {
-        this(recentTraceStore, null, properties, List.of());
-    }
-
     public ObservationTraceHandler(RecentTraceStore recentTraceStore, SlowErrorTraceStore slowErrorTraceStore,
                                    EasyObservabilityProperties properties,
                                    List<ObservationTraceIdResolver> traceIdResolvers) {

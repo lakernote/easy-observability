@@ -92,8 +92,4 @@ class TraceIdContextTest {
         assertThat(TraceIdContext.isValidTraceId("trace\"id")).isFalse();
         assertThat(TraceIdContext.isValidTraceId("链路-1")).isFalse();
     }
-
-    private String legacyRequestIdHeader() {
-        return "X-" + "Request" + "-Id";
-    }
 }
