@@ -21,7 +21,7 @@ class TraceTreeTest {
         assertThat(tree).contains("[Http] HTTP tag=\"GET /api/users\"");
         assertThat(tree).contains("[Service] service tag=\"userId=1\"");
         assertThat(tree).doesNotContain("mapper").contains("TRACE_TRUNCATED omitted=1");
-        assertThat(trace.incidentReasons()).containsExactly("TRACE_TRUNCATED");
+        assertThat(trace.diagnosticReasons()).containsExactly("TRACE_TRUNCATED");
     }
 
     @Test
@@ -39,7 +39,7 @@ class TraceTreeTest {
         assertThat(trace.renderTree())
                 .contains("first", "second", "TRACE_TRUNCATED omitted=1")
                 .doesNotContain("too-deep");
-        assertThat(trace.incidentReasons()).containsExactly("TRACE_TRUNCATED");
+        assertThat(trace.diagnosticReasons()).containsExactly("TRACE_TRUNCATED");
     }
 
     @Test
@@ -94,7 +94,7 @@ class TraceTreeTest {
 
         assertThat(trace.renderTree()).contains("[Transaction] OrderService#create tag=\"write\"");
         assertThat(trace.slow()).isTrue();
-        assertThat(trace.incidentReasons()).containsExactly("LONG_TRANSACTION");
+        assertThat(trace.diagnosticReasons()).containsExactly("LONG_TRANSACTION");
     }
 
     @Test
@@ -112,7 +112,7 @@ class TraceTreeTest {
         assertThat(trace.renderTree())
                 .contains("loop-0", "loop-1", "TRACE_TRUNCATED omitted=9 maxNodes=3")
                 .doesNotContain("loop-2", "transaction");
-        assertThat(trace.incidentReasons()).containsExactly("TRACE_TRUNCATED");
+        assertThat(trace.diagnosticReasons()).containsExactly("TRACE_TRUNCATED");
     }
 
     @Test
@@ -127,7 +127,7 @@ class TraceTreeTest {
 
         assertThat(trace.renderTree())
                 .doesNotContain("first", "second", "TRACE_TRUNCATED");
-        assertThat(trace.incidentReasons()).isEmpty();
+        assertThat(trace.diagnosticReasons()).isEmpty();
     }
 
     @Test

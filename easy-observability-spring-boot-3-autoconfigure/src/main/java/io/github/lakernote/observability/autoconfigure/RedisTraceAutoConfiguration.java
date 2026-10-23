@@ -7,11 +7,11 @@ import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.env.Environment;
 
 /** Enables Lettuce's native Micrometer observation support when Redis is available. */
 @AutoConfiguration(after = ObservabilityAutoConfiguration.class)
 @ConditionalOnProperty(prefix = "easy.observability", name = "enabled", havingValue = "true", matchIfMissing = true)
-@ConditionalOnProperty(prefix = "easy.observability.redis", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class RedisTraceAutoConfiguration {
 
     @Configuration(proxyBeanMethods = false)
@@ -26,12 +26,12 @@ public class RedisTraceAutoConfiguration {
                 havingValue = "true", matchIfMissing = true)
         org.springframework.boot.autoconfigure.data.redis.ClientResourcesBuilderCustomizer redisTracingCustomizer(
                 org.springframework.beans.factory.ObjectProvider<ObservationRegistry> observationRegistryProvider,
-                EasyObservabilityProperties properties) {
+                Environment environment) {
             return builder -> {
                 ObservationRegistry registry = observationRegistryProvider.getIfAvailable();
                 if (registry != null) {
                     builder.tracing(new io.lettuce.core.tracing.MicrometerTracing(registry,
-                            properties.getRedis().getServiceName(), false));
+                            environment.getProperty("spring.application.name", "easy-observability"), false));
                 }
             };
         }

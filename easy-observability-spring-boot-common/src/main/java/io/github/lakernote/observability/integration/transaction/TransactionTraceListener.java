@@ -90,8 +90,8 @@ public final class TransactionTraceListener implements TransactionExecutionListe
         try {
             long durationMs = Math.max(0, TimeUnit.NANOSECONDS.toMillis(nanoTime.getAsLong()
                     - (state.started ? state.startedNanos : state.createdNanos)));
-            boolean slow = properties.getTransaction().getSlowThresholdMs() > 0
-                    && durationMs >= properties.getTransaction().getSlowThresholdMs();
+            boolean slow = properties.getTrace().getTransactionSlowThresholdMs() > 0
+                    && durationMs >= properties.getTrace().getTransactionSlowThresholdMs();
             boolean sameThread = state.threadId == Thread.currentThread().getId();
             if (state.tracing && sameThread && slow) TraceContext.markSlow("LONG_TRANSACTION");
             BoundedThrowableFormatter.FailureEvidence error = failure == null

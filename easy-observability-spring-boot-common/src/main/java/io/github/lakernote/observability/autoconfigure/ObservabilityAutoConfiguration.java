@@ -7,7 +7,7 @@ import io.github.lakernote.observability.integration.observation.ObservationTrac
 import io.github.lakernote.observability.integration.observation.ObservationTraceIdResolver;
 import io.github.lakernote.observability.trace.BoundedHistoryWriter;
 import io.github.lakernote.observability.trace.TraceContextTaskDecorator;
-import io.github.lakernote.observability.trace.store.IncidentTraceStore;
+import io.github.lakernote.observability.trace.store.SlowErrorTraceStore;
 import io.github.lakernote.observability.trace.store.RecentTraceStore;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -53,7 +53,7 @@ public class ObservabilityAutoConfiguration {
      */
     @Bean
     @ConditionalOnMissingBean
-    RecentTraceStore recentTraces(EasyObservabilityProperties properties) {
+    RecentTraceStore recentTraceStore(EasyObservabilityProperties properties) {
         return new RecentTraceStore(properties.getWeb().getTraceLimit());
     }
 
@@ -62,10 +62,10 @@ public class ObservabilityAutoConfiguration {
      */
     @Bean
     @ConditionalOnMissingBean
-    IncidentTraceStore incidentTraces(ObjectMapper objectMapper, EasyObservabilityProperties properties,
+    SlowErrorTraceStore slowErrorTraceStore(ObjectMapper objectMapper, EasyObservabilityProperties properties,
                                       BoundedHistoryWriter writer) {
         EasyObservabilityProperties.Trace trace = properties.getTrace();
-        return new IncidentTraceStore(objectMapper, trace.getSlowErrorTraceFile(), trace.getSlowErrorHistoryLimit(),
+        return new SlowErrorTraceStore(objectMapper, trace.getSlowErrorTraceFile(), trace.getSlowErrorHistoryLimit(),
                 trace.getSlowErrorMaxBytes().toBytes(), writer);
     }
 
@@ -96,10 +96,12 @@ public class ObservabilityAutoConfiguration {
     @ConditionalOnProperty(prefix = "easy.observability.trace", name = "enabled",
             havingValue = "true", matchIfMissing = true)
     @ConditionalOnMissingBean
-    ObservationTraceHandler observationTraceHandler(RecentTraceStore history, IncidentTraceStore archive,
+    ObservationTraceHandler observationTraceHandler(RecentTraceStore recentTraceStore,
+                                                    SlowErrorTraceStore slowErrorTraceStore,
                                                     EasyObservabilityProperties properties,
                                                     ObjectProvider<ObservationTraceIdResolver> resolvers) {
-        return new ObservationTraceHandler(history, archive, properties, resolvers.orderedStream().toList());
+        return new ObservationTraceHandler(recentTraceStore, slowErrorTraceStore, properties,
+                resolvers.orderedStream().toList());
     }
 
 }

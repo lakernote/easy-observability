@@ -1,7 +1,7 @@
 package io.github.lakernote.observability.trace;
 
 import io.github.lakernote.observability.trace.store.RecentTraceStore;
-import io.github.lakernote.observability.trace.store.IncidentTraceStore;
+import io.github.lakernote.observability.trace.store.SlowErrorTraceStore;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -23,16 +23,16 @@ class HistoryPersistenceTest {
         RecentTraceStore.TraceRecord trace = new RecentTraceStore.TraceRecord(1, "trace-123", "GET /orders/{id}",
                 "GET /orders/{id}", 500, 845, true, true, "HTTP GET\n  SQL select",
                 Instant.parse("2026-10-15T10:00:00Z"), 77, 51, 2048, "HTTP", "HTTP_5XX", "500");
-        IncidentTraceStore archive = new IncidentTraceStore(mapper, tracesFile.toString(), 1000,
+        SlowErrorTraceStore slowErrorStore = new SlowErrorTraceStore(mapper, tracesFile.toString(), 1000,
                 4 * 1024 * 1024, writer);
-        archive.restore();
-        archive.record(trace);
+        slowErrorStore.restoreHistory();
+        slowErrorStore.recordSlowErrorTrace(trace);
         writer.close();
 
-        IncidentTraceStore restoredTraces = new IncidentTraceStore(mapper, tracesFile.toString(), 1000, 4 * 1024 * 1024);
-        restoredTraces.restore();
+        SlowErrorTraceStore restoredSlowErrorStore = new SlowErrorTraceStore(mapper, tracesFile.toString(), 1000, 4 * 1024 * 1024);
+        restoredSlowErrorStore.restoreHistory();
 
-        assertThat(restoredTraces.find("trace-123")).satisfies(saved -> {
+        assertThat(restoredSlowErrorStore.findByTraceId("trace-123")).satisfies(saved -> {
             assertThat(saved).isNotNull();
             assertThat(saved.tree()).contains("SQL select");
             assertThat(saved.allocatedBytes()).isEqualTo(2048);
@@ -49,22 +49,22 @@ class HistoryPersistenceTest {
         ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
         Path tracesFile = directory.resolve("shared-trace.jsonl");
         BoundedHistoryWriter writer = new BoundedHistoryWriter();
-        IncidentTraceStore archive = new IncidentTraceStore(mapper, tracesFile.toString(), 1000,
+        SlowErrorTraceStore slowErrorStore = new SlowErrorTraceStore(mapper, tracesFile.toString(), 1000,
                 4 * 1024 * 1024, writer);
-        archive.restore();
+        slowErrorStore.restoreHistory();
         Instant httpFinished = Instant.parse("2026-10-21T10:00:01Z");
         Instant kafkaFinished = Instant.parse("2026-10-21T10:00:02Z");
-        archive.record(trace("shared", "HTTP", httpFinished));
-        archive.record(trace("shared", "KAFKA_CONSUMER", kafkaFinished));
+        slowErrorStore.recordSlowErrorTrace(trace("shared", "HTTP", httpFinished));
+        slowErrorStore.recordSlowErrorTrace(trace("shared", "KAFKA_CONSUMER", kafkaFinished));
         writer.close();
 
-        IncidentTraceStore restored = new IncidentTraceStore(mapper, tracesFile.toString(), 1000, 4 * 1024 * 1024);
-        restored.restore();
+        SlowErrorTraceStore restored = new SlowErrorTraceStore(mapper, tracesFile.toString(), 1000, 4 * 1024 * 1024);
+        restored.restoreHistory();
 
-        assertThat(restored.recent(10)).extracting(RecentTraceStore.TraceRecord::sourceType)
+        assertThat(restored.findRecent(10)).extracting(RecentTraceStore.TraceRecord::sourceType)
                 .containsExactly("KAFKA_CONSUMER", "HTTP");
-        assertThat(restored.find("shared").sourceType()).isEqualTo("HTTP");
-        assertThat(restored.find("shared", "KAFKA_CONSUMER").sourceType()).isEqualTo("KAFKA_CONSUMER");
+        assertThat(restored.findByTraceId("shared").sourceType()).isEqualTo("HTTP");
+        assertThat(restored.findByTraceId("shared", "KAFKA_CONSUMER").sourceType()).isEqualTo("KAFKA_CONSUMER");
     }
 
     private static RecentTraceStore.TraceRecord trace(String traceId, String source, Instant finishedAt) {

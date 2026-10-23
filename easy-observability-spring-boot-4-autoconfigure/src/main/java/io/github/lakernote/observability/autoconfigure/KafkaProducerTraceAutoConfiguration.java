@@ -19,7 +19,6 @@ import java.util.Map;
 @AutoConfiguration(after = KafkaTraceAutoConfiguration.class)
 @ConditionalOnClass({ProducerInterceptor.class, DefaultKafkaProducerFactoryCustomizer.class})
 @ConditionalOnProperty(prefix = "easy.observability", name = "enabled", havingValue = "true", matchIfMissing = true)
-@ConditionalOnProperty(prefix = "easy.observability.kafka", name = "enabled", havingValue = "true", matchIfMissing = true)
 @ConditionalOnProperty(prefix = "easy.observability.trace", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class KafkaProducerTraceAutoConfiguration {
 

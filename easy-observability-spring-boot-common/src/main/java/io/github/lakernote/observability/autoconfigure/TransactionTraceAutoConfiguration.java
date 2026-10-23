@@ -17,7 +17,6 @@ import org.springframework.transaction.TransactionExecutionListener;
 @AutoConfiguration(after = ObservabilityAutoConfiguration.class)
 @ConditionalOnClass(TransactionExecutionListener.class)
 @ConditionalOnProperty(prefix = "easy.observability", name = "enabled", havingValue = "true", matchIfMissing = true)
-@ConditionalOnProperty(prefix = "easy.observability.transaction", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class TransactionTraceAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean

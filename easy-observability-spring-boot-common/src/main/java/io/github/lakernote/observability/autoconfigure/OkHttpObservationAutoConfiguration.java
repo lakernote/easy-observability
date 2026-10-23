@@ -20,8 +20,7 @@ import java.util.regex.Pattern;
 @AutoConfiguration(after = ObservabilityAutoConfiguration.class)
 @ConditionalOnClass({OkHttpClient.class, OkHttpObservationInterceptor.class})
 @ConditionalOnBean(ObservationRegistry.class)
-@ConditionalOnProperty(prefix = "easy.observability.http.okhttp", name = "enabled",
-        havingValue = "true", matchIfMissing = true)
+@ConditionalOnProperty(prefix = "easy.observability", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class OkHttpObservationAutoConfiguration {
     private static final Pattern IDENTIFIER_PATH_SEGMENT = Pattern.compile(
             "(?i)(?<=/)([0-9]{2,}|[0-9a-f]{8}-[0-9a-f-]{27,}|[0-9a-f]{16,})(?=/|$)");

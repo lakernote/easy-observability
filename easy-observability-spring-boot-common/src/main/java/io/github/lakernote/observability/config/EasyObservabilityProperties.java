@@ -11,11 +11,6 @@ public class EasyObservabilityProperties {
     private boolean enabled = true;
     private final Trace trace = new Trace();
     private final Web web = new Web();
-    private final Redis redis = new Redis();
-    private final Transaction transaction = new Transaction();
-    private final Http http = new Http();
-    private final Kafka kafka = new Kafka();
-    private final Scheduling scheduling = new Scheduling();
 
     public boolean isEnabled() {
         return enabled;
@@ -31,112 +26,6 @@ public class EasyObservabilityProperties {
 
     public Web getWeb() {
         return web;
-    }
-
-    public Redis getRedis() {
-        return redis;
-    }
-
-    public Transaction getTransaction() {
-        return transaction;
-    }
-
-    public Http getHttp() {
-        return http;
-    }
-
-    public Kafka getKafka() {
-        return kafka;
-    }
-
-    public Scheduling getScheduling() {
-        return scheduling;
-    }
-
-    public static class Scheduling {
-        private boolean enabled = true;
-
-        public boolean isEnabled() {
-            return enabled;
-        }
-
-        public void setEnabled(boolean enabled) {
-            this.enabled = enabled;
-        }
-    }
-
-    public static class Kafka {
-        private boolean enabled = true;
-
-        public boolean isEnabled() {
-            return enabled;
-        }
-
-        public void setEnabled(boolean enabled) {
-            this.enabled = enabled;
-        }
-    }
-
-    public static class Transaction {
-        private boolean enabled = true;
-        private long slowThresholdMs = 1_000;
-
-        public boolean isEnabled() {
-            return enabled;
-        }
-
-        public void setEnabled(boolean enabled) {
-            this.enabled = enabled;
-        }
-
-        public long getSlowThresholdMs() {
-            return slowThresholdMs;
-        }
-
-        public void setSlowThresholdMs(long slowThresholdMs) {
-            this.slowThresholdMs = slowThresholdMs;
-        }
-    }
-
-    public static class Http {
-        private final OkHttp okhttp = new OkHttp();
-
-        public OkHttp getOkhttp() {
-            return okhttp;
-        }
-
-        public static class OkHttp {
-            private boolean enabled = true;
-
-            public boolean isEnabled() {
-                return enabled;
-            }
-
-            public void setEnabled(boolean enabled) {
-                this.enabled = enabled;
-            }
-        }
-    }
-
-    public static class Redis {
-        private boolean enabled = true;
-        private String serviceName = "easy-observability";
-
-        public boolean isEnabled() {
-            return enabled;
-        }
-
-        public void setEnabled(boolean enabled) {
-            this.enabled = enabled;
-        }
-
-        public String getServiceName() {
-            return serviceName;
-        }
-
-        public void setServiceName(String serviceName) {
-            this.serviceName = serviceName;
-        }
     }
 
     public static class Web {
@@ -181,6 +70,7 @@ public class EasyObservabilityProperties {
         private long executorTaskSlowThresholdMs = 250;
         private long httpSlowThresholdMs = 250;
         private long kafkaConsumerSlowThresholdMs = 250;
+        private long transactionSlowThresholdMs = 1_000;
         private long dependencySlowThresholdMs = 250;
         // CPU and allocation counters require JVM management calls for every observed operation; keep opt-in.
         private boolean resourceSamplingEnabled;
@@ -266,6 +156,14 @@ public class EasyObservabilityProperties {
 
         public void setKafkaConsumerSlowThresholdMs(long kafkaConsumerSlowThresholdMs) {
             this.kafkaConsumerSlowThresholdMs = kafkaConsumerSlowThresholdMs;
+        }
+
+        public long getTransactionSlowThresholdMs() {
+            return transactionSlowThresholdMs;
+        }
+
+        public void setTransactionSlowThresholdMs(long transactionSlowThresholdMs) {
+            this.transactionSlowThresholdMs = transactionSlowThresholdMs;
         }
 
         public long getDependencySlowThresholdMs() {

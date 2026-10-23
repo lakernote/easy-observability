@@ -12,8 +12,11 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.Deque;
 
-/** Restores the message trace ID in MDC for the listener invocation, then restores the prior context. */
-public final class TraceIdRecordInterceptor implements RecordInterceptor<String, String> {
+/**
+ * Kafka 消费端 Trace 上下文拦截器：消费前从消息头恢复 Trace ID，消费后恢复线程原有上下文。
+ * 消息头缺失或 Trace ID 格式无效时，为本次消费创建新的 Trace ID。
+ */
+public final class TraceIdRecordInterceptor implements RecordInterceptor<Object, Object> {
     private final String headerName;
     private final ThreadLocal<Deque<MdcContext.Scope>> scopes = ThreadLocal.withInitial(ArrayDeque::new);
 
@@ -22,8 +25,9 @@ public final class TraceIdRecordInterceptor implements RecordInterceptor<String,
     }
 
     @Override
-    public ConsumerRecord<String, String> intercept(ConsumerRecord<String, String> record,
-                                                     Consumer<String, String> consumer) {
+    public ConsumerRecord<Object, Object> intercept(ConsumerRecord<Object, Object> record,
+                                                     Consumer<Object, Object> consumer) {
+        // 保存线程进入本条消息前的 MDC/Trace 状态，避免线程复用时串到下一条消息。
         MdcContext.Scope scope = MdcContext.scope();
         scopes.get().push(scope);
         String traceId = headerValue(record, headerName);
@@ -33,7 +37,8 @@ public final class TraceIdRecordInterceptor implements RecordInterceptor<String,
     }
 
     @Override
-    public void afterRecord(ConsumerRecord<String, String> record, Consumer<String, String> consumer) {
+    public void afterRecord(ConsumerRecord<Object, Object> record, Consumer<Object, Object> consumer) {
+        // Listener 执行完后恢复原状态；Kafka 消费线程会被复用，必须清理本条消息的上下文。
         Deque<MdcContext.Scope> stack = scopes.get();
         if (stack.isEmpty()) return;
         try {

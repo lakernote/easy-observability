@@ -15,16 +15,16 @@ import java.util.function.Consumer;
  */
 public final class TraceContext {
     private static final Logger log = LoggerFactory.getLogger(TraceContext.class);
-    static final int MAX_INCIDENT_LOGS_PER_WINDOW = 20;
-    static final long INCIDENT_LOG_WINDOW_NANOS = TimeUnit.MINUTES.toNanos(1);
+    static final int MAX_SLOW_ERROR_LOGS_PER_WINDOW = 20;
+    static final long SLOW_ERROR_LOG_WINDOW_NANOS = TimeUnit.MINUTES.toNanos(1);
     private static final int MAX_LOG_DESCRIPTION_CHARS = 256;
     private static final int MAX_LOG_REASON_CHARS = 256;
     private static final ThreadLocal<ExecutionFrame> CURRENT_FRAME = new ThreadLocal<>();
     /** 错误和慢调用使用独立日志额度，避免慢调用风暴挤掉所有错误摘要。 */
-    private static final IncidentLogLimiter ERROR_LOG_LIMITER =
-            new IncidentLogLimiter(MAX_INCIDENT_LOGS_PER_WINDOW, INCIDENT_LOG_WINDOW_NANOS);
-    private static final IncidentLogLimiter SLOW_LOG_LIMITER =
-            new IncidentLogLimiter(MAX_INCIDENT_LOGS_PER_WINDOW, INCIDENT_LOG_WINDOW_NANOS);
+    private static final SlowErrorLogLimiter ERROR_LOG_LIMITER =
+            new SlowErrorLogLimiter(MAX_SLOW_ERROR_LOGS_PER_WINDOW, SLOW_ERROR_LOG_WINDOW_NANOS);
+    private static final SlowErrorLogLimiter SLOW_LOG_LIMITER =
+            new SlowErrorLogLimiter(MAX_SLOW_ERROR_LOGS_PER_WINDOW, SLOW_ERROR_LOG_WINDOW_NANOS);
 
     private TraceContext() {
     }
@@ -371,15 +371,15 @@ public final class TraceContext {
                 costMs = trace.completeRoot(slowThresholdMs, throwable);
                 String tree = trace.explicitTreeRequired() || trace.slow() || trace.error()
                         ? trace.renderTree() : "";
-                result = new Completion(tree, costMs, trace.slow(), trace.error(), trace.incidentReasons(),
+                result = new Completion(tree, costMs, trace.slow(), trace.error(), trace.diagnosticReasons(),
                         trace.errorType(), trace.errorMessage(), trace.errorStackTrace());
             }
             completion.accept(result);
             if (throwable != null) {
-                logIncidentSummary(ERROR_LOG_LIMITER, true, description, costMs, slowThresholdMs,
+                logSlowErrorSummary(ERROR_LOG_LIMITER, true, description, costMs, slowThresholdMs,
                         throwable.getClass().getName(), result.reasons());
             } else if (slowThresholdMs > 0 && costMs >= slowThresholdMs) {
-                logIncidentSummary(SLOW_LOG_LIMITER, false, description, costMs, slowThresholdMs,
+                logSlowErrorSummary(SLOW_LOG_LIMITER, false, description, costMs, slowThresholdMs,
                         "", result.reasons());
             }
         } finally {
@@ -477,7 +477,7 @@ public final class TraceContext {
                                     ExecutionFrame previous, String traceId) {
     }
 
-    private static void logIncidentSummary(IncidentLogLimiter limiter, boolean error, String description,
+    private static void logSlowErrorSummary(SlowErrorLogLimiter limiter, boolean error, String description,
                                            long costMs, long thresholdMs, String exceptionType,
                                            List<String> reasons) {
         long suppressed = limiter.tryAcquire(System.nanoTime());
@@ -487,11 +487,11 @@ public final class TraceContext {
         String safeReasons = summarizeReasons(reasons, MAX_LOG_REASON_CHARS);
         if (error) {
             // 异常详情和有界调用树已保存在结构化事件中；重复写入日志会放大错误风暴的分配与 I/O，且可能泄漏原始消息。
-            log.error("运行诊断 incident 摘要: description={}, cost={}ms, threshold={}ms, exception={}, "
+            log.error("慢错 Trace 摘要: description={}, cost={}ms, threshold={}ms, exception={}, "
                             + "reasons={}, previousWindowSuppressed={}",
                     safeDescription, costMs, thresholdMs, safeExceptionType, safeReasons, suppressed);
         } else {
-            log.warn("运行诊断 incident 摘要: description={}, cost={}ms, threshold={}ms, reasons={}, "
+            log.warn("慢调用 Trace 摘要: description={}, cost={}ms, threshold={}ms, reasons={}, "
                             + "previousWindowSuppressed={}",
                     safeDescription, costMs, thresholdMs, safeReasons, suppressed);
         }
@@ -528,14 +528,14 @@ public final class TraceContext {
      * 无锁固定时间窗限流器：低 16 位保存已输出数量，高位保存单调递增的时间窗编号。
      * 达到上限后直接跳过日志格式化，避免错误风暴额外放大 CPU 和日志 I/O。
      */
-    static final class IncidentLogLimiter {
+    static final class SlowErrorLogLimiter {
         private static final long COUNT_MASK = 0xFFFFL;
         private final int limit;
         private final long windowNanos;
         private final AtomicLong windowAndCount = new AtomicLong();
         private final AtomicLong suppressed = new AtomicLong();
 
-        IncidentLogLimiter(int limit, long windowNanos) {
+        SlowErrorLogLimiter(int limit, long windowNanos) {
             if (limit <= 0 || limit > COUNT_MASK) throw new IllegalArgumentException("invalid limit");
             if (windowNanos <= 0) throw new IllegalArgumentException("invalid window");
             this.limit = limit;
@@ -587,7 +587,7 @@ public final class TraceContext {
         public long costMs() { return costMs; }
         public boolean slow() { return trace.slow(); }
         public boolean error() { return trace.error(); }
-        public List<String> reasons() { return trace.incidentReasons(); }
+        public List<String> reasons() { return trace.diagnosticReasons(); }
         public String errorType() { return trace.errorType(); }
         public String errorMessage() { return trace.errorMessage(); }
         public String stackTrace() { return trace.errorStackTrace(); }

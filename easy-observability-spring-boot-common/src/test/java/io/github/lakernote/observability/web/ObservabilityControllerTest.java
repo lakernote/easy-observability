@@ -36,7 +36,7 @@ class ObservabilityControllerTest {
 
         var result = controller.clearTraceHistory();
 
-        assertThat(result.recentTraces()).isEqualTo(1);
+        assertThat(result.clearedRecentTraceCount()).isEqualTo(1);
         assertThat(controller.traces(10)).isEmpty();
     }
 
@@ -59,9 +59,9 @@ class ObservabilityControllerTest {
                 "TransactionRollback", "query failed");
         ObservabilityController controller = new ObservabilityController(history, () -> true);
 
-        var slow = controller.incidents("slow", "", 100);
-        var httpSlow = controller.incidents("slow", "HTTP", 100);
-        var errors = controller.incidents("error", "", 100);
+        var slow = controller.slowErrors("slow", "", 100);
+        var httpSlow = controller.slowErrors("slow", "HTTP", 100);
+        var errors = controller.slowErrors("error", "", 100);
 
         assertThat(slow).extracting(RecentTraceStore.TraceRecord::traceId).containsExactly("http-slow");
         assertThat(httpSlow).extracting(RecentTraceStore.TraceRecord::traceId).containsExactly("http-slow");
@@ -70,7 +70,7 @@ class ObservabilityControllerTest {
     }
 
     @Test
-    void traceListAndIncidentDrillDownNeverExposeDependencyOperationsAsRoots() {
+    void traceListAndSlowErrorDrillDownNeverExposeDependencyOperationsAsRoots() {
         RecentTraceStore history = new RecentTraceStore(10);
         history.add("http-1", "GET /orders", "GET", "HTTP", 200, 40, false, false, "http tree");
         history.add("redis-1", "Redis get", "get", "REDIS", 200, 1, true, false, "redis tree");
@@ -79,8 +79,8 @@ class ObservabilityControllerTest {
         ObservabilityController controller = new ObservabilityController(history, () -> true);
 
         assertThat(controller.traces(100)).isEmpty();
-        assertThat(controller.incidents("slow", "", 100)).isEmpty();
-        assertThat(controller.incidents("error", "", 100)).isEmpty();
+        assertThat(controller.slowErrors("slow", "", 100)).isEmpty();
+        assertThat(controller.slowErrors("error", "", 100)).isEmpty();
         assertThat(controller.trace("redis-1")).isNull();
         assertThat(controller.trace("transaction-1")).isNull();
     }
@@ -96,7 +96,7 @@ class ObservabilityControllerTest {
 
         assertThat(controller.traces(10)).extracting(RecentTraceStore.TraceRecord::sourceType)
                 .containsExactly("KAFKA_CONSUMER");
-        assertThat(controller.incidents("error", "", 10))
+        assertThat(controller.slowErrors("error", "", 10))
                 .extracting(RecentTraceStore.TraceRecord::sourceType).containsExactly("KAFKA_CONSUMER");
     }
 
@@ -148,8 +148,8 @@ class ObservabilityControllerTest {
 
         var status = controller.traceStorage();
 
-        assertThat(status.recentCount()).isEqualTo(1);
-        assertThat(status.recentCapacity()).isEqualTo(12);
-        assertThat(status.archivedIncidentCapacity()).isZero();
+        assertThat(status.recentTraceCount()).isEqualTo(1);
+        assertThat(status.recentTraceCapacity()).isEqualTo(12);
+        assertThat(status.slowErrorTraceCapacity()).isZero();
     }
 }

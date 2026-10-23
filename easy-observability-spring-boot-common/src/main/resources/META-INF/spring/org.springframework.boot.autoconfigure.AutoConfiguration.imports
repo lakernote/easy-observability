@@ -5,7 +5,6 @@ io.github.lakernote.observability.autoconfigure.TraceSpanAutoConfiguration
 io.github.lakernote.observability.autoconfigure.RedisTraceAutoConfiguration
 io.github.lakernote.observability.autoconfigure.TransactionTraceAutoConfiguration
 io.github.lakernote.observability.autoconfigure.KafkaTraceAutoConfiguration
-io.github.lakernote.observability.autoconfigure.KafkaListenerTraceAutoConfiguration
 io.github.lakernote.observability.autoconfigure.KafkaProducerTraceAutoConfiguration
 io.github.lakernote.observability.autoconfigure.FeignTraceAutoConfiguration
 io.github.lakernote.observability.autoconfigure.OkHttpObservationAutoConfiguration

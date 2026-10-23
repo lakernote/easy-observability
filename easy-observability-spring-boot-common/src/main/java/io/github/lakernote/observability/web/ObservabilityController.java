@@ -1,6 +1,6 @@
 package io.github.lakernote.observability.web;
 
-import io.github.lakernote.observability.trace.store.IncidentTraceStore;
+import io.github.lakernote.observability.trace.store.SlowErrorTraceStore;
 import io.github.lakernote.observability.trace.store.RecentTraceStore;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -23,20 +23,20 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/easy-observability")
 public class ObservabilityController {
-    private final RecentTraceStore recentTraces;
-    private final IncidentTraceStore incidentTraces;
+    private final RecentTraceStore recentTraceStore;
+    private final SlowErrorTraceStore slowErrorTraceStore;
     private final ObservabilityAccessPolicy accessPolicy;
 
     @Autowired
-    public ObservabilityController(RecentTraceStore recentTraces, IncidentTraceStore incidentTraces,
+    public ObservabilityController(RecentTraceStore recentTraceStore, SlowErrorTraceStore slowErrorTraceStore,
                                    ObservabilityAccessPolicy accessPolicy) {
-        this.recentTraces = recentTraces;
-        this.incidentTraces = incidentTraces;
+        this.recentTraceStore = recentTraceStore;
+        this.slowErrorTraceStore = slowErrorTraceStore;
         this.accessPolicy = accessPolicy;
     }
 
-    public ObservabilityController(RecentTraceStore recentTraces, ObservabilityAccessPolicy accessPolicy) {
-        this(recentTraces, null, accessPolicy);
+    public ObservabilityController(RecentTraceStore recentTraceStore, ObservabilityAccessPolicy accessPolicy) {
+        this(recentTraceStore, null, accessPolicy);
     }
 
     @GetMapping("/traces")
@@ -48,12 +48,12 @@ public class ObservabilityController {
             String normalizedQuery = q.trim().toLowerCase(java.util.Locale.ROOT);
             final String query = normalizedQuery.length() > 200
                     ? normalizedQuery.substring(0, 200) : normalizedQuery;
-            return allTraces(500).stream()
+            return allSlowErrorTraces(500).stream()
                     .filter(trace -> source.isBlank() || source.equalsIgnoreCase(trace.sourceType()))
                     .filter(trace -> query.isEmpty() || matchesTrace(trace, query))
                     .limit(Math.max(1, Math.min(limit, 500))).toList();
         }
-        return allTraces(limit);
+        return allSlowErrorTraces(limit);
     }
 
     private static boolean matchesTrace(RecentTraceStore.TraceRecord trace, String query) {
@@ -79,39 +79,43 @@ public class ObservabilityController {
     @GetMapping("/traces/storage")
     public TraceStorageStatus traceStorage() {
         requireAccess();
-        IncidentTraceStore.StorageStatus archive = incidentTraces == null ? null : incidentTraces.status();
-        return new TraceStorageStatus(recentTraces.size(), recentTraces.capacity(),
-                archive == null ? 0 : archive.recordCount(), archive == null ? 0 : archive.capacity(),
-                archive == null ? 0 : archive.bytes(), archive == null ? 0 : archive.maxBytes());
+        SlowErrorTraceStore.StorageStatus slowErrorStorage =
+                slowErrorTraceStore == null ? null : slowErrorTraceStore.storageStatus();
+        return new TraceStorageStatus(recentTraceStore.size(), recentTraceStore.capacity(),
+                slowErrorStorage == null ? 0 : slowErrorStorage.traceCount(),
+                slowErrorStorage == null ? 0 : slowErrorStorage.maxTraceCount(),
+                slowErrorStorage == null ? 0 : slowErrorStorage.fileBytes(),
+                slowErrorStorage == null ? 0 : slowErrorStorage.maxFileBytes());
     }
 
-    @GetMapping("/incidents")
-    public List<RecentTraceStore.TraceRecord> incidents(@RequestParam String kind,
-                                                        @RequestParam(defaultValue = "") String source,
-                                                        @RequestParam(defaultValue = "100") int limit) {
+    // /incidents 作为旧 API 路径保留；新调用统一使用语义更明确的 /slow-errors。
+    @GetMapping({"/slow-errors", "/incidents"})
+    public List<RecentTraceStore.TraceRecord> slowErrors(@RequestParam String kind,
+                                                         @RequestParam(defaultValue = "") String source,
+                                                         @RequestParam(defaultValue = "100") int limit) {
         requireAccess();
         if (!"slow".equalsIgnoreCase(kind) && !"error".equalsIgnoreCase(kind)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "kind must be slow or error");
         }
         String sourceFilter = source.trim();
-        return allTraces(500).stream()
+        return allSlowErrorTraces(500).stream()
                 .filter(trace -> "slow".equalsIgnoreCase(kind) ? trace.slow() : trace.error())
                 .filter(trace -> sourceFilter.isEmpty() || sourceFilter.equalsIgnoreCase(trace.sourceType()))
                 .limit(Math.max(1, Math.min(limit, 500))).toList();
     }
 
-    private List<RecentTraceStore.TraceRecord> allTraces(int limit) {
+    private List<RecentTraceStore.TraceRecord> allSlowErrorTraces(int limit) {
         Map<TraceIdentity, RecentTraceStore.TraceRecord> merged = new LinkedHashMap<>();
-        if (incidentTraces != null) incidentTraces.recent(limit)
-                .stream().filter(ObservabilityController::isIncident)
+        if (slowErrorTraceStore != null) slowErrorTraceStore.findRecent(limit)
+                .stream().filter(ObservabilityController::isSlowOrErrorTrace)
                 .forEach(trace -> merged.put(traceIdentity(trace), trace));
-        recentTraces.recent(limit).stream().filter(ObservabilityController::isIncident)
+        recentTraceStore.recent(limit).stream().filter(ObservabilityController::isSlowOrErrorTrace)
                 .forEach(trace -> merged.putIfAbsent(traceIdentity(trace), trace));
         return merged.values().stream().sorted(Comparator.comparing(RecentTraceStore.TraceRecord::finishedAt).reversed())
                 .limit(Math.max(1, Math.min(limit, 500))).toList();
     }
 
-    private static boolean isIncident(RecentTraceStore.TraceRecord trace) {
+    private static boolean isSlowOrErrorTrace(RecentTraceStore.TraceRecord trace) {
         return trace.slow() || trace.error();
     }
 
@@ -123,8 +127,9 @@ public class ObservabilityController {
     public RecentTraceStore.TraceRecord trace(@PathVariable String traceId,
                                               @RequestParam(defaultValue = "") String source) {
         requireAccess();
-        RecentTraceStore.TraceRecord trace = recentTraces.find(traceId, source);
-        return trace != null || incidentTraces == null ? trace : incidentTraces.find(traceId, source);
+        RecentTraceStore.TraceRecord trace = recentTraceStore.find(traceId, source);
+        return trace != null || slowErrorTraceStore == null ? trace
+                : slowErrorTraceStore.findByTraceId(traceId, source);
     }
 
     /** Preserves the direct Java caller signature used by integrations and tests. */
@@ -135,19 +140,20 @@ public class ObservabilityController {
     @PostMapping("/storage/clear")
     public ClearStorageResult clearTraceHistory() throws IOException {
         requireAccess();
-        int archivedTraces = incidentTraces == null ? 0 : incidentTraces.clear();
-        int recentTraces = this.recentTraces.clear();
-        return new ClearStorageResult(archivedTraces, recentTraces);
+        int clearedSlowErrorTraces = slowErrorTraceStore == null ? 0 : slowErrorTraceStore.clearHistory();
+        int clearedRecentTraces = recentTraceStore.clear();
+        return new ClearStorageResult(clearedSlowErrorTraces, clearedRecentTraces);
     }
 
     private void requireAccess() {
         if (!accessPolicy.canView()) throw new ResponseStatusException(HttpStatus.FORBIDDEN);
     }
 
-    public record TraceStorageStatus(int recentCount, int recentCapacity, int archivedIncidentCount,
-                                     int archivedIncidentCapacity, long archiveBytes, long archiveMaxBytes) { }
+    public record TraceStorageStatus(int recentTraceCount, int recentTraceCapacity, int slowErrorTraceCount,
+                                     int slowErrorTraceCapacity, long slowErrorFileBytes,
+                                     long slowErrorFileMaxBytes) { }
 
-    public record ClearStorageResult(int archivedTraces, int recentTraces) { }
+    public record ClearStorageResult(int clearedSlowErrorTraceCount, int clearedRecentTraceCount) { }
 
     private record TraceIdentity(String traceId, String sourceType, Instant finishedAt) { }
 }

@@ -5,7 +5,7 @@ import java.util.IdentityHashMap;
 import java.util.Set;
 
 /**
- * Builds incident evidence without copying an attacker-controlled or pathological throwable graph without bounds.
+ * Builds bounded error details without copying an unbounded throwable graph.
  */
 public final class BoundedThrowableFormatter {
     static final int MAX_CAUSE_DEPTH = 8;
@@ -16,7 +16,7 @@ public final class BoundedThrowableFormatter {
     private BoundedThrowableFormatter() {
     }
 
-    /** Captures the bounded failure payload once so TraceTree, operation and incident projections can share it. */
+    /** Captures bounded failure details once for the trace tree and operation records. */
     public static FailureEvidence capture(Throwable failure) {
         if (failure == null) return FailureEvidence.EMPTY;
         return new FailureEvidence(failure.getClass().getName(), message(failure), format(failure));

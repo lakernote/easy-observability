@@ -18,7 +18,7 @@ final class TraceTree {
     private final long minNodeCostMs;
     private final long ownerThreadId = Thread.currentThread().getId();
     /** 正常 Trace 完成后会丢弃；只有慢、错或截断时才分配事件原因集合。 */
-    private Set<String> incidentReasons;
+    private Set<String> diagnosticReasons;
     private boolean slow;
     private boolean error;
     private boolean explicitTreeRequired;
@@ -179,8 +179,8 @@ final class TraceTree {
         return error;
     }
 
-    synchronized List<String> incidentReasons() {
-        return incidentReasons == null ? List.of() : List.copyOf(incidentReasons);
+    synchronized List<String> diagnosticReasons() {
+        return diagnosticReasons == null ? List.of() : List.copyOf(diagnosticReasons);
     }
 
     synchronized String errorType() {
@@ -211,8 +211,8 @@ final class TraceTree {
 
     private void addReason(String reason) {
         if (reason == null || reason.isBlank()) return;
-        if (incidentReasons == null) incidentReasons = new LinkedHashSet<>();
-        incidentReasons.add(reason);
+        if (diagnosticReasons == null) diagnosticReasons = new LinkedHashSet<>();
+        diagnosticReasons.add(reason);
     }
 
     private void recordOmittedSpan() {

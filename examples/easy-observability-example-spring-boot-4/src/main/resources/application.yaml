@@ -32,8 +32,6 @@ spring:
       observation-enabled: true
 easy:
   observability:
-    kafka:
-      enabled: true
     demo:
       schedule-initial-delay: 5s
       schedule-delay: 30s

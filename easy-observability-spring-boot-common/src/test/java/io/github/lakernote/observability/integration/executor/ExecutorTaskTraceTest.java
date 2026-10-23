@@ -27,7 +27,7 @@ class ExecutorTaskTraceTest {
         ExecutorTaskTrace trace = new ExecutorTaskTrace(properties);
 
         assertThat(trace.observe("worker-pool", "invoice.reconcile", () -> "done")).isEqualTo("done");
-        // Successful traces keep the tree unrendered; incidents materialize it on completion.
+        // Successful traces keep the tree unrendered; slow/error traces materialize it on completion.
         var completion = stopRoot();
 
         assertThat(completion.tree()).isEmpty();

@@ -1,12 +1,8 @@
 package io.github.lakernote.observability.integration.observation;
 
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
-import io.github.lakernote.observability.trace.BoundedThrowableFormatter;
-import io.github.lakernote.observability.trace.SpanKind;
-import io.github.lakernote.observability.trace.ThreadResourceSnapshot;
-import io.github.lakernote.observability.trace.TraceContext;
-import io.github.lakernote.observability.trace.TraceIdContext;
-import io.github.lakernote.observability.trace.store.IncidentTraceStore;
+import io.github.lakernote.observability.trace.*;
+import io.github.lakernote.observability.trace.store.SlowErrorTraceStore;
 import io.github.lakernote.observability.trace.store.RecentTraceStore;
 import io.micrometer.common.KeyValue;
 import io.micrometer.observation.Observation;
@@ -28,26 +24,21 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
     private static final Pattern SQL_LITERAL = Pattern.compile("'(?:''|[^'])*'|\\b[0-9]+(?:\\.[0-9]+)?\\b");
     private static final Pattern SQL_COMMENT = Pattern.compile("(?s)/\\*.*?\\*/|--[^\\r\\n]*");
 
-    private final RecentTraceStore recentTraces;
+    private final RecentTraceStore recentTraceStore;
     private final EasyObservabilityProperties properties;
-    private final IncidentTraceStore incidentTraces;
+    private final SlowErrorTraceStore slowErrorTraceStore;
     private final List<ObservationTraceIdResolver> traceIdResolvers;
     private final AtomicBoolean callbackFailureLogged = new AtomicBoolean();
 
-    public ObservationTraceHandler(RecentTraceStore recentTraces, EasyObservabilityProperties properties) {
-        this(recentTraces, null, properties, List.of());
+    public ObservationTraceHandler(RecentTraceStore recentTraceStore, EasyObservabilityProperties properties) {
+        this(recentTraceStore, null, properties, List.of());
     }
 
-    public ObservationTraceHandler(RecentTraceStore recentTraces, IncidentTraceStore incidentTraces,
-                                   EasyObservabilityProperties properties) {
-        this(recentTraces, incidentTraces, properties, List.of());
-    }
-
-    public ObservationTraceHandler(RecentTraceStore recentTraces, IncidentTraceStore incidentTraces,
+    public ObservationTraceHandler(RecentTraceStore recentTraceStore, SlowErrorTraceStore slowErrorTraceStore,
                                    EasyObservabilityProperties properties,
                                    List<ObservationTraceIdResolver> traceIdResolvers) {
-        this.recentTraces = recentTraces;
-        this.incidentTraces = incidentTraces;
+        this.recentTraceStore = recentTraceStore;
+        this.slowErrorTraceStore = slowErrorTraceStore;
         this.properties = properties;
         this.traceIdResolvers = List.copyOf(traceIdResolvers);
     }
@@ -239,8 +230,8 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
     }
 
     private void completeRootTrace(ObservationState state, long threshold, Throwable error, String displayName,
-                                  String detail, int status, long durationMs, boolean slow, boolean failed,
-                                  long cpuTimeMs, long allocatedBytes) {
+                                   String detail, int status, long durationMs, boolean slow, boolean failed,
+                                   long cpuTimeMs, long allocatedBytes) {
         if (!state.rootObservation || state.traceHandle == null) return;
         state.traceHandle.stop(threshold, state.observationType.name() + " observation", error,
                 completion -> storeCompletedTrace(state, completion, displayName, detail, status,
@@ -252,19 +243,20 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
                                      boolean slow, boolean failed, long cpuTimeMs, long allocatedBytes) {
         boolean traceSlow = slow || completion.slow();
         boolean traceFailed = failed || completion.error();
-        // Keep the bounded in-memory window focused on incidents too; successful, fast
+        // Keep the bounded in-memory window focused on slow/error roots too; successful, fast
         // roots otherwise crowd out the traces that are useful for troubleshooting.
         if (!traceSlow && !traceFailed) return;
-        recentTraces.add(state.traceId, displayName, detail, state.observationType.name(),
+        recentTraceStore.add(state.traceId, displayName, detail, state.observationType.name(),
                 status > 0 ? status : failed ? 500 : 200, durationMs, traceSlow, traceFailed, completion.tree(),
                 state.startThreadName, state.startThreadId, cpuTimeMs, allocatedBytes,
                 completion.errorType(), completion.errorMessage(), completion.stackTrace());
-        if (incidentTraces == null) return;
+        if (slowErrorTraceStore == null) return;
         // 内存近期列表和持久存储都只保留慢/错入口 Trace。
         try {
-            incidentTraces.record(recentTraces.find(state.traceId, state.observationType.name()));
+            slowErrorTraceStore.recordSlowErrorTrace(
+                    recentTraceStore.find(state.traceId, state.observationType.name()));
         } catch (RuntimeException failure) {
-            logCallbackFailure("incident persistence", failure);
+            logCallbackFailure("slow/error trace persistence", failure);
         }
     }
 
@@ -473,7 +465,6 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
                 case HTTP -> properties.getTrace().isHttpServerObservationEnabled();
                 case REDIS -> properties.getTrace().isRedisObservationEnabled();
                 case DATABASE -> properties.getTrace().isDatabaseObservationEnabled();
-                case JOB -> properties.getScheduling().isEnabled();
                 default -> true;
             };
         }

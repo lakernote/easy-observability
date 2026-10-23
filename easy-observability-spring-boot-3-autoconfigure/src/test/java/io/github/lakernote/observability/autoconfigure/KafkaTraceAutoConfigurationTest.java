@@ -12,11 +12,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.autoconfigure.kafka.DefaultKafkaProducerFactoryCustomizer;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
-import org.springframework.kafka.config.ContainerCustomizer;
-import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.DefaultKafkaProducerFactory;
-import org.springframework.kafka.listener.ConcurrentMessageListenerContainer;
-import org.springframework.kafka.listener.ContainerProperties;
 import org.springframework.kafka.listener.RecordInterceptor;
 
 import java.util.List;
@@ -27,17 +23,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class KafkaTraceAutoConfigurationTest {
     @Test
-    void addsTracePropagationToListenerContainer() {
+    void exposesTraceInterceptorAsBootListenerInterceptorBean() {
         new ApplicationContextRunner()
-                .withConfiguration(AutoConfigurations.of(KafkaTraceAutoConfiguration.class,
-                        KafkaListenerTraceAutoConfiguration.class))
+                .withConfiguration(AutoConfigurations.of(KafkaTraceAutoConfiguration.class))
                 .withBean(EasyObservabilityProperties.class, EasyObservabilityProperties::new)
                 .run(context -> {
-                    TestContainer container = new TestContainer(
-                            org.mockito.Mockito.mock(ConsumerFactory.class),
-                                    new ContainerProperties("events"));
-                    context.getBean(ContainerCustomizer.class).configure(container);
-                    assertThat(container.installedRecordInterceptor())
+                    assertThat(context.getBean(RecordInterceptor.class))
                             .isInstanceOf(io.github.lakernote.observability.integration.kafka.TraceIdRecordInterceptor.class);
                 });
     }
@@ -113,13 +104,4 @@ class KafkaTraceAutoConfigurationTest {
                 });
     }
 
-    private static final class TestContainer extends ConcurrentMessageListenerContainer<Object, Object> {
-        private TestContainer(ConsumerFactory<Object, Object> factory, ContainerProperties properties) {
-            super(factory, properties);
-        }
-
-        private RecordInterceptor<Object, Object> installedRecordInterceptor() {
-            return super.getRecordInterceptor();
-        }
-    }
 }
