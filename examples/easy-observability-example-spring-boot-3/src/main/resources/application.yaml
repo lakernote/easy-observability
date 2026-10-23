@@ -24,7 +24,7 @@ spring:
   kafka:
     bootstrap-servers: localhost:29092
     consumer:
-      group-id: easy-observability-demo
+      group-id: easy-observability-demo-boot3
       auto-offset-reset: earliest
     template:
       observation-enabled: true
