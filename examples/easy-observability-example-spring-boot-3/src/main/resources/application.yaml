@@ -45,5 +45,5 @@ easy:
       job-slow-threshold-ms: 250
       executor-task-slow-threshold-ms: 250
       kafka-consumer-slow-threshold-ms: 250
-      redis-observation-enabled: false # Lettuce 在 Netty 线程完成命令；示例用 TraceBlock 包裹真实同步命令以保留父子关系。
+      redis-observation-enabled: true # 由 Lettuce Observation 自动生成 Redis 命令 Span。
       slow-error-trace-file: ./data/easy-observability-example-spring-boot-3/traces.jsonl

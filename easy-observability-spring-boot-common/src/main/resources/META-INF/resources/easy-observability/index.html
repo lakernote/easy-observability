@@ -6,7 +6,7 @@
   <meta name="color-scheme" content="light">
   <title>Easy Observability · Trace</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="/easy-observability/assets/dashboard.css?v=20261022.17">
+  <link rel="stylesheet" href="/easy-observability/assets/dashboard.css?v=20261023.21">
 </head>
 <body>
   <a class="skip-link" href="#main-content">跳到主要内容</a>
@@ -37,8 +37,8 @@
     <section class="trace-list" aria-label="慢调用和错误 Trace 列表">
       <p class="scroll-hint">表格可横向滚动查看全部字段</p>
       <div class="table-scroll"><table>
-        <caption class="sr-only">慢调用和错误 Trace；分配内存为请求线程累计分配量，不代表当前堆占用</caption>
-        <thead><tr><th scope="col">结果</th><th scope="col">入口</th><th scope="col">状态</th><th scope="col">总耗时</th><th scope="col" title="请求线程在 Trace 执行期间累计分配的对象内存；不是当前堆占用">分配内存</th><th scope="col">Trace ID</th><th scope="col">完成时间</th></tr></thead>
+        <caption class="sr-only">慢调用和错误 Trace；分配量是入口线程累计分配的对象内存，不代表当前堆占用</caption>
+        <thead><tr><th scope="col">结果</th><th scope="col">入口</th><th scope="col">状态</th><th scope="col">总耗时</th><th scope="col" title="入口线程在 Trace 执行期间累计分配的对象内存；不是当前堆占用">入口线程分配量</th><th scope="col">Trace ID</th><th scope="col">完成时间</th></tr></thead>
         <tbody id="trace-rows"></tbody>
       </table></div>
       <p id="empty" class="empty" hidden>暂无慢调用或错误 Trace；正常请求不会显示在此列表中</p>
@@ -49,8 +49,8 @@
   <dialog id="detail-dialog" aria-labelledby="detail-title">
     <div class="dialog-head"><div><p class="eyebrow">TRACE DETAIL</p><h2 id="detail-title">调用详情</h2></div><button id="close-dialog" class="close" aria-label="关闭">×</button></div>
     <div id="facts" class="facts"></div>
-    <h3>端到端调用树</h3>
-    <pre id="tree" class="tree"></pre>
+    <div class="tree-heading"><h3>端到端调用树</h3><span>慢/错节点已标记 · 耗时条以入口耗时为参照 · CPU 和分配量只统计入口线程</span></div>
+    <div id="tree" class="tree-view" role="region" aria-label="端到端调用树"></div>
     <section id="error-section" class="error-detail" hidden>
       <h3>异常</h3><p id="error-message" class="error-message"></p>
       <h4>堆栈</h4><pre id="error-stack" class="stack"></pre>
@@ -61,6 +61,6 @@
     <p>将删除当前实例内存中的近期记录和慢错归档文件。</p>
     <div class="dialog-actions"><button id="cancel-clear" type="button">取消</button><button id="confirm-clear" class="danger" type="button">清空</button></div>
   </dialog>
-  <script type="module" src="/easy-observability/assets/dashboard.js?v=20261022.17"></script>
+  <script type="module" src="/easy-observability/assets/dashboard.js?v=20261023.21"></script>
 </body>
 </html>

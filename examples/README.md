@@ -44,11 +44,17 @@ Kafka 首次启动时 broker 和 consumer group 需要一些时间完成协调�
 
 主页的“异步线程池上下文传播对照”提供 `normal`、`slow`、`error` 三种任务，以及带/不带 Trace 包装器两种线程池：
 
-- `propagation=wrapped`：线程池使用 `TraceContextTaskDecorator`。任务能读取父 Trace ID 和 Trace 上下文；`ExecutorTaskTrace` 将任务耗时、慢状态和异常挂到 HTTP Trace 调用树。接口会等待任务结束，保证父 Trace 仍处于活动状态。
+- `propagation=wrapped`：线程池只需配置一次公共 `TraceContextTaskDecorator`。任务自动继承父 Trace，并以 `executor.task` 节点记录耗时、慢状态和异常；不需要在任务代码里手动包装。接口会等待任务结束，保证父 Trace 仍处于活动状态。
 - `propagation=unwrapped`：线程池不使用包装器。任务状态响应显示上下文未传播，任务不会出现在请求 Trace 调用树中。
 - `/api/demo/executor/{taskId}` 可查看任务执行状态；提交入口也会等待任务完成并返回任务状态、worker 线程以及上下文传播结果。
 
-线程池任务记录为 Trace 节点，不注册 Timer 或其他 Micrometer meter。
+任务节点使用通用名称 `executor.task`，标签显示执行线程名；慢阈值由 `easy.observability.trace.executor-task-slow-threshold-ms` 控制。Trace 记录不注册 Timer 或其他 Micrometer meter。Spring 的 `Future` 会吸收任务异常，装饰器会在任务结束后读取已完成 Future 的异常结果；任务内部自行捕获且不再抛出的异常无法由边界装饰器判断。
+
+## Redis 与 RestClient 自动接入
+
+两个示例均启用 Lettuce Observation。Redis 命令由客户端自动生成命令级 Trace Span，业务代码不需要用 `TraceBlock` 包围每次调用。Spring Boot 4 使用 Boot 自带的 Lettuce Micrometer 集成；Spring Boot 3 由 Starter 的 Lettuce `ClientResourcesBuilderCustomizer` 接入。示例保留的 Redis 正常、慢、错误场景都是真实 Redis 命令。
+
+示例的 HTTP 客户端通过 Spring 管理的 `RestClient.Builder` 创建。Starter 自动添加 Trace ID 拦截器，Boot 的 Observation 负责远程调用 Span。`RestClient.create()` 或单独调用 `RestClient.builder()` 创建的客户端绕过 Spring 定制器，不会自动传递 Trace ID。
 
 ## 完整链路与事务回滚
 

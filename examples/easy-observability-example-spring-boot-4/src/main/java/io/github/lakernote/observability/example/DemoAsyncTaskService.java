@@ -1,6 +1,5 @@
 package io.github.lakernote.observability.example;
 
-import io.github.lakernote.observability.integration.executor.ExecutorTaskTrace;
 import io.github.lakernote.observability.trace.TraceContext;
 import io.github.lakernote.observability.trace.TraceIdContext;
 import org.springframework.scheduling.annotation.Async;
@@ -12,12 +11,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 public class DemoAsyncTaskService {
-    private final ExecutorTaskTrace observations;
     private final Map<String, ConcurrentHashMap<String, String>> statuses = new ConcurrentHashMap<>();
-
-    public DemoAsyncTaskService(ExecutorTaskTrace observations) {
-        this.observations = observations;
-    }
 
     public void registerTask(String taskId, String mode, String propagation, String parentTraceId) {
         ConcurrentHashMap<String, String> state = new ConcurrentHashMap<>();
@@ -31,17 +25,17 @@ public class DemoAsyncTaskService {
 
     @Async("demoTaskExecutor")
     public CompletableFuture<Void> executeWrapped(String taskId, String mode) {
-        executeTask(taskId, mode, "demoTaskExecutor");
+        executeTask(taskId, mode);
         return CompletableFuture.completedFuture(null);
     }
 
     @Async("demoTaskExecutorUnwrapped")
     public CompletableFuture<Void> executeUnwrapped(String taskId, String mode) {
-        executeTask(taskId, mode, "demoTaskExecutorUnwrapped");
+        executeTask(taskId, mode);
         return CompletableFuture.completedFuture(null);
     }
 
-    private void executeTask(String taskId, String mode, String executorName) {
+    private void executeTask(String taskId, String mode) {
         ConcurrentHashMap<String, String> state = statuses.get(taskId);
         if (state == null) return;
         state.put("status", "running");
@@ -52,14 +46,14 @@ public class DemoAsyncTaskService {
         state.put("traceIdMatchesParent", Boolean.toString(state.get("parentTraceId").equals(observedTraceId)));
         state.put("taskTraceRecorded", Boolean.toString(TraceContext.active()));
         try {
-            observations.observe(executorName, "executor-demo." + mode, () -> {
-                if ("slow".equals(mode)) pause(700);
-                if ("error".equals(mode)) throw new IllegalStateException("Example executor task failure");
-            });
+            if ("slow".equals(mode)) pause(700);
+            if ("error".equals(mode)) throw new IllegalStateException("Example executor task failure");
             state.put("status", "completed");
         } catch (RuntimeException failure) {
             state.put("status", "failed");
             state.put("cause", failure.getClass().getSimpleName() + ": " + String.valueOf(failure.getMessage()));
+            // Keep the failure visible to the executor decorator (and the returned @Async Future).
+            throw failure;
         }
     }
 

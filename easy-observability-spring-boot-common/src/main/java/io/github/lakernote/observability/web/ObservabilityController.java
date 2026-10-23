@@ -2,6 +2,7 @@ package io.github.lakernote.observability.web;
 
 import io.github.lakernote.observability.trace.store.SlowErrorTraceStore;
 import io.github.lakernote.observability.trace.store.RecentTraceStore;
+import io.github.lakernote.observability.trace.TraceNode;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -52,9 +53,21 @@ public class ObservabilityController {
 
     private static boolean matchesTrace(RecentTraceStore.TraceRecord trace, String query) {
         return containsIgnoreCase(trace.name(), query) || containsIgnoreCase(trace.method(), query)
-                || containsIgnoreCase(trace.traceId(), query) || containsIgnoreCase(trace.tree(), query)
+                || containsIgnoreCase(trace.traceId(), query) || matchesTreeNode(trace.treeNodes(), query)
                 || containsIgnoreCase(trace.errorType(), query) || containsIgnoreCase(trace.errorMessage(), query)
                 || containsIgnoreCase(trace.threadName(), query);
+    }
+
+    private static boolean matchesTreeNode(List<TraceNode> nodes, String query) {
+        if (nodes == null) return false;
+        for (var node : nodes) {
+            if (containsIgnoreCase(node.name(), query) || containsIgnoreCase(node.tag(), query)
+                    || containsIgnoreCase(node.kind(), query) || containsIgnoreCase(node.errorType(), query)
+                    || containsIgnoreCase(node.threadName(), query) || matchesTreeNode(node.children(), query)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static boolean containsIgnoreCase(String value, String query) {

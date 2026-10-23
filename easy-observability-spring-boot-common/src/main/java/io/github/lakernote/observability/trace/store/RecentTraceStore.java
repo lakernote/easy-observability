@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import io.github.lakernote.observability.trace.TraceNode;
 
 /** Keeps a bounded in-memory view of completed traces for the bundled dashboard. */
 public class RecentTraceStore {
@@ -19,12 +20,13 @@ public class RecentTraceStore {
     }
 
     public synchronized void add(String traceId, String name, String method, String sourceType, int status,
-                    long durationMs, boolean slow, boolean error, String tree, String threadName, long threadId,
+                    long durationMs, boolean slow, boolean error, List<TraceNode> treeNodes,
+                    String threadName, long threadId,
                     long cpuTimeMs, long allocatedBytes, String errorType, String errorMessage,
                     String errorStackTrace) {
         if (!isEntrySource(sourceType)) return;
         records.addFirst(new TraceRecord(nextId.incrementAndGet(), traceId, name, method, status,
-                Math.max(0, durationMs), slow, error, tree, Instant.now(), threadId, cpuTimeMs, allocatedBytes,
+                Math.max(0, durationMs), slow, error, treeNodes, Instant.now(), threadId, cpuTimeMs, allocatedBytes,
                 sourceType, errorType, errorMessage, threadName, errorStackTrace));
         recordCount.incrementAndGet();
         while (recordCount.get() > capacity) {
@@ -79,11 +81,13 @@ public class RecentTraceStore {
 
     /** One completed request or manually recorded trace. */
     public record TraceRecord(long id, String traceId, String name, String method, int status,
-                              long durationMs, boolean slow, boolean error, String tree, Instant finishedAt,
+                              long durationMs, boolean slow, boolean error, List<TraceNode> treeNodes,
+                              Instant finishedAt,
                               long threadId, long cpuTimeMs, long allocatedBytes, String sourceType,
                               String errorType, String errorMessage, String threadName, String errorStackTrace) {
         public TraceRecord {
             sourceType = sourceType == null ? "" : sourceType;
+            treeNodes = treeNodes == null ? List.of() : List.copyOf(treeNodes);
             errorType = errorType == null ? "" : errorType;
             errorMessage = errorMessage == null ? "" : errorMessage;
             threadName = threadName == null ? "" : threadName;

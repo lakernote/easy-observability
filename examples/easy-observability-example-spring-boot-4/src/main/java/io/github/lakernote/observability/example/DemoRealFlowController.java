@@ -1,7 +1,5 @@
 package io.github.lakernote.observability.example;
 
-import io.github.lakernote.observability.trace.TraceBlock;
-import io.github.lakernote.observability.trace.SpanKind;
 import io.github.lakernote.observability.trace.TraceIdContext;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -34,10 +32,8 @@ public class DemoRealFlowController {
         String customer = "demo-customer";
         Map<String, Object> storedOrder = database.createAndReadOrder(orderId, customer);
 
-        String cachedValue = TraceBlock.call("Redis SET/GET", SpanKind.REDIS, "order cache", () -> {
-            redis.opsForValue().set("easy-observability:demo:order:" + orderId, customer);
-            return redis.opsForValue().get("easy-observability:demo:order:" + orderId);
-        });
+        redis.opsForValue().set("easy-observability:demo:order:" + orderId, customer);
+        String cachedValue = redis.opsForValue().get("easy-observability:demo:order:" + orderId);
         String remoteBody = httpBingo.get().uri("/anything/orders/{id}", orderId)
                 .retrieve().body(String.class);
         Map<String, Object> sent = kafka.publishOnly(traceId, orderId);

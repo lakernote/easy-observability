@@ -34,12 +34,11 @@ public class DemoIntegrationController {
         requireMode(mode);
         String orderId = UUID.randomUUID().toString();
         if ("error".equals(mode)) {
-            TraceBlock.run("JDBC duplicate-key failure", SpanKind.DATABASE, "H2 demo_orders",
-                    () -> database.insertDuplicateOrder(orderId));
+            database.insertDuplicateOrder(orderId);
             return Map.of("unexpected", "duplicate key should fail");
         }
         if ("slow".equals(mode)) {
-            return TraceBlock.call("JDBC simulated slow query", SpanKind.DATABASE, "H2 demo_orders", () -> {
+            return TraceBlock.call("demo.database.simulated-delay", SpanKind.CODE, "demo only", () -> {
                 pause(900);
                 return database.createAndReadOrder(orderId, "demo-customer");
             });
@@ -51,23 +50,21 @@ public class DemoIntegrationController {
     public Map<String, Object> redis(@RequestParam(defaultValue = "normal") String mode) {
         requireMode(mode);
         String traceId = TraceIdContext.currentTraceId();
-        return TraceBlock.call("Redis " + mode, SpanKind.REDIS, "redis localhost:16379", () -> {
-            if ("error".equals(mode)) {
-                String key = "easy-observability:demo:wrong-type:" + UUID.randomUUID();
-                redis.opsForValue().set(key, "string value");
-                // Deliberately issue a list command against a string key to produce Redis WRONGTYPE.
-                return Map.of("unexpected", String.valueOf(redis.opsForList().rightPop(key)));
-            }
-            Long count = redis.opsForValue().increment("easy-observability:demo:redis");
-            redis.opsForValue().set("easy-observability:demo:last-trace-id", traceId);
-            if ("slow".equals(mode)) {
-                String queueItem = redis.opsForList().leftPop("easy-observability:demo:queue", Duration.ofSeconds(1));
-                return Map.of("traceId", traceId, "counter", count == null ? 0 : count,
-                        "queueItem", queueItem == null ? "empty (BLPOP timeout)" : queueItem);
-            }
+        if ("error".equals(mode)) {
+            String key = "easy-observability:demo:wrong-type:" + UUID.randomUUID();
+            redis.opsForValue().set(key, "string value");
+            // Deliberately issue a list command against a string key to produce Redis WRONGTYPE.
+            return Map.of("unexpected", String.valueOf(redis.opsForList().rightPop(key)));
+        }
+        Long count = redis.opsForValue().increment("easy-observability:demo:redis");
+        redis.opsForValue().set("easy-observability:demo:last-trace-id", traceId);
+        if ("slow".equals(mode)) {
+            String queueItem = redis.opsForList().leftPop("easy-observability:demo:queue", Duration.ofSeconds(1));
             return Map.of("traceId", traceId, "counter", count == null ? 0 : count,
-                    "storedTraceId", redis.opsForValue().get("easy-observability:demo:last-trace-id"));
-        });
+                    "queueItem", queueItem == null ? "empty (BLPOP timeout)" : queueItem);
+        }
+        return Map.of("traceId", traceId, "counter", count == null ? 0 : count,
+                "storedTraceId", redis.opsForValue().get("easy-observability:demo:last-trace-id"));
     }
 
     @GetMapping("/api/demo/remote")

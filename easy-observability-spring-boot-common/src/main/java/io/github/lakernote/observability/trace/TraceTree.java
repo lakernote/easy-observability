@@ -232,6 +232,10 @@ final class TraceTree {
         return builder.value();
     }
 
+    synchronized List<TraceNode> snapshotNodes() {
+        return List.of(root.snapshotNode());
+    }
+
     /** Bounded append target shared with {@link Span}; once truncated, all later tree traversal stops. */
     static final class RenderBuffer {
         private final int maxChars;

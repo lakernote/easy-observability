@@ -1,7 +1,5 @@
 package io.github.lakernote.observability.example;
 
-import io.github.lakernote.observability.trace.SpanKind;
-import io.github.lakernote.observability.trace.TraceBlock;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -18,12 +16,9 @@ public class DemoScheduledJob {
     @Scheduled(initialDelayString = "${easy.observability.demo.schedule-initial-delay:5000}",
             fixedDelayString = "${easy.observability.demo.schedule-delay:30000}")
     public void countHeartbeat() {
-        TraceBlock.call("Redis INCR + LPOP", SpanKind.REDIS, "redis localhost:16379", () -> {
-            Long heartbeat = redis.opsForValue().increment("easy-observability:demo:scheduled-heartbeats");
-            // 后台心跳应保持轻量；阻塞等待会每 30 秒自动制造一条慢 Job 事件。
-            redis.opsForList().leftPop("easy-observability:demo:scheduled-queue");
-            return heartbeat;
-        });
+        redis.opsForValue().increment("easy-observability:demo:scheduled-heartbeats");
+        // 后台心跳应保持轻量；阻塞等待会每 30 秒自动制造一条慢 Job 事件。
+        redis.opsForList().leftPop("easy-observability:demo:scheduled-queue");
     }
 
 }

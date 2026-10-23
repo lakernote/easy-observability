@@ -7,6 +7,7 @@ import io.github.lakernote.observability.trace.store.RecentTraceStore;
 import io.micrometer.common.KeyValue;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationHandler;
+import io.micrometer.observation.ObservationView;
 
 import java.util.List;
 import java.util.Locale;
@@ -59,15 +60,18 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
             if (type == ObservationType.HTTP && isDashboardRequest(context)) return;
             // 只有入口 Observation 创建根 Trace。客户端调用、SQL、Redis 和事务是依赖节点；脱离入口时不生成孤立 Trace。
             boolean traceActive = TraceContext.active();
+            ObservationState parentState = parentTraceState(context);
             boolean root = type.entryPoint && !traceActive;
             String currentTraceId = TraceIdContext.currentTraceId();
             String propagatedTraceId = resolveTraceId(context);
-            boolean traceIdRequired = root || traceActive;
+            boolean traceIdRequired = root || traceActive || parentState != null;
             installedTraceId = !TraceIdContext.isValidTraceId(currentTraceId)
                     && (traceIdRequired || TraceIdContext.isValidTraceId(propagatedTraceId));
             // Kafka 的 Observation 在 RecordInterceptor 之前启动；此处先从消息头恢复同一 Trace ID。
             String traceId = TraceIdContext.isValidTraceId(propagatedTraceId)
                     ? propagatedTraceId
+                    : parentState != null && TraceIdContext.isValidTraceId(parentState.traceId)
+                    ? parentState.traceId
                     : traceIdRequired ? TraceIdContext.getOrCreateTraceId() : "";
             if (TraceIdContext.isValidTraceId(propagatedTraceId)
                     && !TraceIdContext.isValidTraceId(currentTraceId)) {
@@ -75,7 +79,7 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
                 installedTraceId = true;
             }
             String name = operationName(context, type.name());
-            String detail = observationDetail(context);
+            String detail = observationDetail(context, type);
             long threadId = Thread.currentThread().getId();
             String threadName = root ? safe(Thread.currentThread().getName(), 128) : "";
             // CPU and allocated bytes are sampled only at the entry boundary; child spans retain timing only.
@@ -89,10 +93,14 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
                 if (installedTraceId && traceHandle != null) {
                     traceHandle.rememberOwnedTraceId(traceId);
                 }
-            } else if (type == ObservationType.DATABASE || type == ObservationType.TRANSACTION) {
+            } else if (traceActive && (type == ObservationType.DATABASE || type == ObservationType.TRANSACTION)) {
                 // JDBC 查询在事务方法中同步执行；用作用域 span 表达事务包住 SQL 的真实调用层级。
                 TraceContext.ScopedSpan scopedSpan = TraceContext.startScopedSpan(name, type.spanKind, detail);
                 span = scopedSpan;
+            } else if (!traceActive && parentState != null && parentState.traceHandle != null) {
+                // Lettuce 等异步客户端可能在线程切换后才启动 Observation；沿用父 Observation 保留请求关联。
+                span = parentState.traceHandle.startDetachedSpan(name, type.spanKind, detail);
+                traceHandle = parentState.traceHandle;
             } else {
                 TraceContext.DetachedSpan detachedSpan = TraceContext.startDetachedSpan(name, type.spanKind, detail);
                 span = detachedSpan;
@@ -147,7 +155,7 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
         try {
             // JDBC query text is fixed at observation start; avoid re-running sanitization regexes on completion.
             String currentDetail = state.observationType == ObservationType.DATABASE
-                    ? state.startDetail : observationDetail(context);
+                    ? state.startDetail : observationDetail(context, state.observationType);
             // Spring MVC 的 URI 路由标签可能到 onStop 才补齐；此时再判断，避免诊断页轮询占满 Trace 保留区。
             if (state.observationType == ObservationType.HTTP && isDashboardPath(
                     currentDetail.isBlank() ? state.startDetail : currentDetail)) {
@@ -159,13 +167,22 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
             String displayName = traceDisplayName(context, state.observationType.name(), state.operationName, detail);
             ThreadResourceSnapshot resourcesAfter = state.rootObservation ? captureResourcesAtStop(state) : null;
             Throwable error = context.getError();
+            String commandError = state.observationType == ObservationType.REDIS
+                    ? highCardinality(context, "lettuce.command.error") : "";
             if (error != null && state.spanHandle != null) {
                 BoundedThrowableFormatter.FailureEvidence failure = state.failure == null
                         ? BoundedThrowableFormatter.capture(error) : state.failure;
                 state.spanHandle.markError(failure);
             }
             int status = httpStatus(context);
-            boolean failed = error != null || status >= 500;
+            boolean failed = error != null || status >= 500 || !commandError.isBlank();
+            if (!commandError.isBlank()) {
+                BoundedThrowableFormatter.FailureEvidence commandFailure =
+                        new BoundedThrowableFormatter.FailureEvidence("RedisCommandError",
+                                "Redis command failed: " + safe(commandError, 512), "");
+                if (state.spanHandle != null) state.spanHandle.markError(commandFailure);
+                if (state.traceHandle != null) state.traceHandle.markError("REDIS_COMMAND_ERROR", commandFailure);
+            }
             if (error == null && status >= 500) {
                 BoundedThrowableFormatter.FailureEvidence statusFailure =
                         new BoundedThrowableFormatter.FailureEvidence("HTTP_" + status,
@@ -243,7 +260,7 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
         // roots otherwise crowd out the traces that are useful for troubleshooting.
         if (!traceSlow && !traceFailed) return;
         recentTraceStore.add(state.traceId, displayName, detail, state.observationType.name(),
-                status > 0 ? status : failed ? 500 : 200, durationMs, traceSlow, traceFailed, completion.tree(),
+                status > 0 ? status : failed ? 500 : 200, durationMs, traceSlow, traceFailed, completion.nodes(),
                 state.startThreadName, state.startThreadId, cpuTimeMs, allocatedBytes,
                 completion.errorType(), completion.errorMessage(), completion.stackTrace());
         if (slowErrorTraceStore == null) return;
@@ -254,6 +271,17 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
         } catch (RuntimeException failure) {
             logCallbackFailure("slow/error trace persistence", failure);
         }
+    }
+
+    private static ObservationState parentTraceState(Observation.Context context) {
+        ObservationView parent = context.getParentObservation();
+        while (parent != null) {
+            Observation.ContextView parentContext = parent.getContextView();
+            ObservationState state = parentContext.get(STATE_KEY);
+            if (state != null && state.traceHandle != null) return state;
+            parent = parentContext.getParentObservation();
+        }
+        return null;
     }
 
     private ObservationType findObservationType(Observation.Context context) {
@@ -278,6 +306,10 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
     }
 
     private static String operationName(Observation.Context context, String type) {
+        if ("KAFKA_CONSUMER".equals(type)) {
+            String listenerId = lowCardinality(context, "spring.kafka.listener.id");
+            if (!listenerId.isBlank()) return safe(listenerId, 200);
+        }
         String operation = lowCardinality(context, "db.operation");
         if (operation.isBlank()) operation = lowCardinality(context, "http.method");
         if (operation.isBlank()) operation = lowCardinality(context, "http.request.method");
@@ -307,7 +339,21 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
         return operation;
     }
 
-    private static String observationDetail(Observation.Context context) {
+    private static String observationDetail(Observation.Context context, ObservationType type) {
+        if (type == ObservationType.KAFKA_CONSUMER) {
+            String topic = lowCardinality(context, "messaging.source.name");
+            String partition = highCardinality(context, "messaging.kafka.source.partition");
+            String offset = highCardinality(context, "messaging.kafka.message.offset");
+            String group = lowCardinality(context, "messaging.kafka.consumer.group");
+            String listenerId = lowCardinality(context, "spring.kafka.listener.id");
+            StringBuilder details = new StringBuilder();
+            appendDetail(details, "topic", topic);
+            appendDetail(details, "partition", partition);
+            appendDetail(details, "offset", offset);
+            appendDetail(details, "group", group);
+            appendDetail(details, "listener", listenerId);
+            if (!details.isEmpty()) return details.toString();
+        }
         String route = lowCardinality(context, "http.route");
         if (!route.isBlank()) return safe(route, 256);
         String uri = lowCardinality(context, "uri");
@@ -355,6 +401,17 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
     private static String lowCardinality(Observation.Context context, String key) {
         KeyValue value = context.getLowCardinalityKeyValue(key);
         return value == null ? "" : value.getValue();
+    }
+
+    private static String highCardinality(Observation.Context context, String key) {
+        KeyValue value = context.getHighCardinalityKeyValue(key);
+        return value == null ? "" : value.getValue();
+    }
+
+    private static void appendDetail(StringBuilder details, String key, String value) {
+        if (value == null || value.isBlank() || "none".equalsIgnoreCase(value)) return;
+        if (!details.isEmpty()) details.append(", ");
+        details.append(key).append('=').append(safe(value, 200));
     }
 
     private static int httpStatus(Observation.Context context) {

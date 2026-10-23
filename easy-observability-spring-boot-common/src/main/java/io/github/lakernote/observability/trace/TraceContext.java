@@ -353,18 +353,20 @@ public final class TraceContext {
             synchronized (trace) {
                 if (trace.completed()) return;
                 costMs = trace.completeRoot(slowThresholdMs, throwable);
-                String tree = trace.explicitTreeRequired() || trace.slow() || trace.error()
+                boolean captureTree = trace.explicitTreeRequired() || trace.slow() || trace.error();
+                String tree = captureTree
                         ? trace.renderTree() : "";
-                result = new Completion(tree, costMs, trace.slow(), trace.error(), trace.diagnosticReasons(),
+                List<TraceNode> nodes = captureTree ? trace.snapshotNodes() : List.of();
+                result = new Completion(tree, nodes, costMs, trace.slow(), trace.error(), trace.diagnosticReasons(),
                         trace.errorType(), trace.errorMessage(), trace.errorStackTrace());
             }
             completion.accept(result);
             if (throwable != null) {
                 logSlowErrorSummary(ERROR_LOG_LIMITER, true, description, costMs, slowThresholdMs,
-                        throwable.getClass().getName(), result.reasons());
+                        throwable.getClass().getName(), result.reasons(), result.tree());
             } else if (slowThresholdMs > 0 && costMs >= slowThresholdMs) {
                 logSlowErrorSummary(SLOW_LOG_LIMITER, false, description, costMs, slowThresholdMs,
-                        "", result.reasons());
+                        "", result.reasons(), result.tree());
             }
         } finally {
             ExecutionFrame current = CURRENT_FRAME.get();
@@ -398,6 +400,12 @@ public final class TraceContext {
 
         public void rememberOwnedTraceId(String traceId) {
             trace.rememberOwnedTraceId(traceId);
+        }
+
+        /** Adds a dependency span when a framework Observation resumes on another thread. */
+        public DetachedSpan startDetachedSpan(String name, SpanKind kind, String tag) {
+            Span span = trace.addChild(trace.rootSpan(), 1, name, kind, tag);
+            return span == null ? DetachedSpan.NOOP : new DetachedSpan(trace, span);
         }
 
         public void stop(long slowThresholdMs, String description, Throwable failure,
@@ -463,21 +471,22 @@ public final class TraceContext {
 
     private static void logSlowErrorSummary(SlowErrorLogLimiter limiter, boolean error, String description,
                                            long costMs, long thresholdMs, String exceptionType,
-                                           List<String> reasons) {
+                                           List<String> reasons, String tree) {
         long suppressed = limiter.tryAcquire(System.nanoTime());
         if (suppressed < 0) return;
         String safeDescription = oneLine(description, MAX_LOG_DESCRIPTION_CHARS);
         String safeExceptionType = oneLine(exceptionType, MAX_LOG_DESCRIPTION_CHARS);
         String safeReasons = summarizeReasons(reasons, MAX_LOG_REASON_CHARS);
         if (error) {
-            // 异常详情和有界调用树已保存在结构化事件中；重复写入日志会放大错误风暴的分配与 I/O，且可能泄漏原始消息。
+            // 文本调用树只写诊断日志；结构化 Trace JSON 使用 treeNodes，避免重复存储两份树。
             log.error("慢错 Trace 摘要: description={}, cost={}ms, threshold={}ms, exception={}, "
-                            + "reasons={}, previousWindowSuppressed={}",
-                    safeDescription, costMs, thresholdMs, safeExceptionType, safeReasons, suppressed);
+                            + "reasons={}, previousWindowSuppressed={}\n{}",
+                    safeDescription, costMs, thresholdMs, safeExceptionType, safeReasons, suppressed,
+                    tree == null ? "" : tree);
         } else {
             log.warn("慢调用 Trace 摘要: description={}, cost={}ms, threshold={}ms, reasons={}, "
-                            + "previousWindowSuppressed={}",
-                    safeDescription, costMs, thresholdMs, safeReasons, suppressed);
+                            + "previousWindowSuppressed={}\n{}",
+                    safeDescription, costMs, thresholdMs, safeReasons, suppressed, tree == null ? "" : tree);
         }
     }
 
@@ -547,10 +556,11 @@ public final class TraceContext {
         }
     }
 
-    public record Completion(String tree, long costMs, boolean slow, boolean error, List<String> reasons,
+    public record Completion(String tree, List<TraceNode> nodes, long costMs, boolean slow, boolean error, List<String> reasons,
                              String errorType, String errorMessage, String stackTrace) {
         public Completion {
             tree = tree == null ? "" : tree;
+            nodes = nodes == null ? List.of() : List.copyOf(nodes);
             reasons = reasons == null ? List.of() : List.copyOf(reasons);
             errorType = errorType == null ? "" : errorType;
             errorMessage = errorMessage == null ? "" : errorMessage;
@@ -575,6 +585,8 @@ public final class TraceContext {
         public String errorType() { return trace.errorType(); }
         public String errorMessage() { return trace.errorMessage(); }
         public String stackTrace() { return trace.errorStackTrace(); }
+
+        public List<TraceNode> nodes() { return trace.snapshotNodes(); }
 
         public String tree() {
             String value = renderedTree;

@@ -12,14 +12,14 @@ import java.util.concurrent.ThreadPoolExecutor;
 @EnableAsync
 public class DemoExecutorConfiguration {
     @Bean("demoTaskExecutor")
-    ThreadPoolTaskExecutor demoTaskExecutorWithTrace() {
+    ThreadPoolTaskExecutor demoTaskExecutorWithTrace(TraceContextTaskDecorator traceContextTaskDecorator) {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
         executor.setCorePoolSize(2);
         executor.setMaxPoolSize(4);
         executor.setQueueCapacity(100);
         executor.setThreadNamePrefix("demo-task-trace-");
         executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
-        executor.setTaskDecorator(new TraceContextTaskDecorator());
+        executor.setTaskDecorator(traceContextTaskDecorator);
         return executor;
     }
 

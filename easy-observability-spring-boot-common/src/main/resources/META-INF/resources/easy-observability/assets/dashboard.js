@@ -64,8 +64,11 @@ function filtered() {
     if (result === 'error' && !trace.error) return false
     if (source && trace.sourceType !== source) return false
     if (!query) return true
-    return [trace.name, trace.method, trace.traceId, trace.tree, trace.errorType, trace.errorMessage]
-      .some(value => String(value || '').toLocaleLowerCase().includes(query))
+    const matchesNode = nodes => Array.isArray(nodes) && nodes.some(item =>
+      [item.name, item.tag, item.kind, item.errorType, item.threadName]
+        .some(value => String(value || '').toLocaleLowerCase().includes(query)) || matchesNode(item.children))
+    return [trace.name, trace.method, trace.traceId, trace.errorType, trace.errorMessage]
+      .some(value => String(value || '').toLocaleLowerCase().includes(query)) || matchesNode(trace.treeNodes)
   })
 }
 
@@ -131,10 +134,86 @@ function formatAllocatedBytes(value) {
   return `${amount.toFixed(1)} ${unit}`
 }
 
+function renderTreeItem(item, totalMs, depth = 0, parent = null) {
+  const hasChildren = item.children.length > 0
+  const group = hasChildren ? node('details', `tree-node${depth === 0 ? ' root' : ''}`, '') : null
+  if (group) group.open = true
+  const row = node(hasChildren ? 'summary' : 'div', `tree-row${item.error ? ' has-error' : item.slow ? ' is-slow' : ''}`)
+  const toggle = node('span', 'tree-toggle', hasChildren ? '⌄' : '')
+  toggle.setAttribute('aria-hidden', 'true')
+  row.append(toggle)
+
+  const main = node('div', 'tree-main')
+  const kind = node('span', `tree-kind kind-${item.kind.toLowerCase()}`, item.kind)
+  const title = node('span', 'tree-label', item.label || '未命名调用')
+  main.append(kind, title)
+  const threadChanged = parent && item.threadId && parent.threadId && item.threadId !== parent.threadId
+  if (threadChanged) {
+    const switchLabel = node('span', 'tree-thread-switch', `线程切换 · ${item.threadName || `线程 ${item.threadId}`}`)
+    switchLabel.title = `${parent.threadName || `线程 ${parent.threadId}`} → ${item.threadName || `线程 ${item.threadId}`}`
+    main.append(switchLabel)
+  }
+  if (item.threadName) row.title = `执行线程：${item.threadName} (${item.threadId || '未知 ID'})`
+  if (item.error) {
+    const state = node('span', 'tree-state error-state', '错误')
+    if (item.errorType) state.title = item.errorType
+    main.append(state)
+  }
+  if (item.slow) main.append(node('span', 'tree-state slow-state', '慢调用'))
+
+  const metrics = node('div', 'tree-metrics')
+  const duration = item.durationMs
+  metrics.append(node('span', 'tree-duration', `${duration.toLocaleString()} ms`))
+  const bar = node('span', 'tree-bar')
+  const fill = node('i', item.error ? 'error-fill' : item.slow ? 'slow-fill' : '')
+  fill.style.width = `${totalMs > 0 ? Math.min(100, duration / totalMs * 100) : 0}%`
+  bar.setAttribute('aria-hidden', 'true')
+  bar.append(fill)
+  metrics.append(bar)
+  row.append(main, metrics)
+  if (group) group.addEventListener('toggle', () => { toggle.textContent = group.open ? '⌄' : '›' })
+
+  const tag = item.tag ? node('div', 'tree-tag', item.tag) : null
+  const errorType = item.errorType ? node('div', 'tree-tag tree-error-type', `异常类型：${item.errorType}`) : null
+  if (hasChildren) {
+    group.append(row)
+    if (errorType) group.append(errorType)
+    if (tag) group.append(tag)
+    const children = node('div', 'tree-children')
+    for (const child of item.children) children.append(renderTreeItem(child, totalMs, depth + 1, item))
+    group.append(children)
+    return group
+  }
+  const leaf = node('div', `tree-leaf${depth === 0 ? ' root' : ''}`)
+  const content = node('div', 'tree-content')
+  content.append(row)
+  if (errorType) content.append(errorType)
+  if (tag) content.append(tag)
+  leaf.append(content)
+  return leaf
+}
+
+function renderTraceTree(container, structuredNodes, totalMs) {
+  const mapNode = item => ({
+      kind: item.kind || 'Trace', label: item.name || '', tag: item.tag || '',
+      durationMs: Number(item.durationMs || 0), error: Boolean(item.error),
+      errorType: item.errorType || '', slow: Boolean(item.slow), threadName: item.threadName || '',
+      threadId: item.threadId == null ? '' : String(item.threadId),
+      children: Array.isArray(item.children) ? item.children.map(mapNode) : []
+    })
+  const roots = Array.isArray(structuredNodes) ? structuredNodes.map(mapNode) : []
+  container.replaceChildren()
+  if (!roots.length) {
+    container.append(node('p', 'tree-empty', '没有可展示的调用节点'))
+    return
+  }
+  for (const root of roots) container.append(renderTreeItem(root, totalMs))
+}
+
 async function openTrace(summary) {
   $('detail-title').textContent = summary.name || summary.traceId || '调用详情'
   $('facts').replaceChildren()
-  $('tree').textContent = '正在读取调用树…'
+  $('tree').replaceChildren(node('p', 'tree-empty', '正在读取调用树…'))
   $('error-section').hidden = true
   $('detail-dialog').showModal()
   try {
@@ -146,20 +225,21 @@ async function openTrace(summary) {
     addFact($('facts'), '总耗时', `${Number(detail.durationMs || 0).toLocaleString()} ms`)
     addFact($('facts'), '入口', `${sourceNames[detail.sourceType] || 'Trace'} · ${detail.name || detail.method || '入口'}`)
     addFact($('facts'), 'Trace ID', detail.traceId, 'wide')
-    addFact($('facts'), '线程', detail.threadName || detail.threadId)
+    addFact($('facts'), '入口线程', detail.threadName || detail.threadId)
     const cpuTimeMs = detail.cpuTimeMs == null ? NaN : Number(detail.cpuTimeMs)
-    addFact($('facts'), '线程 CPU 时间', Number.isFinite(cpuTimeMs) && cpuTimeMs >= 0
-      ? `${cpuTimeMs.toLocaleString()} ms` : '未采集')
-    addFact($('facts'), '线程分配量', formatAllocatedBytes(detail.allocatedBytes), '',
-      '请求线程在 Trace 执行期间累计分配的对象内存；不是当前堆占用')
-    $('tree').textContent = detail.tree || '没有可展示的子调用'
+    addFact($('facts'), '入口线程 CPU 时间', Number.isFinite(cpuTimeMs) && cpuTimeMs >= 0
+      ? `${cpuTimeMs.toLocaleString()} ms` : '未采集', '',
+      '只统计入口线程在 Trace 期间消耗的 CPU 时间；不等于整个请求链路的 CPU 总和')
+    addFact($('facts'), '入口线程分配量', formatAllocatedBytes(detail.allocatedBytes), '',
+      '入口线程在 Trace 期间累计分配的对象内存；不是当前堆占用，也不代表 DB 或远程服务的内存')
+    renderTraceTree($('tree'), detail.treeNodes, Number(detail.durationMs || 0))
     if (detail.error || detail.errorType || detail.errorStackTrace) {
       $('error-section').hidden = false
       $('error-message').textContent = [detail.errorType, detail.errorMessage].filter(Boolean).join(': ') || '有错误标记，未捕获到异常堆栈。'
       $('error-stack').textContent = detail.errorStackTrace || '当前异常没有可用的堆栈。'
     }
   } catch (error) {
-    $('tree').textContent = error.message
+    $('tree').replaceChildren(node('p', 'tree-empty', error.message))
   }
 }
 

@@ -9,6 +9,8 @@ final class Span {
     private String tag;
     private final SpanKind kind;
     private final Span parent;
+    private final String threadName;
+    private final long threadId;
     private long startNanos;
     /** 大多数节点没有子节点；只有确实挂入下游调用时才分配子节点列表。 */
     private List<Span> children;
@@ -23,6 +25,9 @@ final class Span {
         this.tag = normalizeTag(tag);
         this.kind = kind == null ? SpanKind.OTHER : kind;
         this.parent = parent;
+        Thread thread = Thread.currentThread();
+        this.threadName = thread.getName();
+        this.threadId = thread.getId();
         this.startNanos = System.nanoTime();
     }
 
@@ -93,6 +98,20 @@ final class Span {
     synchronized long costMs() {
         long end = endNanos == 0 ? System.nanoTime() : endNanos;
         return (end - startNanos) / 1_000_000;
+    }
+
+    TraceNode snapshotNode() {
+        List<TraceNode> childNodes = new ArrayList<>();
+        if (children != null) {
+            for (Span child : children) childNodes.add(child.snapshotNode());
+        }
+        return new TraceNode(kind.displayName(), bounded(name, 512), bounded(tag, 2048), costMs(), slow, error,
+                bounded(errorType, 256), bounded(threadName, 256), threadId, childNodes);
+    }
+
+    private static String bounded(String value, int maxLength) {
+        if (value == null || value.length() <= maxLength) return value == null ? "" : value;
+        return value.substring(0, maxLength);
     }
 
     void appendTree(TraceTree.RenderBuffer builder, String prefix, boolean last) {

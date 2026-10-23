@@ -48,15 +48,17 @@ examples/                                       # 两个 Boot 版本的端到端
 | 操作 | Trace 行为 | 边界 |
 | --- | --- | --- |
 | HTTP server | 记录入口路由、状态、耗时和错误 | 非 Spring MVC 入口需要显式接入 |
-| Spring HTTP client、OkHttp | 在对应客户端 Observation 可用时记录远程调用；Spring 容器中的 OkHttpClient 会自动增强 | 容器外创建的客户端不会自动增强 |
+| Spring HTTP client、OkHttp | 在对应客户端 Observation 可用时记录远程调用；Spring 管理的 `RestClient.Builder` 自动传递 Trace ID；Spring 容器中的 OkHttpClient 会自动增强 | `RestClient.create()` 等绕过 Spring Builder 的客户端不会自动增强 |
 | JDBC | 在当前 Trace 中记录脱敏 SQL 模板、耗时和错误 | 不记录绑定参数，也不做 SQL 汇总统计；可关闭 `easy.observability.trace.database-observation-enabled` |
 | Spring 事务、MyBatis | 记录事务范围；MyBatis SQL 通过 DataSource/JDBC 监听器记录为 SQL Span | 不额外创建 Mapper Span；自定义事务或非 Spring 边界需自行接入 |
-| Redis | 可用的 Redis Observation 作为依赖 Span | Lettuce 命令可能在 Netty 线程结束；按需用 `TraceBlock` 包住同步调用以保留父子关系 |
+| Redis | Lettuce Observation 自动记录命令级 Span，保留命令、耗时和错误 | Spring Boot 3/4 的 Lettuce Observation 接入随 Starter 自动配置；自定义 `ClientResources` 需自行接入 Observation |
 | Kafka | Listener 和 producer Observation 记录为入口或依赖 Span，并传播 Trace ID | Spring Kafka 需要启用 Listener/Template Observation；自定义消费者需自行接入 |
-| 线程池任务 | `ExecutorTaskTrace` 记录单个任务耗时、错误和线程；`TraceContextTaskDecorator` 传播活动 Trace | 任务边界需要显式调用；任务不会默认创建独立入口 Trace |
+| 线程池任务 | `TraceContextTaskDecorator` 在线程池边界传播活动 Trace，并自动记录任务耗时、慢状态和异常 | 在线程池配置一次装饰器；无活动父 Trace 时不创建任务节点 |
 | 业务方法 | `TraceBlock` 或 `@TraceSpan` 添加业务 Span | 不扫描所有 Service；`@TraceSpan` 需要应用已有 Spring AOP |
 
 Spring Boot Actuator 可以按应用配置提供 JVM、进程、连接池等原生指标。本项目不读取、存储或绘制这些指标；要查看 Actuator 指标，请使用应用自己的 Actuator 端点或现有监控系统。
+
+Redis 接入复用 Lettuce 的 Micrometer Observation，不单独注册 Meter；应用若启用了 Actuator 的 Meter handler，也会看到 Lettuce 自带的命令耗时指标。
 
 ## 慢调用与错误定位
 
@@ -145,12 +147,21 @@ return TraceBlock.call("partner.lookup", SpanKind.REMOTE, "partner-api",
         () -> partnerClient.lookup(accountId));
 ```
 
-线程池任务示例：
+在线程池上配置一次公共装饰器即可自动记录任务边界，不需要在每个任务里手动调用 Trace API：
 
 ```java
-executor.execute(() -> executorTaskTrace.observe(
-        "billingExecutor", "invoice.reconcile", () -> invoiceService.reconcile()));
+@Bean("billingExecutor")
+ThreadPoolTaskExecutor billingExecutor(TraceContextTaskDecorator traceTaskDecorator) {
+    ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+    executor.setCorePoolSize(4);
+    executor.setTaskDecorator(traceTaskDecorator);
+    return executor;
+}
 ```
+
+后续照常提交任务；装饰器会在线程池边界自动创建 `executor.task` Trace 节点。
+
+Spring 管理的 `RestClient.Builder` 也会自动传递当前 Trace ID，并使用 Spring Boot 的 Observation 记录远程调用。通过 `RestClient.create()` 或独立 `RestClient.builder()` 绕过 Spring Builder 时，不会应用 Starter 的 Trace ID 拦截器。
 
 ## 运行示例
 

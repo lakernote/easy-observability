@@ -2,7 +2,6 @@ package io.github.lakernote.observability.autoconfigure;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
-import io.github.lakernote.observability.integration.executor.ExecutorTaskTrace;
 import io.github.lakernote.observability.integration.observation.ObservationTraceHandler;
 import io.github.lakernote.observability.integration.observation.ObservationTraceIdResolver;
 import io.github.lakernote.observability.trace.BoundedHistoryWriter;
@@ -70,23 +69,14 @@ public class ObservabilityAutoConfiguration {
     }
 
     /**
-     * 为执行器任务添加 Trace 子节点，不向 Micrometer 注册独立 Meter。
-     */
-    @Bean
-    @ConditionalOnMissingBean
-    ExecutorTaskTrace executorTaskTrace(EasyObservabilityProperties properties) {
-        return new ExecutorTaskTrace(properties);
-    }
-
-    /**
-     * 在线程切换时传播 Trace 上下文，便于异步任务沿用调用链信息。
+     * 在线程池任务边界传播 Trace 上下文，并自动记录任务耗时、慢任务与异常。
      */
     @Bean
     @ConditionalOnProperty(prefix = "easy.observability.trace", name = "enabled",
             havingValue = "true", matchIfMissing = true)
     @ConditionalOnMissingBean(org.springframework.core.task.TaskDecorator.class)
-    TraceContextTaskDecorator traceContextTaskDecorator() {
-        return new TraceContextTaskDecorator();
+    TraceContextTaskDecorator traceContextTaskDecorator(EasyObservabilityProperties properties) {
+        return new TraceContextTaskDecorator(properties);
     }
 
     /**
