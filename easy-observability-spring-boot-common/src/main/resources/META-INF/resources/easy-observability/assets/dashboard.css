@@ -202,15 +202,15 @@ body:has(dialog[open]) { overflow: hidden; }
 .tree-view { margin: 0 22px 18px; padding: 12px; border: 1px solid #e3e9f1; border-radius: 8px; background: #fbfcfe; }
 .tree-view:empty { display: none; }
 .tree-empty { margin: 0; padding: 18px; color: var(--muted); font-size: 12px; }
-.diagnosis-summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; margin: 0 0 10px; padding: 9px 10px; border-left: 3px solid #d4952c; background: #fffaf0; color: #694b13; font-size: 12px; }
-.diagnosis-summary.is-error { border-left-color: #c74351; background: #fff5f5; color: #8e2c38; }
-.diagnosis-summary.is-unfinished { border-left-color: #557ac1; background: #f1f5fc; color: #385783; }
-.diagnosis-summary strong { font-size: 11px; }
-.diagnosis-summary b { margin-left: auto; font-variant-numeric: tabular-nums; }
-.unfinished-notice { margin: 0 0 10px; padding: 8px 10px; border-radius: 6px; background: #f1f5fc; color: #385783; font-size: 11px; line-height: 1.5; }
-.timeline-scale, .timeline-row { display: grid; grid-template-columns: minmax(200px, 42%) minmax(120px, 1fr) 74px; gap: 12px; }
+.timeline-scale, .timeline-row { display: grid; grid-template-columns: minmax(200px, 40%) 52px minmax(120px, 1fr) 74px; gap: 12px; }
 .timeline-scale { margin: 0 10px 6px; font-size: 10px; font-variant-numeric: tabular-nums; }
 .timeline-ticks { display: flex; justify-content: space-between; color: var(--muted); }
+.timeline-thread-heading { color: var(--muted); text-align: center; }
+.thread-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 8px; }
+.thread-legend-title { color: var(--muted); font-size: 10px; }
+.thread-legend-item { max-width: 100%; overflow: hidden; padding: 4px 8px; border-radius: 5px; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.thread-legend-item.entry-thread { background: #edf1f6; color: #526176; }
+.thread-legend-item.worker-thread { background: #eaf1ff; color: #315fba; }
 .timeline-legacy { margin: 0 0 8px; padding: 8px 10px; border-radius: 6px; background: #fff8e9; color: #835a12; font-size: 11px; }
 .timeline-row {
   width: 100%;
@@ -240,6 +240,9 @@ body:has(dialog[open]) { overflow: hidden; }
 .error-state { background: #fde8e9; color: #ae2e3d; }
 .slow-state { background: #fff0d7; color: #976000; }
 .unfinished-state { background: #e4ecfa; color: #355b9a; }
+.timeline-thread { display: inline-grid; width: 30px; min-height: 22px; place-items: center; border-radius: 5px; font-size: 9px; font-weight: 750; }
+.timeline-thread.entry-thread { background: #edf1f6; color: #526176; }
+.timeline-thread.worker-thread { background: #eaf1ff; color: #315fba; }
 .timeline-track { position: relative; display: block; height: 17px; border-left: 1px solid #d8e0eb; background: repeating-linear-gradient(90deg, transparent 0, transparent calc(25% - 1px), #e8edf4 calc(25% - 1px), #e8edf4 25%); }
 .timeline-bar { position: absolute; top: 4px; min-width: 3px; height: 9px; border-radius: 5px; background: #6685bd; }
 .timeline-bar.error-fill { background: #c74351; }
@@ -297,14 +300,12 @@ body:has(dialog[open]) { overflow: hidden; }
   .tree-heading { display: block; margin: 12px 14px 7px; }
   .tree-heading > span { display: block; margin-top: 4px; text-align: left; }
   .tree-view { margin: 0 10px 12px; padding: 8px 6px; overflow-x: auto; }
-  .timeline-scale, .timeline-row { min-width: 620px; grid-template-columns: 250px minmax(220px, 1fr) 56px; gap: 7px; }
+  .timeline-scale, .timeline-row { min-width: 620px; grid-template-columns: 250px 38px minmax(220px, 1fr) 56px; gap: 7px; }
   .timeline-scale { margin: 0 5px 6px; }
   .timeline-row { min-height: 40px; padding-right: 5px; }
   .timeline-label { gap: 6px; padding-left: calc(min(var(--depth), 8) * 9px); }
   .timeline-kind { flex-basis: 58px; font-size: 8px; }
   .timeline-name, .timeline-duration { font-size: 10px; }
-  .diagnosis-summary { align-items: flex-start; gap: 4px 7px; font-size: 11px; }
-  .diagnosis-summary b { width: 100%; margin-left: 0; }
   .span-detail { margin: 0 14px 12px; padding: 10px 0; }
   .span-fact { font-size: 10px; }
   .error-detail { padding: 10px 14px 14px; }
