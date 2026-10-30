@@ -1,6 +1,7 @@
 package io.github.lakernote.observability.web;
 
 import io.github.lakernote.observability.trace.store.RecentTraceStore;
+import io.github.lakernote.observability.trace.TraceNodeFixtures;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -10,8 +11,8 @@ class ObservabilityControllerTest {
     @Test
     void returnsOnlySlowAndErrorTraces() {
         RecentTraceStore history = new RecentTraceStore(10);
-        history.add("trace-1", "OrdersController#create", "POST /orders", "HTTP", 201, 12, false, false, "", "", -1, -1, -1, "", "", "");
-        history.add("trace-2", "OrdersController#slow", "GET /orders", "HTTP", 200, 900, true, false, "", "", -1, -1, -1, "", "", "");
+        record(history, "trace-1", "OrdersController#create", "POST /orders", "HTTP", 201, 12, false, false, "", "", -1, -1, -1, "", "", "");
+        record(history, "trace-2", "OrdersController#slow", "GET /orders", "HTTP", 200, 900, true, false, "", "", -1, -1, -1, "", "", "");
         ObservabilityController controller = new ObservabilityController(history, null, () -> true);
 
         var traces = controller.traces(100, "", "");
@@ -31,7 +32,7 @@ class ObservabilityControllerTest {
     @Test
     void clearsRecentTraceWindowThroughProtectedClearAction() throws Exception {
         RecentTraceStore history = new RecentTraceStore(10);
-        history.add("trace-1", "GET /orders", "GET", "HTTP", 200, 12, false, false, "tree", "", -1, -1, -1, "", "", "");
+        record(history, "trace-1", "GET /orders", "GET", "HTTP", 200, 12, false, false, "tree", "", -1, -1, -1, "", "", "");
         ObservabilityController controller = new ObservabilityController(history, null, () -> true);
 
         var result = controller.clearTraceHistory();
@@ -52,13 +53,13 @@ class ObservabilityControllerTest {
     @Test
     void slowAndErrorListsReturnRootTracesFilteredByTheirEntrySource() {
         RecentTraceStore history = new RecentTraceStore(10);
-        history.add("http-slow", "OrdersController#list", "GET /orders", "HTTP", 200, 900, true, false, "http tree", "", -1, -1, -1, "", "", "");
-        history.add("job-error", "NightlyJob#run", "nightly-job", "JOB", 500, 120, false, true, "job tree", "", 7, 2, 100, "TransactionRollback", "query failed", "");
+        record(history, "http-slow", "OrdersController#list", "GET /orders", "HTTP", 200, 900, true, false, "http tree", "", -1, -1, -1, "", "", "");
+        record(history, "job-error", "NightlyJob#run", "nightly-job", "JOB", 500, 120, false, true, "job tree", "", 7, 2, 100, "TransactionRollback", "query failed", "");
         ObservabilityController controller = new ObservabilityController(history, null, () -> true);
 
-        var slow = controller.slowErrors("slow", "", 100);
-        var httpSlow = controller.slowErrors("slow", "HTTP", 100);
-        var errors = controller.slowErrors("error", "", 100);
+        var slow = controller.diagnostics("slow", "", 100);
+        var httpSlow = controller.diagnostics("slow", "HTTP", 100);
+        var errors = controller.diagnostics("error", "", 100);
 
         assertThat(slow).extracting(RecentTraceStore.TraceRecord::traceId).containsExactly("http-slow");
         assertThat(httpSlow).extracting(RecentTraceStore.TraceRecord::traceId).containsExactly("http-slow");
@@ -67,16 +68,16 @@ class ObservabilityControllerTest {
     }
 
     @Test
-    void traceListAndSlowErrorDrillDownNeverExposeDependencyOperationsAsRoots() {
+    void diagnosticTraceDrillDownNeverExposesDependencyOperationsAsRoots() {
         RecentTraceStore history = new RecentTraceStore(10);
-        history.add("http-1", "GET /orders", "GET", "HTTP", 200, 40, false, false, "http tree", "", -1, -1, -1, "", "", "");
-        history.add("redis-1", "Redis get", "get", "REDIS", 200, 1, true, false, "redis tree", "", -1, -1, -1, "", "", "");
-        history.add("transaction-1", "OrderService#create", "write", "TRANSACTION", 500, 100, false, true, "transaction tree", "", -1, -1, -1, "", "", "");
+        record(history, "http-1", "GET /orders", "GET", "HTTP", 200, 40, false, false, "http tree", "", -1, -1, -1, "", "", "");
+        record(history, "redis-1", "Redis get", "get", "REDIS", 200, 1, true, false, "redis tree", "", -1, -1, -1, "", "", "");
+        record(history, "transaction-1", "OrderService#create", "write", "TRANSACTION", 500, 100, false, true, "transaction tree", "", -1, -1, -1, "", "", "");
         ObservabilityController controller = new ObservabilityController(history, null, () -> true);
 
         assertThat(controller.traces(100, "", "")).isEmpty();
-        assertThat(controller.slowErrors("slow", "", 100)).isEmpty();
-        assertThat(controller.slowErrors("error", "", 100)).isEmpty();
+        assertThat(controller.diagnostics("slow", "", 100)).isEmpty();
+        assertThat(controller.diagnostics("error", "", 100)).isEmpty();
         assertThat(controller.trace("redis-1", "")).isNull();
         assertThat(controller.trace("transaction-1", "")).isNull();
     }
@@ -84,21 +85,21 @@ class ObservabilityControllerTest {
     @Test
     void keepsDistinctEntryRootsWhenHttpAndKafkaShareOneTraceId() {
         RecentTraceStore history = new RecentTraceStore(10);
-        history.add("shared-trace", "/api/demo/kafka/error", "GET", "HTTP", 200, 35, false, false, "http tree", "", -1, -1, -1, "", "", "");
-        history.add("shared-trace", "receive", "", "KAFKA_CONSUMER", 200, 4, false, true, "kafka tree", "", -1, -1, -1, "", "", "");
+        record(history, "shared-trace", "/api/demo/kafka/error", "GET", "HTTP", 200, 35, false, false, "http tree", "", -1, -1, -1, "", "", "");
+        record(history, "shared-trace", "receive", "", "KAFKA_CONSUMER", 200, 4, false, true, "kafka tree", "", -1, -1, -1, "", "", "");
         ObservabilityController controller = new ObservabilityController(history, null, () -> true);
 
         assertThat(controller.traces(10, "", "")).extracting(RecentTraceStore.TraceRecord::sourceType)
                 .containsExactly("KAFKA_CONSUMER");
-        assertThat(controller.slowErrors("error", "", 10))
+        assertThat(controller.diagnostics("error", "", 10))
                 .extracting(RecentTraceStore.TraceRecord::sourceType).containsExactly("KAFKA_CONSUMER");
     }
 
     @Test
     void filtersTraceListBySource() {
         RecentTraceStore history = new RecentTraceStore(10);
-        history.add("job-trace", "nightly cleanup", "", "JOB", 200, 120, true, false, "tree", "", -1, -1, -1, "", "", "");
-        history.add("http-trace", "GET /orders", "GET", "HTTP", 200, 20, false, false, "tree", "", -1, -1, -1, "", "", "");
+        record(history, "job-trace", "nightly cleanup", "", "JOB", 200, 120, true, false, "tree", "", -1, -1, -1, "", "", "");
+        record(history, "http-trace", "GET /orders", "GET", "HTTP", 200, 20, false, false, "tree", "", -1, -1, -1, "", "", "");
         ObservabilityController controller = new ObservabilityController(history, null, () -> true);
 
         var matches = controller.traces(100, "JOB", "");
@@ -112,8 +113,8 @@ class ObservabilityControllerTest {
     @Test
     void searchesRecentTraceTreesForSqlAndDependencyDetails() {
         RecentTraceStore history = new RecentTraceStore(10);
-        history.add("sql-trace", "GET /orders", "GET", "HTTP", 200, 400, true, false, "`- [Database] query tag=\"select * from orders where id = ?\" 7ms", "", -1, -1, -1, "", "", "");
-        history.add("other-trace", "GET /health", "GET", "HTTP", 200, 3, false, false, "health tree", "", -1, -1, -1, "", "", "");
+        record(history, "sql-trace", "GET /orders", "GET", "HTTP", 200, 400, true, false, "`- [Database] query tag=\"select * from orders where id = ?\" 7ms", "", -1, -1, -1, "", "", "");
+        record(history, "other-trace", "GET /health", "GET", "HTTP", 200, 3, false, false, "health tree", "", -1, -1, -1, "", "", "");
         ObservabilityController controller = new ObservabilityController(history, null, () -> true);
 
         var matches = controller.traces(100, "HTTP", "select * from orders");
@@ -124,7 +125,7 @@ class ObservabilityControllerTest {
     @Test
     void searchesKafkaTraceByListenerThreadName() {
         RecentTraceStore history = new RecentTraceStore(10);
-        history.add("kafka-trace", "receive", "", "KAFKA_CONSUMER", 500, 8, false, true, "kafka tree", "demo-listener-0-C-1", 11, 1, 512, "", "", "");
+        record(history, "kafka-trace", "receive", "", "KAFKA_CONSUMER", 500, 8, false, true, "kafka tree", "demo-listener-0-C-1", 11, 1, 512, "", "", "");
         ObservabilityController controller = new ObservabilityController(history, null, () -> true);
 
         var matches = controller.traces(100, "KAFKA_CONSUMER", "demo-listener-0");
@@ -135,13 +136,22 @@ class ObservabilityControllerTest {
     @Test
     void reportsTheMemoryTraceHistoryCapacity() {
         RecentTraceStore history = new RecentTraceStore(12);
-        history.add("trace-1", "GET /orders", "GET", "HTTP", 200, 20, false, false, "tree", "", -1, -1, -1, "", "", "");
+        record(history, "trace-1", "GET /orders", "GET", "HTTP", 200, 20, false, false, "tree", "", -1, -1, -1, "", "", "");
         ObservabilityController controller = new ObservabilityController(history, null, () -> true);
 
         var status = controller.traceStorage();
 
         assertThat(status.recentTraceCount()).isEqualTo(1);
         assertThat(status.recentTraceCapacity()).isEqualTo(12);
-        assertThat(status.slowErrorTraceCapacity()).isZero();
+        assertThat(status.diagnosticTraceCapacity()).isZero();
+    }
+
+    private static void record(RecentTraceStore history, String traceId, String name, String method, String sourceType,
+                              int status, long durationMs, boolean slow, boolean error, String tree, String threadName,
+                              long threadId, long cpuTimeMs, long allocatedBytes, String errorType, String errorMessage,
+                              String errorStackTrace) {
+        history.add(traceId, name, method, sourceType, status, durationMs, slow, error,
+                TraceNodeFixtures.named(tree), threadName, threadId, cpuTimeMs, allocatedBytes, errorType,
+                errorMessage, errorStackTrace, false, false);
     }
 }

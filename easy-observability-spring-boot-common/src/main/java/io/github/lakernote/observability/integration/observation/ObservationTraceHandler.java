@@ -2,7 +2,7 @@ package io.github.lakernote.observability.integration.observation;
 
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
 import io.github.lakernote.observability.trace.*;
-import io.github.lakernote.observability.trace.store.SlowErrorTraceStore;
+import io.github.lakernote.observability.trace.store.DiagnosticTraceStore;
 import io.github.lakernote.observability.trace.store.RecentTraceStore;
 import io.micrometer.common.KeyValue;
 import io.micrometer.observation.Observation;
@@ -27,15 +27,15 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
 
     private final RecentTraceStore recentTraceStore;
     private final EasyObservabilityProperties properties;
-    private final SlowErrorTraceStore slowErrorTraceStore;
+    private final DiagnosticTraceStore diagnosticTraceStore;
     private final List<ObservationTraceIdResolver> traceIdResolvers;
     private final AtomicBoolean callbackFailureLogged = new AtomicBoolean();
 
-    public ObservationTraceHandler(RecentTraceStore recentTraceStore, SlowErrorTraceStore slowErrorTraceStore,
+    public ObservationTraceHandler(RecentTraceStore recentTraceStore, DiagnosticTraceStore diagnosticTraceStore,
                                    EasyObservabilityProperties properties,
                                    List<ObservationTraceIdResolver> traceIdResolvers) {
         this.recentTraceStore = recentTraceStore;
-        this.slowErrorTraceStore = slowErrorTraceStore;
+        this.diagnosticTraceStore = diagnosticTraceStore;
         this.properties = properties;
         this.traceIdResolvers = List.copyOf(traceIdResolvers);
     }
@@ -83,8 +83,7 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
             long threadId = Thread.currentThread().getId();
             String threadName = root ? safe(Thread.currentThread().getName(), 128) : "";
             // CPU and allocated bytes are sampled only at the entry boundary; child spans retain timing only.
-            ThreadResourceSnapshot resources = root ? ThreadResourceSnapshot.capture(threadId,
-                    properties.getTrace().isResourceSamplingEnabled()) : null;
+            ThreadResourceSnapshot resources = root ? ThreadResourceSnapshot.capture(threadId) : null;
             if (root) {
                 // 入口建立请求级 Trace；依赖调用只挂到当前 Trace，不会单独伪装成请求。
                 TraceContext.startRootSpan(name, type.spanKind, detail, 8, 0);
@@ -212,8 +211,12 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
                     : resourcesAfter.cpuTimeMsSince(state.resourcesAtStart);
             long allocatedBytes = resourcesAfter == null || state.resourcesAtStart == null ? -1
                     : resourcesAfter.allocatedBytesSince(state.resourcesAtStart);
+            boolean highCpu = properties.getTrace().getCpuThresholdMs() > 0
+                    && cpuTimeMs >= properties.getTrace().getCpuThresholdMs();
+            long allocationThresholdBytes = properties.getTrace().getAllocatedMemoryThreshold().toBytes();
+            boolean highAllocation = allocationThresholdBytes > 0 && allocatedBytes >= allocationThresholdBytes;
             completeRootTrace(state, threshold, error, displayName, detail, status, durationMs, slow, failed,
-                    cpuTimeMs, allocatedBytes);
+                    cpuTimeMs, allocatedBytes, highCpu, highAllocation);
         } catch (RuntimeException failure) {
             if (state.rootObservation && state.traceHandle != null) {
                 state.traceHandle.discard();
@@ -238,38 +241,38 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
             // 资源计数来自线程累计值，跨线程结束时无法安全相减，使用 -1 表示未知。
             return new ThreadResourceSnapshot(state.startThreadId, -1, -1);
         }
-        return ThreadResourceSnapshot.capture(state.startThreadId,
-                properties.getTrace().isResourceSamplingEnabled());
+        return ThreadResourceSnapshot.capture(state.startThreadId);
     }
 
     private void completeRootTrace(ObservationState state, long threshold, Throwable error, String displayName,
                                    String detail, int status, long durationMs, boolean slow, boolean failed,
-                                   long cpuTimeMs, long allocatedBytes) {
+                                   long cpuTimeMs, long allocatedBytes, boolean highCpu, boolean highAllocation) {
         if (!state.rootObservation || state.traceHandle == null) return;
+        if (highCpu || highAllocation) state.traceHandle.requireTree();
         state.traceHandle.stop(threshold, state.observationType.name() + " observation", error,
                 completion -> storeCompletedTrace(state, completion, displayName, detail, status,
-                        durationMs, slow, failed, cpuTimeMs, allocatedBytes));
+                        durationMs, slow, failed, cpuTimeMs, allocatedBytes, highCpu, highAllocation));
     }
 
     private void storeCompletedTrace(ObservationState state, TraceContext.Completion completion,
                                      String displayName, String detail, int status, long durationMs,
-                                     boolean slow, boolean failed, long cpuTimeMs, long allocatedBytes) {
+                                     boolean slow, boolean failed, long cpuTimeMs, long allocatedBytes,
+                                     boolean highCpu, boolean highAllocation) {
         boolean traceSlow = slow || completion.slow();
         boolean traceFailed = failed || completion.error();
-        // Keep the bounded in-memory window focused on slow/error roots too; successful, fast
-        // roots otherwise crowd out the traces that are useful for troubleshooting.
-        if (!traceSlow && !traceFailed) return;
+        // Retain resource-heavy roots as diagnostics even when their wall-clock duration is low.
+        if (!traceSlow && !traceFailed && !highCpu && !highAllocation) return;
         recentTraceStore.add(state.traceId, displayName, detail, state.observationType.name(),
                 status > 0 ? status : failed ? 500 : 200, durationMs, traceSlow, traceFailed, completion.nodes(),
                 state.startThreadName, state.startThreadId, cpuTimeMs, allocatedBytes,
-                completion.errorType(), completion.errorMessage(), completion.stackTrace());
-        if (slowErrorTraceStore == null) return;
-        // 内存近期列表和持久存储都只保留慢/错入口 Trace。
+                completion.errorType(), completion.errorMessage(), completion.stackTrace(), highCpu, highAllocation);
+        if (diagnosticTraceStore == null) return;
+        // 内存近期列表和持久存储只保留慢、错或资源超阈值的入口 Trace。
         try {
-            slowErrorTraceStore.recordSlowErrorTrace(
+            diagnosticTraceStore.recordDiagnosticTrace(
                     recentTraceStore.find(state.traceId, state.observationType.name()));
         } catch (RuntimeException failure) {
-            logCallbackFailure("slow/error trace persistence", failure);
+            logCallbackFailure("diagnostic trace persistence", failure);
         }
     }
 

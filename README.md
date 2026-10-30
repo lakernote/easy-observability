@@ -1,8 +1,8 @@
 # Easy Observability
 
-**Spring Boot 慢调用与错误 Trace 诊断 Starter**
+**Spring Boot Trace 诊断 Starter**
 
-面向 Spring Boot 3/4 应用的轻量嵌入式排障工具。它从 HTTP 请求、定时任务和 Kafka 消费入口采集 Trace，并串联可观测到的 JDBC、Redis、事务及远程调用，帮助快速找到最慢或失败的调用节点。Trace ID 可沿受支持的 HTTP 客户端和 Kafka 消息传播；页面和有界历史聚焦当前应用实例。
+面向 Spring Boot 3/4 应用的轻量嵌入式排障工具。它从 HTTP 请求、定时任务和 Kafka 消费入口采集 Trace，并串联可观测到的 JDBC、Redis、事务及远程调用，帮助快速定位慢调用、异常、CPU 消耗和内存分配问题。Trace ID 可沿受支持的 HTTP 客户端和 Kafka 消息传播；页面和有界历史聚焦当前应用实例。
 
 项目提供 Spring Boot 3 和 Spring Boot 4 两个 Starter。项目不注册自定义 Micrometer Meter、不保存指标历史；Actuator 自带的指标能力由应用自己的 Actuator 配置管理。
 
@@ -11,9 +11,9 @@
 
 ## 界面预览
 
-Trace 列表聚焦慢调用和错误；打开记录后，可沿时间线查看数据库、Redis、远程调用等节点，并直接定位耗时最长的子调用。
+Trace 诊断页汇总慢调用、错误、高 CPU 和高内存分配入口；打开记录后，可沿时间线查看数据库、Redis、远程调用等节点，并定位耗时最长的子调用或资源告警。
 
-![慢调用与错误 Trace 列表](docs/images/trace-list.png)
+![Trace 诊断列表](docs/images/trace-list.png)
 
 ![Trace 详情时间线及最长子调用](docs/images/trace-detail-timeline.png)
 
@@ -73,17 +73,17 @@ Spring Boot Actuator 可以按应用配置提供 JVM、进程、连接池等原�
 
 Redis 接入复用 Lettuce 的 Micrometer Observation，不单独注册 Meter；应用若启用了 Actuator 的 Meter handler，也会看到 Lettuce 自带的命令耗时指标。
 
-## 慢调用与错误定位
+## Trace 诊断与根因定位
 
-Trace 列表只保留慢调用和错误入口，不会显示正常请求。列表支持按入口、慢/错误状态和文本搜索，可匹配 Trace ID、SQL、依赖名称与错误摘要。详情包含入口总耗时、各调用节点耗时、HTTP 状态、线程信息及调用时间线；启用资源采样时还会显示线程 CPU 时间和线程分配量。列表中的分配内存也是请求线程累计分配量，不代表当前堆占用。单个依赖错误会标记在对应 Span 上；依赖耗时仍完整保留，便于从入口慢 Trace 中定位耗时步骤。
+诊断列表只保留慢调用、错误或 CPU/分配量超阈值的入口，不会显示普通请求。列表支持按入口、结果类型和文本搜索，可匹配 Trace ID、SQL、依赖名称与错误摘要。详情包含入口总耗时、各调用节点耗时、HTTP 状态、线程信息及调用时间线，也会显示入口线程 CPU 时间和累计分配量。分配量不代表当前堆占用。单个依赖错误会标记在对应 Span 上；依赖耗时仍完整保留，便于从入口 Trace 中定位耗时步骤。
 
-捕获到异常时，详情和慢错归档会保存异常类型、消息及有界堆栈；HTTP 5xx 等只有状态码的错误会标记为错误，但没有异常对象时不会生成虚构堆栈。SQL 会在进入 Trace 前清理字面量和注释。调用树和异常堆栈均有大小限制，避免单条异常无限扩张存储。
+捕获到异常时，详情和诊断归档会保存异常类型、消息及有界堆栈；HTTP 5xx 等只有状态码的错误会标记为错误，但没有异常对象时不会生成虚构堆栈。SQL 会在进入 Trace 前清理字面量和注释。调用树和异常堆栈均有大小限制，避免单条异常无限扩张存储。
 
-慢错 Trace 会同时保留在有界内存近期列表和本地 JSONL 文件中；正常 Trace 不会占用这两处历史记录。默认文件为 `./data/easy-observability/traces.jsonl`；多实例之间不会自动汇总。Trace ID 默认通过 `X-Trace-Id` 请求头传递。页面路径为 `/easy-observability/`，只读 API 路径为 `/api/easy-observability`，慢错筛选 API 为 `/api/easy-observability/slow-errors?kind=slow` 或 `?kind=error`。
+慢调用、错误及资源超阈值 Trace 会同时保留在有界内存近期列表和本地 JSONL 文件中；正常 Trace 不会占用这两处历史记录。默认文件为 `./data/easy-observability/traces.jsonl`；多实例之间不会自动汇总。Trace ID 默认通过 `X-Trace-Id` 请求头传递。页面路径为 `/easy-observability/`，只读 API 路径为 `/api/easy-observability`，诊断筛选 API 为 `/api/easy-observability/diagnostics?kind=slow|error|resource`。
 
 ## 配置
 
-以下配置均可省略；默认开启 Trace、HTTP 页面及 JDBC/Redis/事务节点采集。Starter 会提供线程池上下文装饰器 Bean，在线程池配置使用后才会传播和记录任务。资源采样默认关闭。慢阈值仅用于 HTTP、定时任务和 Kafka 消费入口；设为 `0` 或负数可关闭对应入口的慢分类。依赖节点始终记录耗时和错误，不单独按慢阈值标记；错误 Trace 仍会保留。
+以下配置均可省略；默认开启 Trace、HTTP 页面及 JDBC/Redis/事务节点采集，并在每个入口采集入口线程 CPU 时间和分配量。Starter 会提供线程池上下文装饰器 Bean，在线程池配置使用后才会传播和记录任务。慢阈值仅用于 HTTP、定时任务和 Kafka 消费入口；设为 `0` 或负数可关闭对应入口的慢分类。依赖节点始终记录耗时和错误，不单独按慢阈值标记；所有命中的诊断 Trace 都会保留。
 
 ```yaml
 easy:
@@ -95,10 +95,11 @@ easy:
       http-slow-threshold-ms: 500
       job-slow-threshold-ms: 1000
       kafka-consumer-slow-threshold-ms: 1000
-      resource-sampling-enabled: false
-      slow-error-trace-file: ./data/easy-observability/traces.jsonl
-      slow-error-history-limit: 1000
-      slow-error-max-bytes: 8MB
+      cpu-threshold-ms: 500
+      allocated-memory-threshold: 50MB
+      diagnostic-trace-file: ./data/easy-observability/traces.jsonl
+      diagnostic-history-limit: 1000
+      diagnostic-max-bytes: 8MB
     web:
       enabled: true
       allow-anonymous: false
@@ -113,15 +114,16 @@ easy:
 | `easy.observability.trace.http-slow-threshold-ms` | `500` | HTTP 入口慢阈值 |
 | `easy.observability.trace.job-slow-threshold-ms` | `1000` | 定时任务入口慢阈值 |
 | `easy.observability.trace.kafka-consumer-slow-threshold-ms` | `1000` | Kafka 消费入口慢阈值 |
-| `easy.observability.trace.resource-sampling-enabled` | `false` | 是否采集入口线程 CPU 时间和分配量；启用后会读取 JVM 管理接口 |
-| `easy.observability.trace.slow-error-trace-file` | `./data/easy-observability/traces.jsonl` | 慢错入口 Trace 的 JSONL 归档路径，相对路径以应用工作目录为基准 |
-| `easy.observability.trace.slow-error-history-limit` | `1000` | 慢错归档索引的最大记录数；实际下限为 `100` |
-| `easy.observability.trace.slow-error-max-bytes` | `8MB` | JSONL 归档文件上限；实际下限为 `1MB`，超限时保留较新的记录 |
+| `easy.observability.trace.cpu-threshold-ms` | `500` | 入口线程 CPU 时间达到该值时保存资源告警 Trace；设为 `0` 或负数关闭 CPU 触发 |
+| `easy.observability.trace.allocated-memory-threshold` | `50MB` | 入口线程累计分配量达到该值时保存资源告警 Trace；支持 `8MB` 等大小写法，设为 `0B` 关闭分配量触发 |
+| `easy.observability.trace.diagnostic-trace-file` | `./data/easy-observability/traces.jsonl` | 诊断入口 Trace 的 JSONL 归档路径，相对路径以应用工作目录为基准 |
+| `easy.observability.trace.diagnostic-history-limit` | `1000` | 诊断归档索引的最大记录数；实际下限为 `100` |
+| `easy.observability.trace.diagnostic-max-bytes` | `8MB` | JSONL 诊断归档文件上限；实际下限为 `1MB`，超限时保留较新的记录 |
 | `easy.observability.web.enabled` | `true` | 是否提供 Trace 页面和只读 API |
 | `easy.observability.web.allow-anonymous` | `false` | 是否允许匿名读取 Trace 页面/API；生产环境保持关闭 |
-| `easy.observability.web.trace-limit` | `500` | 最近慢错入口 Trace 的内存窗口容量，不影响 JSONL 归档容量 |
+| `easy.observability.web.trace-limit` | `500` | 最近诊断入口 Trace 的内存窗口容量，不影响 JSONL 归档容量 |
 
-页面默认使用 `ObservabilityAccessPolicy` 拒绝匿名访问。生产环境请接入应用自己的认证授权，可提供该策略的 Bean。`easy.observability.web.allow-anonymous=true` 适用于可信的本地示例环境。近期内存窗口和 JSONL 归档都只保存慢或错误的入口 Trace；`web.trace-limit` 控制内存窗口，`slow-error-history-limit` 控制归档索引条数，`slow-error-max-bytes` 控制磁盘文件大小。
+页面默认使用 `ObservabilityAccessPolicy` 拒绝匿名访问。生产环境请接入应用自己的认证授权，可提供该策略的 Bean。`easy.observability.web.allow-anonymous=true` 适用于可信的本地示例环境。近期内存窗口和 JSONL 归档保存慢、错误或 CPU/分配量达到阈值的入口 Trace；`web.trace-limit` 控制内存窗口，`diagnostic-history-limit` 控制归档索引条数，`diagnostic-max-bytes` 控制磁盘文件大小。
 
 ### Kafka Listener Trace 接入范围
 

@@ -3,6 +3,7 @@ package io.github.lakernote.observability.integration.job;
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
 import io.github.lakernote.observability.integration.observation.ObservationTraceHandler;
 import io.github.lakernote.observability.trace.store.RecentTraceStore;
+import io.github.lakernote.observability.trace.TraceNodeFixtures;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
 import org.junit.jupiter.api.Test;
@@ -28,6 +29,7 @@ class ScheduledObservationTraceTest {
         var trace = history.recent(10).get(0);
         assertThat(trace.name()).isEqualTo("nightly-reconciliation");
         // A slow root-only observation is retained with its diagnostic marker.
-        assertThat(trace.tree()).contains("nightly-reconciliation", "[SLOW]");
+        assertThat(trace.slow()).isTrue();
+        assertThat(TraceNodeFixtures.names(trace.treeNodes())).contains("nightly-reconciliation");
     }
 }

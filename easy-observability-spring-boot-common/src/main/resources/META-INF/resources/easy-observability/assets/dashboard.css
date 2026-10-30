@@ -135,10 +135,12 @@ tbody tr:hover, tbody tr:focus-visible { background: #f1f5fc; }
 tbody tr:last-child td { border-bottom: 0; }
 .entry { max-width: 460px; overflow: hidden; color: #26364e; text-overflow: ellipsis; }
 .duration { color: #26364e; font-weight: 700; font-variant-numeric: tabular-nums; }
+.allocated { color: #26364e; font-weight: 650; font-variant-numeric: tabular-nums; }
 .trace-id { color: #53647c; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
 .badge { display: inline-block; padding: 4px 8px; border-radius: 20px; font-size: 10px; font-weight: 700; }
 .badge.slow { background: #fff3df; color: var(--amber); }
 .badge.error { background: #feeaec; color: var(--red); }
+.badge.resource { background: #eaf1ff; color: #315fba; margin-right: 4px; }
 .empty { padding: 32px; color: var(--muted); text-align: center; font-size: 13px; }
 .table-footer { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; }
 .table-footer span { margin-right: auto; }
@@ -187,8 +189,9 @@ body:has(dialog[open]) { overflow: hidden; }
 .trace-id-fact small { grid-column: 1 / -1; }
 .trace-id-fact .trace-id-value { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .copy-trace-id { min-height: 34px; padding: 6px 10px; border: 1px solid #cdd8ed; border-radius: 6px; background: #fff; color: var(--blue); font-size: 11px; white-space: nowrap; }
-.resource-facts { margin: 0 22px; border-bottom: 1px solid #edf0f4; color: var(--muted); font-size: 11px; }
-.resource-facts summary, .stack-details summary { width: fit-content; padding: 9px 0; cursor: pointer; color: #53647b; font-weight: 600; }
+.resource-facts { margin: 8px 22px 0; padding: 0 0 8px; border-bottom: 1px solid #edf0f4; color: var(--muted); font-size: 11px; }
+.resource-facts h3 { margin: 0 0 6px; color: #53647b; font-size: 12px; font-weight: 700; }
+.stack-details summary { width: fit-content; padding: 9px 0; cursor: pointer; color: #53647b; font-weight: 600; }
 .resource-facts-content { display: flex; flex-wrap: wrap; gap: 8px 20px; padding: 0 0 10px; }
 .resource-facts-content .fact { display: flex; gap: 7px; padding: 0; border: 0; }
 .resource-facts-content .fact span { font-size: 11px; font-weight: 500; }
@@ -283,7 +286,7 @@ body:has(dialog[open]) { overflow: hidden; }
   .dialog-head { padding: 12px 14px 10px; }
   .facts { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 12px; padding: 8px 14px 0; }
   .fact.wide { grid-column: 1 / -1; }
-  .resource-facts { margin: 0 14px; }
+  .resource-facts { margin: 8px 14px 0; }
   .tree-heading { display: block; margin: 12px 14px 7px; }
   .tree-heading > span { display: block; margin-top: 4px; text-align: left; }
   .tree-view { margin: 0 10px 12px; padding: 8px 6px; overflow-x: auto; }

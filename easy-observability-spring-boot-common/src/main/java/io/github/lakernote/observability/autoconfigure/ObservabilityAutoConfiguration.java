@@ -6,7 +6,7 @@ import io.github.lakernote.observability.integration.observation.ObservationTrac
 import io.github.lakernote.observability.integration.observation.ObservationTraceIdResolver;
 import io.github.lakernote.observability.trace.BoundedHistoryWriter;
 import io.github.lakernote.observability.trace.TraceContextTaskDecorator;
-import io.github.lakernote.observability.trace.store.SlowErrorTraceStore;
+import io.github.lakernote.observability.trace.store.DiagnosticTraceStore;
 import io.github.lakernote.observability.trace.store.RecentTraceStore;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -39,7 +39,7 @@ public class ObservabilityAutoConfiguration {
     }
 
     /**
-     * 为 Trace 和慢错历史文件提供有容量上限的写入器。
+     * 为 Trace 诊断归档提供有容量上限的写入器。
      */
     @Bean
     @ConditionalOnMissingBean
@@ -61,11 +61,11 @@ public class ObservabilityAutoConfiguration {
      */
     @Bean
     @ConditionalOnMissingBean
-    SlowErrorTraceStore slowErrorTraceStore(ObjectMapper objectMapper, EasyObservabilityProperties properties,
-                                      BoundedHistoryWriter writer) {
+    DiagnosticTraceStore diagnosticTraceStore(ObjectMapper objectMapper, EasyObservabilityProperties properties,
+                                               BoundedHistoryWriter writer) {
         EasyObservabilityProperties.Trace trace = properties.getTrace();
-        return new SlowErrorTraceStore(objectMapper, trace.getSlowErrorTraceFile(), trace.getSlowErrorHistoryLimit(),
-                trace.getSlowErrorMaxBytes().toBytes(), writer);
+        return new DiagnosticTraceStore(objectMapper, trace.getDiagnosticTraceFile(), trace.getDiagnosticHistoryLimit(),
+                trace.getDiagnosticMaxBytes().toBytes(), writer);
     }
 
     /**
@@ -87,10 +87,10 @@ public class ObservabilityAutoConfiguration {
             havingValue = "true", matchIfMissing = true)
     @ConditionalOnMissingBean
     ObservationTraceHandler observationTraceHandler(RecentTraceStore recentTraceStore,
-                                                    SlowErrorTraceStore slowErrorTraceStore,
+                                                    DiagnosticTraceStore diagnosticTraceStore,
                                                     EasyObservabilityProperties properties,
                                                     ObjectProvider<ObservationTraceIdResolver> resolvers) {
-        return new ObservationTraceHandler(recentTraceStore, slowErrorTraceStore, properties,
+        return new ObservationTraceHandler(recentTraceStore, diagnosticTraceStore, properties,
                 resolvers.orderedStream().toList());
     }
 

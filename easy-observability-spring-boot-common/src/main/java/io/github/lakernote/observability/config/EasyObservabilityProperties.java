@@ -65,11 +65,11 @@ public class EasyObservabilityProperties {
         private long jobSlowThresholdMs = 1_000;
         private long httpSlowThresholdMs = 500;
         private long kafkaConsumerSlowThresholdMs = 1_000;
-        // CPU and allocation counters require JVM management calls for every observed operation; keep opt-in.
-        private boolean resourceSamplingEnabled;
-        private String slowErrorTraceFile = "./data/easy-observability/traces.jsonl";
-        private int slowErrorHistoryLimit = 1_000;
-        private DataSize slowErrorMaxBytes = DataSize.ofMegabytes(8);
+        private long cpuThresholdMs = 500;
+        private DataSize allocatedMemoryThreshold = DataSize.ofMegabytes(50);
+        private String diagnosticTraceFile = "./data/easy-observability/traces.jsonl";
+        private int diagnosticHistoryLimit = 1_000;
+        private DataSize diagnosticMaxBytes = DataSize.ofMegabytes(8);
 
         public boolean isEnabled() {
             return enabled;
@@ -111,36 +111,45 @@ public class EasyObservabilityProperties {
             this.kafkaConsumerSlowThresholdMs = kafkaConsumerSlowThresholdMs;
         }
 
-        public boolean isResourceSamplingEnabled() {
-            return resourceSamplingEnabled;
+        public long getCpuThresholdMs() {
+            return cpuThresholdMs;
         }
 
-        public void setResourceSamplingEnabled(boolean resourceSamplingEnabled) {
-            this.resourceSamplingEnabled = resourceSamplingEnabled;
+        public void setCpuThresholdMs(long cpuThresholdMs) {
+            this.cpuThresholdMs = cpuThresholdMs;
         }
 
-        public String getSlowErrorTraceFile() {
-            return slowErrorTraceFile;
+        public DataSize getAllocatedMemoryThreshold() {
+            return allocatedMemoryThreshold;
         }
 
-        public void setSlowErrorTraceFile(String slowErrorTraceFile) {
-            this.slowErrorTraceFile = slowErrorTraceFile;
+        public void setAllocatedMemoryThreshold(DataSize allocatedMemoryThreshold) {
+            this.allocatedMemoryThreshold = allocatedMemoryThreshold;
         }
 
-        public int getSlowErrorHistoryLimit() {
-            return slowErrorHistoryLimit;
+        public String getDiagnosticTraceFile() {
+            return diagnosticTraceFile;
         }
 
-        public void setSlowErrorHistoryLimit(int slowErrorHistoryLimit) {
-            this.slowErrorHistoryLimit = slowErrorHistoryLimit;
+        public void setDiagnosticTraceFile(String diagnosticTraceFile) {
+            this.diagnosticTraceFile = diagnosticTraceFile;
         }
 
-        public DataSize getSlowErrorMaxBytes() {
-            return slowErrorMaxBytes;
+        public int getDiagnosticHistoryLimit() {
+            return diagnosticHistoryLimit;
         }
 
-        public void setSlowErrorMaxBytes(DataSize slowErrorMaxBytes) {
-            this.slowErrorMaxBytes = slowErrorMaxBytes;
+        public void setDiagnosticHistoryLimit(int diagnosticHistoryLimit) {
+            this.diagnosticHistoryLimit = diagnosticHistoryLimit;
         }
+
+        public DataSize getDiagnosticMaxBytes() {
+            return diagnosticMaxBytes;
+        }
+
+        public void setDiagnosticMaxBytes(DataSize diagnosticMaxBytes) {
+            this.diagnosticMaxBytes = diagnosticMaxBytes;
+        }
+
     }
 }

@@ -50,6 +50,13 @@ Kafka 首次启动时 broker 和 consumer group 需要一些时间完成协调�
 
 任务节点使用通用名称 `executor.task`，标签显示执行线程名；任务耗时随父入口 Trace 记录，只有 HTTP、定时任务和 Kafka 消费入口会按阈值分类为慢 Trace。Trace 记录不注册 Timer 或其他 Micrometer meter。Spring 的 `Future` 会吸收任务异常，装饰器会在任务结束后读取已完成 Future 的异常结果；任务内部自行捕获且不再抛出的异常无法由边界装饰器判断。
 
+另外提供两个可直接观察子线程 Span 的场景：
+
+- `/api/demo/async-work`：提交一个约 650 ms 的子线程处理任务，让请求稳定进入慢 Trace 列表。调用树中应看到入口 → `executor.task` → `demo.worker.process`，节点详情里的线程名应为 `demo-task-trace-*`。
+- `/api/demo/real-async-flow`：入口线程调用一个约 350 ms 的远程接口，同时在线程池子线程调用另一个约 550 ms 的远程接口。调用树中应看到入口远程 HTTP Span，以及 `executor.task` 下的子线程远程 HTTP Span；两次调用时间重叠，模拟常见的并行扇出请求。响应会返回入口线程名和 worker 线程名用于核对。
+
+这两个场景都通过配置了 `TraceContextTaskDecorator` 的线程池执行，并等待异步结果后结束入口 Trace，因此子线程节点会归入同一个 Trace ID。
+
 ## Redis 与 RestClient 自动接入
 
 两个示例均启用 Lettuce Observation。Redis 命令由客户端自动生成命令级 Trace Span，业务代码不需要用 `TraceBlock` 包围每次调用。Spring Boot 4 使用 Boot 自带的 Lettuce Micrometer 集成；Spring Boot 3 由 Starter 的 Lettuce `ClientResourcesBuilderCustomizer` 接入。示例保留的 Redis 正常、慢、错误场景都是真实 Redis 命令。
@@ -60,8 +67,10 @@ Kafka 首次启动时 broker 和 consumer group 需要一些时间完成协调�
 
 - `/api/demo/real-flow` 在一个请求中执行 H2 写入/查询、Redis SET/GET、远程 HTTP 和 Kafka producer，适合检查跨依赖 Trace 串联。
 - `/api/demo/transaction/error` 在 Spring 事务内写入后抛出异常，适合检查 SQL、事务回滚结果和根因堆栈。
+- `/api/demo/resources/cpu` 在请求线程上运行约 200 ms 的计算，触发 CPU 阈值而不依赖外部服务。
+- `/api/demo/resources/allocation` 在请求期间累计分配约 24 MiB 临时字节数组，触发分配量阈值；对象在响应后可回收，不会长期占用堆。
 
-示例将 `easy.observability.trace.resource-sampling-enabled` 设为 `true`，Trace 详情会显示线程 CPU 时间和线程分配量；生产默认关闭。这里的分配量是该线程在请求期间新分配的对象字节数，不代表进程当前堆内存占用。HTTP 服务依赖失败仍会作为 Trace 错误保存；Redis 和 Kafka 的场景需要本地 Docker 依赖可用。
+每个入口 Trace 都会采集入口线程 CPU 时间和线程分配量。示例将 CPU 告警阈值设为 100 ms、分配量阈值设为 `8MB`。这里的分配量是该线程在请求期间新分配的对象字节数，不代表进程当前堆内存占用。HTTP 服务依赖失败仍会作为 Trace 错误保存；Redis 和 Kafka 的场景需要本地 Docker 依赖可用。
 
 完成后可关闭本地依赖：
 

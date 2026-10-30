@@ -8,7 +8,7 @@
     <version>0.1.0-alpha.0</version>
     <packaging>pom</packaging>
     <name>Easy Observability</name>
-    <description>Spring Boot Trace and slow/error diagnostics</description>
+    <description>Spring Boot tracing and application diagnostics</description>
     <url>https://github.com/lakernote/easy-observability</url>
     <licenses>
         <license>

@@ -9,21 +9,10 @@ class ThreadResourceSnapshotTest {
     void capturesCpuAndAllocationCounters() {
         long threadId = Thread.currentThread().getId();
 
-        ThreadResourceSnapshot snapshot = ThreadResourceSnapshot.capture(threadId, true);
+        ThreadResourceSnapshot snapshot = ThreadResourceSnapshot.capture(threadId);
 
         assertThat(snapshot.threadId()).isEqualTo(threadId);
         assertThat(snapshot.cpuNanos()).isGreaterThanOrEqualTo(-1);
         assertThat(snapshot.allocatedBytes()).isGreaterThanOrEqualTo(-1);
-    }
-
-    @Test
-    void disabledResourceSamplingReturnsUnknownValues() {
-        long threadId = Thread.currentThread().getId();
-
-        ThreadResourceSnapshot snapshot = ThreadResourceSnapshot.capture(threadId, false);
-
-        assertThat(snapshot.threadId()).isEqualTo(threadId);
-        assertThat(snapshot.cpuNanos()).isEqualTo(-1);
-        assertThat(snapshot.allocatedBytes()).isEqualTo(-1);
     }
 }

@@ -5,6 +5,7 @@ import io.github.lakernote.observability.trace.SpanKind;
 import io.github.lakernote.observability.trace.TraceContext;
 import io.github.lakernote.observability.trace.store.RecentTraceStore;
 import io.github.lakernote.observability.trace.TraceIdContext;
+import io.github.lakernote.observability.trace.TraceNodeFixtures;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
 import org.junit.jupiter.api.AfterEach;
@@ -36,12 +37,14 @@ class ObservationTraceHandlerTest {
         observation.start();
         observation.stop();
 
+        TraceContext.currentRootTraceHandle().requireTree();
         TraceContext.Completion[] completion = new TraceContext.Completion[1];
         TraceContext.stopRoot(Long.MAX_VALUE, "test", null, result -> completion[0] = result);
         assertThat(completion[0].tree()).contains("[Redis] GET");
         assertThat(completion[0].slow()).isFalse();
-        history.add("trace-redis-1", "GET /cache", "GET", "HTTP", 200, 20, false, false, completion[0].tree(), "", -1, -1, -1, "", "", "");
-        assertThat(history.find("trace-redis-1", "HTTP").tree()).contains("[Redis] GET");
+        history.add("trace-redis-1", "GET /cache", "GET", "HTTP", 200, 20, false, false,
+                completion[0].nodes(), "", -1, -1, -1, "", "", "", false, false);
+        assertThat(TraceNodeFixtures.names(history.find("trace-redis-1", "HTTP").treeNodes())).contains("GET");
     }
 
     @Test
@@ -57,9 +60,10 @@ class ObservationTraceHandlerTest {
         observation.start().stop();
 
         assertThat(history.recent(10)).isEmpty();
-        history.add("orphan-trace", "GET /cache", "GET", "HTTP", 200, 10, false, false, "tree", "", -1, -1, -1, "", "", "");
+        history.add("orphan-trace", "GET /cache", "GET", "HTTP", 200, 10, false, false,
+                TraceNodeFixtures.named("tree"), "", -1, -1, -1, "", "", "", false, false);
 
-        assertThat(history.find("orphan-trace", "HTTP").tree()).isEqualTo("tree");
+        assertThat(TraceNodeFixtures.names(history.find("orphan-trace", "HTTP").treeNodes())).containsExactly("tree");
     }
 
     @Test
@@ -78,7 +82,7 @@ class ObservationTraceHandlerTest {
         assertThat(history.recent(10)).singleElement().satisfies(trace -> {
             assertThat(trace.status()).isEqualTo(503);
             assertThat(trace.error()).isTrue();
-            assertThat(trace.tree()).isNotBlank();
+            assertThat(trace.treeNodes()).isNotEmpty();
         });
         assertThat(history.recent(10)).singleElement().satisfies(trace -> {
             assertThat(trace.errorType()).isEqualTo("HTTP_503");
@@ -148,7 +152,7 @@ class ObservationTraceHandlerTest {
 
         assertThat(history.recent(10)).singleElement().satisfies(trace -> {
             assertThat(trace.name()).isEqualTo("/orders · GET");
-            assertThat(trace.tree()).contains("/orders · GET");
+            assertThat(TraceNodeFixtures.names(trace.treeNodes())).contains("/orders · GET");
         });
     }
 

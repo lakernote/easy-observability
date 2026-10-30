@@ -139,7 +139,7 @@ class TraceContextTest {
             assertThat(result.get().stackTrace()).contains("raw-error-message");
             assertThat(appender.list).singleElement().satisfies(event -> {
                 assertThat(event.getFormattedMessage())
-                        .contains("慢错 Trace 摘要", "root error", IllegalStateException.class.getName())
+                        .contains("错误 Trace 摘要", "root error", IllegalStateException.class.getName())
                         .doesNotContain("raw-error-message", "POST /orders", "OrderService#create", "\n", "\r");
                 assertThat(event.getThrowableProxy()).isNull();
             });
@@ -152,7 +152,7 @@ class TraceContextTest {
 
     @Test
     void shouldRateLimitTraceSummariesAndReportPreviousSuppression() {
-        TraceContext.SlowErrorLogLimiter limiter = new TraceContext.SlowErrorLogLimiter(2, 100);
+        TraceContext.DiagnosticLogLimiter limiter = new TraceContext.DiagnosticLogLimiter(2, 100);
 
         assertThat(limiter.tryAcquire(0)).isZero();
         assertThat(limiter.tryAcquire(1)).isZero();

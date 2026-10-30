@@ -19,7 +19,7 @@ public class DemoController {
                   code{font-size:13px}
                 </style>
                 <h1>Easy Observability Trace 示例</h1>
-                <p>按场景触发真实依赖调用，打开监控页查看 Trace 的耗时、慢错节点、异常堆栈和线程资源。</p>
+                <p>按场景触发真实依赖调用，打开监控页查看 Trace 耗时、资源告警、异常堆栈和线程资源。</p>
                 <p class="toolbar"><a href="/easy-observability/">打开 Trace 监控页 →</a><a href="/actuator">Actuator 端点</a></p>
 
                 <h2>JDBC · H2</h2>
@@ -51,8 +51,17 @@ public class DemoController {
                 <a href="/api/demo/executor?mode=slow&propagation=unwrapped">不带包装器 · 慢任务</a>
                 <a href="/api/demo/executor?mode=error&propagation=unwrapped">不带包装器 · 失败任务</a>
 
+                <h2>子线程与并行远程调用</h2>
+                <p class="note">子线程会继承入口 Trace。打开 Trace 详情，可查看 executor.task 子节点、工作线程，以及子线程发起的远程 HTTP Span。</p>
+                <a href="/api/demo/async-work">子线程处理任务（约 650 ms）</a>
+                <a href="/api/demo/real-async-flow">主线程 + 子线程并行远程调用</a>
+
                 <h2>完整业务链路</h2>
                 <a href="/api/demo/real-flow">H2 → Redis → HTTP → Kafka producer</a>
+
+                <h2>入口线程资源阈值</h2>
+                <a href="/api/demo/resources/cpu">高 CPU（约 200 ms 计算）</a>
+                <a href="/api/demo/resources/allocation">高内存分配（约 24 MiB）</a>
 
                 <p class="note">H2 内嵌数据库无需额外启动。Redis 和 Kafka 场景需要先启动 <code>examples/docker-compose.yml</code>；远程 HTTP 场景需要可访问 httpbingo。慢和错误用例是有界的本地诊断演示。</p>
                 </html>

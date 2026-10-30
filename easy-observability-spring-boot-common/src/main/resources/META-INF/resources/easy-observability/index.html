@@ -6,7 +6,7 @@
   <meta name="color-scheme" content="light">
   <title>Easy Observability · Trace</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="/easy-observability/assets/dashboard.css?v=20261030.3">
+  <link rel="stylesheet" href="/easy-observability/assets/dashboard.css?v=20261030.5">
 </head>
 <body>
   <a class="skip-link" href="#main-content">跳到主要内容</a>
@@ -24,24 +24,24 @@
   <main id="main-content" class="report">
     <section class="intro">
       <p class="eyebrow">TRACE EXPLORER</p>
-      <h1>慢调用与错误</h1>
-      <p>筛选入口或搜索 Trace ID、SQL、依赖与异常；打开记录查看最长调用和错误位置。</p>
+      <h1>Trace 诊断</h1>
+      <p>集中查看慢调用、错误、高 CPU 和高内存分配入口；打开记录沿调用时间线定位根因。</p>
     </section>
     <div id="notice" class="notice" role="status" hidden></div>
     <section class="filters" aria-label="Trace 筛选">
-      <label><span>结果</span><select id="result-filter"><option value="all">全部慢/错</option><option value="slow">慢调用</option><option value="error">错误</option></select></label>
+      <label><span>结果</span><select id="result-filter"><option value="all">全部诊断 Trace</option><option value="slow">慢调用</option><option value="resource">资源告警</option><option value="error">错误</option></select></label>
       <label><span>入口</span><select id="source-filter"><option value="">全部来源</option><option value="HTTP">HTTP</option><option value="JOB">定时任务</option><option value="KAFKA_CONSUMER">Kafka 消费</option></select></label>
-      <label class="search"><span>搜索入口、Trace ID、SQL、依赖或错误</span><input id="search" type="search" maxlength="200" placeholder="例如 /api/orders 或 SQLException"></label>
+      <label class="search"><span>搜索入口、Trace ID、SQL、资源告警或错误</span><input id="search" type="search" maxlength="200" placeholder="例如 /api/orders 或 SQLException"></label>
       <span id="result-count" class="count" role="status"></span>
     </section>
-    <section class="trace-list" aria-label="慢调用和错误 Trace 列表">
+    <section class="trace-list" aria-label="慢调用、资源告警和错误 Trace 列表">
       <p class="scroll-hint">表格可横向滚动查看全部字段</p>
       <div class="table-scroll"><table>
-        <caption class="sr-only">慢调用和错误 Trace；选择记录可查看调用时间线与详情</caption>
-        <thead><tr><th scope="col">结果</th><th scope="col">入口</th><th scope="col">状态</th><th scope="col">总耗时</th><th scope="col">Trace ID</th><th scope="col">完成时间</th></tr></thead>
+        <caption class="sr-only">慢调用、资源告警和错误 Trace；选择记录可查看入口线程分配量与调用时间线</caption>
+        <thead><tr><th scope="col">结果</th><th scope="col">入口</th><th scope="col">入口分配量</th><th scope="col">总耗时</th><th scope="col">Trace ID</th><th scope="col">完成时间</th></tr></thead>
         <tbody id="trace-rows"></tbody>
       </table></div>
-      <p id="empty" class="empty" hidden>暂无慢调用或错误 Trace；正常请求不会显示在此列表中</p>
+      <p id="empty" class="empty" hidden>暂无诊断 Trace；正常请求不会显示在此列表中</p>
       <div class="table-footer"><span id="page-label"></span><button id="previous" type="button">上一页</button><button id="next" type="button">下一页</button></div>
     </section>
     <footer>Trace 历史来自当前应用实例。Spring Boot Actuator 指标仍由应用自身配置管理。</footer>
@@ -49,10 +49,10 @@
   <dialog id="detail-dialog" aria-labelledby="detail-title">
     <div class="dialog-head"><div><p class="eyebrow">TRACE DETAIL</p><h2 id="detail-title">调用详情</h2></div><button id="close-dialog" class="close" aria-label="关闭">×</button></div>
     <div id="facts" class="facts"></div>
-    <details id="resource-facts" class="resource-facts">
-      <summary>入口线程资源</summary>
+    <section id="resource-facts" class="resource-facts" aria-labelledby="resource-facts-title">
+      <h3 id="resource-facts-title">入口线程资源</h3>
       <div id="resource-facts-content" class="resource-facts-content"></div>
-    </details>
+    </section>
     <div class="tree-heading"><h3>调用时间线</h3><span>横条表示相对开始时间和持续时间 · 选择节点查看详情</span></div>
     <div id="tree" class="tree-view" role="region" aria-label="端到端调用时间线"></div>
     <section id="span-detail" class="span-detail" aria-live="polite"><p>选择一个调用节点查看详情</p></section>
@@ -66,9 +66,9 @@
   </dialog>
   <dialog id="clear-dialog" class="confirm-dialog">
     <h2>清空 Trace 历史？</h2>
-    <p>将删除当前实例内存中的近期记录和慢错归档文件。</p>
+    <p>将删除当前实例内存中的近期记录和诊断 Trace 归档文件。</p>
     <div class="dialog-actions"><button id="cancel-clear" type="button">取消</button><button id="confirm-clear" class="danger" type="button">清空</button></div>
   </dialog>
-  <script type="module" src="/easy-observability/assets/dashboard.js?v=20261030.3"></script>
+  <script type="module" src="/easy-observability/assets/dashboard.js?v=20261030.5"></script>
 </body>
 </html>

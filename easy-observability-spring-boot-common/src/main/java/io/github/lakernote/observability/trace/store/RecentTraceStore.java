@@ -23,11 +23,11 @@ public class RecentTraceStore {
                     long durationMs, boolean slow, boolean error, List<TraceNode> treeNodes,
                     String threadName, long threadId,
                     long cpuTimeMs, long allocatedBytes, String errorType, String errorMessage,
-                    String errorStackTrace) {
+                    String errorStackTrace, boolean highCpu, boolean highAllocation) {
         if (!isEntrySource(sourceType)) return;
         records.addFirst(new TraceRecord(nextId.incrementAndGet(), traceId, name, method, status,
                 Math.max(0, durationMs), slow, error, treeNodes, Instant.now(), threadId, cpuTimeMs, allocatedBytes,
-                sourceType, errorType, errorMessage, threadName, errorStackTrace));
+                sourceType, errorType, errorMessage, threadName, errorStackTrace, highCpu, highAllocation));
         recordCount.incrementAndGet();
         while (recordCount.get() > capacity) {
             if (records.pollLast() == null) break;
@@ -84,7 +84,8 @@ public class RecentTraceStore {
                               long durationMs, boolean slow, boolean error, List<TraceNode> treeNodes,
                               Instant finishedAt,
                               long threadId, long cpuTimeMs, long allocatedBytes, String sourceType,
-                              String errorType, String errorMessage, String threadName, String errorStackTrace) {
+                              String errorType, String errorMessage, String threadName, String errorStackTrace,
+                              boolean highCpu, boolean highAllocation) {
         public TraceRecord {
             sourceType = sourceType == null ? "" : sourceType;
             treeNodes = treeNodes == null ? List.of() : List.copyOf(treeNodes);
@@ -95,4 +96,5 @@ public class RecentTraceStore {
         }
 
     }
+
 }

@@ -1,9 +1,12 @@
 package io.github.lakernote.observability.example;
 
 import io.github.lakernote.observability.trace.TraceContext;
+import io.github.lakernote.observability.trace.SpanKind;
+import io.github.lakernote.observability.trace.TraceBlock;
 import io.github.lakernote.observability.trace.TraceIdContext;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestClient;
 
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -11,7 +14,32 @@ import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 public class DemoAsyncTaskService {
+    private final RestClient httpBingo;
     private final Map<String, ConcurrentHashMap<String, String>> statuses = new ConcurrentHashMap<>();
+
+    public DemoAsyncTaskService(RestClient httpBingo) {
+        this.httpBingo = httpBingo;
+    }
+
+    @Async("demoTaskExecutor")
+    public CompletableFuture<Map<String, Object>> executeObservedWork() {
+        Map<String, Object> result = TraceBlock.call("demo.worker.process", SpanKind.CODE,
+                "子线程业务处理", () -> {
+                    pause(650);
+                    return Map.of("workerThread", Thread.currentThread().getName(),
+                            "traceId", TraceIdContext.currentTraceId(),
+                            "processed", true);
+                });
+        return CompletableFuture.completedFuture(result);
+    }
+
+    @Async("demoTaskExecutor")
+    public CompletableFuture<Map<String, String>> callRemoteOnWorker(String path) {
+        String body = httpBingo.get().uri(path).retrieve().body(String.class);
+        return CompletableFuture.completedFuture(Map.of(
+                "workerThread", Thread.currentThread().getName(),
+                "response", body == null ? "" : body.substring(0, Math.min(240, body.length()))));
+    }
 
     public void registerTask(String taskId, String mode, String propagation, String parentTraceId) {
         ConcurrentHashMap<String, String> state = new ConcurrentHashMap<>();

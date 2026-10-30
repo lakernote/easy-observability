@@ -10,10 +10,8 @@ public record ThreadResourceSnapshot(long threadId, long cpuNanos, long allocate
             THREADS instanceof com.sun.management.ThreadMXBean bean ? bean : null;
     private static volatile boolean countersInitialized;
 
-    /** Captures CPU time and allocation counters when resource sampling is enabled. */
-    public static ThreadResourceSnapshot capture(long threadId, boolean enabled) {
-        if (!enabled) return new ThreadResourceSnapshot(threadId, -1, -1);
-
+    /** Captures the current CPU time and allocated-byte counters for a thread. */
+    public static ThreadResourceSnapshot capture(long threadId) {
         enableCounters();
         long cpuNanos = -1;
         long allocatedBytes = -1;
@@ -33,7 +31,7 @@ public record ThreadResourceSnapshot(long threadId, long cpuNanos, long allocate
         return new ThreadResourceSnapshot(threadId, cpuNanos, allocatedBytes);
     }
 
-    /** Enable supported JVM-wide counters only after the user opts into resource sampling. */
+    /** Enable supported JVM-wide counters once before collecting per-thread resource values. */
     private static void enableCounters() {
         if (countersInitialized) return;
         synchronized (THREADS) {
