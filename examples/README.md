@@ -17,10 +17,10 @@ docker compose -f examples/docker-compose.yml up -d --wait
 
 ```bash
 mvn -pl examples/easy-observability-example-spring-boot-3 -am package
-java -jar examples/easy-observability-example-spring-boot-3/target/easy-observability-example-spring-boot-3-0.1.0-alpha.0.jar
+java -jar examples/easy-observability-example-spring-boot-3/target/easy-observability-example-spring-boot-3-0.1.0-alpha.1.jar
 
 mvn -pl examples/easy-observability-example-spring-boot-4 -am package
-java -jar examples/easy-observability-example-spring-boot-4/target/easy-observability-example-spring-boot-4-0.1.0-alpha.0.jar
+java -jar examples/easy-observability-example-spring-boot-4/target/easy-observability-example-spring-boot-4-0.1.0-alpha.1.jar
 ```
 
 打开应用主页，再打开 `/easy-observability/` 查看最近 Trace。Boot 3 示例可用 `http://localhost:8083/`，Boot 4 示例可用 `http://localhost:8084/`。

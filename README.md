@@ -2,6 +2,8 @@
 
 **Spring Boot Trace 诊断 Starter**
 
+[更新记录](CHANGELOG.md)
+
 面向 Spring Boot 3/4 应用的轻量嵌入式排障工具。它从 HTTP 请求、定时任务和 Kafka 消费入口采集 Trace，并串联可观测到的 JDBC、Redis、事务及远程调用，帮助快速定位慢调用、异常、CPU 消耗和内存分配问题。Trace ID 可沿受支持的 HTTP 客户端和 Kafka 消息传播；页面和有界历史聚焦当前应用实例。
 
 项目提供 Spring Boot 3 和 Spring Boot 4 两个 Starter。项目不注册自定义 Micrometer Meter、不保存指标历史；Actuator 自带的指标能力由应用自己的 Actuator 配置管理。
@@ -26,7 +28,7 @@ Trace 诊断页汇总慢调用、错误以及 CPU 时间或内存分配量超阈
 <dependency>
     <groupId>io.github.lakernote</groupId>
     <artifactId>easy-observability-spring-boot-3-starter</artifactId>
-    <version>0.1.0-alpha.0</version>
+    <version>0.1.0-alpha.1</version>
 </dependency>
 ```
 
@@ -35,7 +37,7 @@ Trace 诊断页汇总慢调用、错误以及 CPU 时间或内存分配量超阈
 <dependency>
     <groupId>io.github.lakernote</groupId>
     <artifactId>easy-observability-spring-boot-4-starter</artifactId>
-    <version>0.1.0-alpha.0</version>
+    <version>0.1.0-alpha.1</version>
 </dependency>
 ```
 
@@ -215,7 +217,7 @@ Spring 管理的 `RestClient.Builder` 也会自动传递当前 Trace ID，并使
 ```bash
 docker compose -f examples/docker-compose.yml up -d --wait
 mvn -pl examples/easy-observability-example-spring-boot-3 -am package
-java -jar examples/easy-observability-example-spring-boot-3/target/easy-observability-example-spring-boot-3-0.1.0-alpha.0.jar
+java -jar examples/easy-observability-example-spring-boot-3/target/easy-observability-example-spring-boot-3-0.1.0-alpha.1.jar
 ```
 
 Boot 3 示例运行在 `http://localhost:8083/`，Boot 4 示例运行在 `http://localhost:8084/`。示例启用了匿名 Trace 页面，仅用于本地体验。完整场景见 [示例使用说明](examples/README.md)。

@@ -6,7 +6,7 @@
     <parent>
         <groupId>io.github.lakernote</groupId>
         <artifactId>easy-observability</artifactId>
-        <version>0.1.0-alpha.0</version>
+        <version>${revision}</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
     <artifactId>easy-observability-spring-boot-common</artifactId>
