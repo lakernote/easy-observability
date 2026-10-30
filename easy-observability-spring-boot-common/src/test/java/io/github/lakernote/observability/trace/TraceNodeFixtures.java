@@ -7,7 +7,7 @@ public final class TraceNodeFixtures {
     private TraceNodeFixtures() { }
 
     public static List<TraceNode> named(String name) {
-        return List.of(new TraceNode("Other", name, "", 0, 0L, false, false, "", "", -1, List.of()));
+        return List.of(new TraceNode("Other", name, "", 0, 0L, false, false, false, "", "", -1, List.of()));
     }
 
     public static List<String> names(List<TraceNode> nodes) {

@@ -49,6 +49,12 @@ function time(value) {
   return Number.isNaN(date.getTime()) ? escText(value) : date.toLocaleString('zh-CN')
 }
 
+function unfinishedSpanCount(nodes) {
+  if (!Array.isArray(nodes)) return 0
+  return nodes.reduce((count, item) => count + (item.unfinishedAtTraceEnd ? 1 : 0)
+    + unfinishedSpanCount(item.children), 0)
+}
+
 function node(tag, className, text) {
   const element = document.createElement(tag)
   if (className) element.className = className
@@ -91,6 +97,11 @@ function render() {
     if (trace.slow) resultCell.append(node('span', 'badge slow', '慢调用'))
     if (trace.highCpu) resultCell.append(node('span', 'badge resource', '高 CPU'))
     if (trace.highAllocation) resultCell.append(node('span', 'badge resource', '高分配'))
+    if (unfinishedSpanCount(trace.treeNodes)) {
+      const unfinishedBadge = node('span', 'badge unfinished', '请求结束时未完成')
+      unfinishedBadge.title = '该子 Span 在入口请求结束时仍在运行'
+      resultCell.append(unfinishedBadge)
+    }
     tr.append(resultCell)
     tr.append(node('td', 'entry', `${sourceNames[trace.sourceType] || 'Trace'} · ${trace.name || trace.method || '入口'}`))
     tr.append(node('td', 'allocated', formatAllocatedBytes(trace.allocatedBytes)))
@@ -163,6 +174,7 @@ function renderTraceTree(container, detailContainer, structuredNodes, totalMs) {
     maxMs = Math.max(maxMs, Math.max(0, offset || 0) + Math.max(0, Number(item.durationMs) || 0))
   }
   const children = flat.filter(({ depth }) => depth > 0)
+  const unfinishedCount = unfinishedSpanCount(roots)
   const deepest = candidates => candidates.reduce((best, candidate) => {
     if (!best || candidate.depth > best.depth) return candidate
     if (candidate.depth === best.depth
@@ -171,6 +183,7 @@ function renderTraceTree(container, detailContainer, structuredNodes, totalMs) {
   }, null)
   const primary = deepest(children.filter(({ item }) => item.error))
     || deepest(children.filter(({ item }) => item.slow))
+    || deepest(children.filter(({ item }) => item.unfinishedAtTraceEnd))
     || children.reduce((longest, candidate) =>
       !longest || Number(candidate.item.durationMs || 0) > Number(longest.item.durationMs || 0) ? candidate : longest, null)
     || flat[0]
@@ -178,13 +191,18 @@ function renderTraceTree(container, detailContainer, structuredNodes, totalMs) {
     const duration = Math.max(0, Number(primary.item.durationMs) || 0)
     const percent = totalMs > 0 ? Math.round(duration / totalMs * 100) : 0
     const isError = Boolean(primary.item.error)
-    const summary = node('div', `diagnosis-summary${isError ? ' is-error' : ''}`)
+    const isUnfinished = Boolean(primary.item.unfinishedAtTraceEnd)
+    const summary = node('div', `diagnosis-summary${isError ? ' is-error' : isUnfinished ? ' is-unfinished' : ''}`)
     summary.append(
-      node('strong', '', primary.depth === 0 ? '入口 Trace' : isError ? '错误节点' : '最长子调用'),
+      node('strong', '', primary.depth === 0 ? '入口 Trace' : isError ? '错误节点'
+        : isUnfinished ? '请求结束时仍在运行' : '最长子调用'),
       node('span', '', `${primary.item.kind || '调用'} · ${primary.item.name || '未命名调用'}`),
       node('b', '', `${duration.toLocaleString()} ms${totalMs > 0 && percent <= 100 ? ` · 约 ${percent}% 总耗时` : ''}`)
     )
     container.append(summary)
+  }
+  if (unfinishedCount) {
+    container.append(node('p', 'unfinished-notice', `请求已返回时仍有 ${unfinishedCount} 个子 Span 在运行；时间线在入口结束处截取，后台任务可能继续执行。`))
   }
   const scale = node('div', 'timeline-scale')
   scale.append(node('span', 'timeline-scale-label', ''))
@@ -196,17 +214,18 @@ function renderTraceTree(container, detailContainer, structuredNodes, totalMs) {
   let selectedRow = null
   let primaryRow = null
   for (const { item, depth } of flat) {
-    const row = node('button', `timeline-row${item.error ? ' has-error' : item.slow ? ' is-slow' : ''}`)
+    const row = node('button', `timeline-row${item.error ? ' has-error' : item.slow ? ' is-slow' : item.unfinishedAtTraceEnd ? ' is-unfinished' : ''}`)
     row.type = 'button'
     row.style.setProperty('--depth', Math.min(depth, 8))
-    row.setAttribute('aria-label', `${item.kind || '调用'} ${item.name || '未命名'}，${Number(item.durationMs || 0)} 毫秒${item.error ? '，错误' : ''}${item.slow ? '，慢调用' : ''}`)
+    row.setAttribute('aria-label', `${item.kind || '调用'} ${item.name || '未命名'}，${Number(item.durationMs || 0)} 毫秒${item.error ? '，错误' : ''}${item.slow ? '，慢调用' : ''}${item.unfinishedAtTraceEnd ? '，请求结束时仍在运行' : ''}`)
     const label = node('span', 'timeline-label')
     label.append(node('small', `timeline-kind kind-${String(item.kind || 'other').toLowerCase()}`, item.kind || 'Trace'))
     label.append(node('span', 'timeline-name', item.name || '未命名调用'))
     if (item.error) label.append(node('span', 'tree-state error-state', '错误'))
     if (item.slow) label.append(node('span', 'tree-state slow-state', '慢调用'))
+    if (item.unfinishedAtTraceEnd) label.append(node('span', 'tree-state unfinished-state', '请求结束时仍运行'))
     const track = node('span', 'timeline-track')
-    const bar = node('i', `timeline-bar${item.error ? ' error-fill' : item.slow ? ' slow-fill' : ''}`)
+    const bar = node('i', `timeline-bar${item.error ? ' error-fill' : item.slow ? ' slow-fill' : ''}${item.unfinishedAtTraceEnd ? ' is-unfinished' : ''}`)
     const offset = hasOffsets ? Math.max(0, Number(item.startOffsetMs || 0)) : 0
     const duration = Math.max(1, Number(item.durationMs || 0))
     bar.style.left = `${Math.min(99, offset / maxMs * 100)}%`
@@ -237,7 +256,8 @@ function renderSpanDetail(container, item, offset, hasOffsets) {
     ['类型', item.kind || 'Trace'], ['耗时', `${Number(item.durationMs || 0).toLocaleString()} ms`],
     ['开始偏移', hasOffsets ? `${offset.toLocaleString()} ms` : '旧记录未采集'],
     ['线程', item.threadName ? `${item.threadName}${item.threadId ? ` · ${item.threadId}` : ''}` : '未记录'],
-    ['状态', item.error ? `错误${item.errorType ? ` · ${item.errorType}` : ''}` : item.slow ? '慢调用' : '正常']
+    ['状态', item.unfinishedAtTraceEnd ? '请求结束时仍在运行（时长按入口结束截取）'
+      : item.error ? `错误${item.errorType ? ` · ${item.errorType}` : ''}` : item.slow ? '慢调用' : '已完成']
   ]) facts.append(node('div', 'span-fact', `${label}：${value}`))
   container.append(facts)
   if (item.tag) {

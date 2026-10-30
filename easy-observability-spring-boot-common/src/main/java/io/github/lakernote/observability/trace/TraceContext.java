@@ -360,13 +360,14 @@ public final class TraceContext {
                 result = new Completion(tree, nodes, costMs, trace.slow(), trace.error(), trace.diagnosticReasons(),
                         trace.errorType(), trace.errorMessage(), trace.errorStackTrace());
             }
+            String traceId = TraceIdContext.currentTraceId();
             completion.accept(result);
             if (throwable != null) {
                 logDiagnosticSummary(ERROR_LOG_LIMITER, true, description, costMs, slowThresholdMs,
-                        throwable.getClass().getName(), result.reasons());
+                        throwable.getClass().getName(), result.reasons(), traceId, countUnfinishedSpans(result.nodes()));
             } else if (slowThresholdMs > 0 && costMs >= slowThresholdMs) {
                 logDiagnosticSummary(SLOW_LOG_LIMITER, false, description, costMs, slowThresholdMs,
-                        "", result.reasons());
+                        "", result.reasons(), traceId, countUnfinishedSpans(result.nodes()));
             }
         } finally {
             ExecutionFrame current = CURRENT_FRAME.get();
@@ -476,21 +477,32 @@ public final class TraceContext {
 
     private static void logDiagnosticSummary(DiagnosticLogLimiter limiter, boolean error, String description,
                                            long costMs, long thresholdMs, String exceptionType,
-                                           List<String> reasons) {
+                                           List<String> reasons, String traceId, int unfinishedSpanCount) {
         long suppressed = limiter.tryAcquire(System.nanoTime());
         if (suppressed < 0) return;
         String safeDescription = oneLine(description, MAX_LOG_DESCRIPTION_CHARS);
         String safeExceptionType = oneLine(exceptionType, MAX_LOG_DESCRIPTION_CHARS);
         String safeReasons = summarizeReasons(reasons, MAX_LOG_REASON_CHARS);
+        String safeTraceId = oneLine(traceId, MAX_LOG_DESCRIPTION_CHARS);
         if (error) {
             log.error("错误 Trace 摘要: description={}, cost={}ms, threshold={}ms, exception={}, "
-                            + "reasons={}, previousWindowSuppressed={}",
-                    safeDescription, costMs, thresholdMs, safeExceptionType, safeReasons, suppressed);
+                            + "reasons={}, unfinishedSpansAtTraceEnd={}, traceId={}, previousWindowSuppressed={}",
+                    safeDescription, costMs, thresholdMs, safeExceptionType, safeReasons, unfinishedSpanCount,
+                    safeTraceId, suppressed);
         } else {
             log.warn("慢调用 Trace 摘要: description={}, cost={}ms, threshold={}ms, reasons={}, "
-                            + "previousWindowSuppressed={}",
-                    safeDescription, costMs, thresholdMs, safeReasons, suppressed);
+                            + "unfinishedSpansAtTraceEnd={}, traceId={}, previousWindowSuppressed={}",
+                    safeDescription, costMs, thresholdMs, safeReasons, unfinishedSpanCount, safeTraceId, suppressed);
         }
+    }
+
+    private static int countUnfinishedSpans(List<TraceNode> nodes) {
+        int count = 0;
+        for (TraceNode node : nodes) {
+            if (node.unfinishedAtTraceEnd()) count++;
+            count += countUnfinishedSpans(node.children());
+        }
+        return count;
     }
 
     private static String oneLine(String value, int maxChars) {

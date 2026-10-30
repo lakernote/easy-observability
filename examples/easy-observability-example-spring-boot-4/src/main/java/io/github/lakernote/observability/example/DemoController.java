@@ -52,9 +52,9 @@ public class DemoController {
                 <a href="/api/demo/executor?mode=error&propagation=unwrapped">不带包装器 · 失败任务</a>
 
                 <h2>子线程与并行远程调用</h2>
-                <p class="note">子线程会继承入口 Trace。打开 Trace 详情，可查看 executor.task 子节点、工作线程，以及子线程发起的远程 HTTP Span。</p>
+                <p class="note">等待版会显示完整子线程 span；不等待版让请求先返回，便于观察请求结束时后台任务 Trace 的边界。</p>
                 <a href="/api/demo/async-work">子线程处理任务（约 650 ms）</a>
-                <a href="/api/demo/real-async-flow">主线程 + 子线程并行远程调用</a>
+                <a href="/api/demo/real-async-flow">主线程 + 子线程远程调用（不等待，后台续跑 4 秒）</a>
 
                 <h2>完整业务链路</h2>
                 <a href="/api/demo/real-flow">H2 → Redis → HTTP → Kafka producer</a>

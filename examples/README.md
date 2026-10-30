@@ -50,12 +50,12 @@ Kafka 首次启动时 broker 和 consumer group 需要一些时间完成协调�
 
 任务节点使用通用名称 `executor.task`，标签显示执行线程名；任务耗时随父入口 Trace 记录，只有 HTTP、定时任务和 Kafka 消费入口会按阈值分类为慢 Trace。Trace 记录不注册 Timer 或其他 Micrometer meter。Spring 的 `Future` 会吸收任务异常，装饰器会在任务结束后读取已完成 Future 的异常结果；任务内部自行捕获且不再抛出的异常无法由边界装饰器判断。
 
-另外提供两个可直接观察子线程 Span 的场景：
+另外提供两个可直接观察子线程 Trace 行为的场景：
 
 - `/api/demo/async-work`：提交一个约 650 ms 的子线程处理任务，让请求稳定进入慢 Trace 列表。调用树中应看到入口 → `executor.task` → `demo.worker.process`，节点详情里的线程名应为 `demo-task-trace-*`。
-- `/api/demo/real-async-flow`：入口线程调用一个约 350 ms 的远程接口，同时在线程池子线程调用另一个约 550 ms 的远程接口。调用树中应看到入口远程 HTTP Span，以及 `executor.task` 下的子线程远程 HTTP Span；两次调用时间重叠，模拟常见的并行扇出请求。响应会返回入口线程名和 worker 线程名用于核对。
+- `/api/demo/real-async-flow`：入口线程与线程池子线程各自调用远程 HTTP；子线程收到响应后再做 4 秒模拟处理，入口不等待 worker。响应先返回；父 Trace 在 HTTP 请求结束时完成。详情会把当时仍运行的 `executor.task` 标为“请求结束时仍在运行”，时长截止于入口结束；慢 Trace 摘要日志会附带 `unfinishedSpansAtTraceEnd` 数量和 `traceId`。worker 随后继续执行，但不会更新已完成 Trace。
 
-这两个场景都通过配置了 `TraceContextTaskDecorator` 的线程池执行，并等待异步结果后结束入口 Trace，因此子线程节点会归入同一个 Trace ID。
+两个场景都通过配置了 `TraceContextTaskDecorator` 的线程池执行。等待版保证子线程在入口 Trace 结束前完成；不等待版用于体验后台任务超出请求生命周期时当前 Trace 的记录边界。
 
 ## Redis 与 RestClient 自动接入
 

@@ -23,8 +23,8 @@ class TraceStorePersistenceTest {
         BoundedHistoryWriter writer = new BoundedHistoryWriter();
         RecentTraceStore.TraceRecord trace = new RecentTraceStore.TraceRecord(1, "trace-123", "GET /orders/{id}",
                 "GET /orders/{id}", 500, 845, true, true,
-                List.of(new TraceNode("Http", "HTTP GET", "", 845, 0L, true, true, "HTTP_5XX", "", 77,
-                        List.of(new TraceNode("Database", "SQL select", "", 2, 1L, false, false, "", "", 77, List.of())))),
+                List.of(new TraceNode("Http", "HTTP GET", "", 845, 0L, true, true, false, "HTTP_5XX", "", 77,
+                        List.of(new TraceNode("Database", "SQL select", "", 2, 1L, false, false, false, "", "", 77, List.of())))),
                 Instant.parse("2026-10-15T10:00:00Z"), 77, 51, 2048, "HTTP", "HTTP_5XX", "500", "", "", false, false);
         DiagnosticTraceStore diagnosticStore = new DiagnosticTraceStore(mapper, tracesFile.toString(), 1000,
                 4 * 1024 * 1024, writer);

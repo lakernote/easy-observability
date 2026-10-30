@@ -15,6 +15,7 @@ final class Span {
     /** 大多数节点没有子节点；只有确实挂入下游调用时才分配子节点列表。 */
     private List<Span> children;
     private long endNanos;
+    private boolean unfinishedAtTraceEnd;
     private String errorType = "";
     private boolean error;
     private boolean slow;
@@ -89,8 +90,15 @@ final class Span {
         if (children != null) {
             for (Span child : children) {
                 child.stopOpenDescendants();
-                child.stop();
+                child.stopAtTraceEnd();
             }
+        }
+    }
+
+    private synchronized void stopAtTraceEnd() {
+        if (endNanos == 0) {
+            unfinishedAtTraceEnd = true;
+            endNanos = System.nanoTime();
         }
     }
 
@@ -111,7 +119,7 @@ final class Span {
         }
         long offsetMs = Math.max(0, (startNanos - traceStartNanos) / 1_000_000);
         return new TraceNode(kind.displayName(), bounded(name, 512), bounded(tag, 2048), costMs(), offsetMs, slow, error,
-                bounded(errorType, 256), bounded(threadName, 256), threadId, childNodes);
+                unfinishedAtTraceEnd, bounded(errorType, 256), bounded(threadName, 256), threadId, childNodes);
     }
 
     private static String bounded(String value, int maxLength) {

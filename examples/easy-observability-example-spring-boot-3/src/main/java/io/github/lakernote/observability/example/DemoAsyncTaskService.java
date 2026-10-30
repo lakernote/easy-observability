@@ -34,11 +34,11 @@ public class DemoAsyncTaskService {
     }
 
     @Async("demoTaskExecutor")
-    public CompletableFuture<Map<String, String>> callRemoteOnWorker(String path) {
-        String body = httpBingo.get().uri(path).retrieve().body(String.class);
-        return CompletableFuture.completedFuture(Map.of(
-                "workerThread", Thread.currentThread().getName(),
-                "response", body == null ? "" : body.substring(0, Math.min(240, body.length()))));
+    public CompletableFuture<Void> callRemoteOnWorker(String path) {
+        httpBingo.get().uri(path).retrieve().toBodilessEntity();
+        // Keep the worker busy after its remote call so the no-wait demo reliably outlives the HTTP request.
+        pause(4_000);
+        return CompletableFuture.completedFuture(null);
     }
 
     public void registerTask(String taskId, String mode, String propagation, String parentTraceId) {

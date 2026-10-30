@@ -20,8 +20,7 @@ public class DemoAsyncFlowController {
     public DemoAsyncFlowController(DemoAsyncTaskService tasks, RestClient httpBingo) {
         this.tasks = tasks;
         this.httpBingo = httpBingo;
-    }
-
+}
     @GetMapping("/api/demo/async-work")
     public Map<String, Object> asyncWork() {
         Map<String, Object> worker = await(tasks.executeObservedWork());
@@ -31,19 +30,16 @@ public class DemoAsyncFlowController {
     @GetMapping("/api/demo/real-async-flow")
     public Map<String, Object> realAsyncFlow() {
         String traceId = TraceIdContext.currentTraceId();
-        String workerPath = "/delay/0.55?flow=child";
-        CompletableFuture<Map<String, String>> workerCall = tasks.callRemoteOnWorker(workerPath);
+        tasks.callRemoteOnWorker("/anything/child?flow=fire-and-forget");
 
         String mainBody = httpBingo.get()
-                .uri("/delay/0.35?flow=entry")
+                .uri("/anything/entry?flow=fire-and-forget")
                 .retrieve().body(String.class);
-        Map<String, String> childResult = await(workerCall);
 
         return Map.of("traceId", traceId,
                 "entryThread", Thread.currentThread().getName(),
                 "entryRemoteResponse", excerpt(mainBody),
-                "childWorkerThread", childResult.get("workerThread"),
-                "childRemoteResponse", childResult.get("response"));
+                "childRemoteCall", "submitted without waiting");
     }
 
     private static String excerpt(String value) {
@@ -60,4 +56,5 @@ public class DemoAsyncFlowController {
             throw new IllegalStateException("Async demo did not finish", failure);
         }
     }
+
 }
