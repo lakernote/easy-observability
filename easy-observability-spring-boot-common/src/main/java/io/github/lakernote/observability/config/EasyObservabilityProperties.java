@@ -63,8 +63,8 @@ public class EasyObservabilityProperties {
         private boolean enabled = true;
         private String headerName = "X-Trace-Id";
         private long jobSlowThresholdMs = 1_000;
-        private long httpSlowThresholdMs = 250;
-        private long kafkaConsumerSlowThresholdMs = 250;
+        private long httpSlowThresholdMs = 500;
+        private long kafkaConsumerSlowThresholdMs = 1_000;
         // CPU and allocation counters require JVM management calls for every observed operation; keep opt-in.
         private boolean resourceSamplingEnabled;
         private String slowErrorTraceFile = "./data/easy-observability/traces.jsonl";

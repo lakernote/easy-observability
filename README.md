@@ -92,9 +92,9 @@ easy:
     trace:
       enabled: true
       header-name: X-Trace-Id
-      http-slow-threshold-ms: 250
+      http-slow-threshold-ms: 500
       job-slow-threshold-ms: 1000
-      kafka-consumer-slow-threshold-ms: 250
+      kafka-consumer-slow-threshold-ms: 1000
       resource-sampling-enabled: false
       slow-error-trace-file: ./data/easy-observability/traces.jsonl
       slow-error-history-limit: 1000
@@ -110,9 +110,9 @@ easy:
 | `easy.observability.enabled` | `true` | Starter 总开关；关闭后不创建 Easy Observability 自动配置 |
 | `easy.observability.trace.enabled` | `true` | Trace 采集和上下文传播总开关 |
 | `easy.observability.trace.header-name` | `X-Trace-Id` | HTTP 请求/响应及受支持客户端、Kafka 消息使用的 Trace ID 名称 |
-| `easy.observability.trace.http-slow-threshold-ms` | `250` | HTTP 入口慢阈值 |
+| `easy.observability.trace.http-slow-threshold-ms` | `500` | HTTP 入口慢阈值 |
 | `easy.observability.trace.job-slow-threshold-ms` | `1000` | 定时任务入口慢阈值 |
-| `easy.observability.trace.kafka-consumer-slow-threshold-ms` | `250` | Kafka 消费入口慢阈值 |
+| `easy.observability.trace.kafka-consumer-slow-threshold-ms` | `1000` | Kafka 消费入口慢阈值 |
 | `easy.observability.trace.resource-sampling-enabled` | `false` | 是否采集入口线程 CPU 时间和分配量；启用后会读取 JVM 管理接口 |
 | `easy.observability.trace.slow-error-trace-file` | `./data/easy-observability/traces.jsonl` | 慢错入口 Trace 的 JSONL 归档路径，相对路径以应用工作目录为基准 |
 | `easy.observability.trace.slow-error-history-limit` | `1000` | 慢错归档索引的最大记录数；实际下限为 `100` |
