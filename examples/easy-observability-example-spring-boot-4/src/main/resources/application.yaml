@@ -41,6 +41,6 @@ easy:
     trace:
       http-slow-threshold-ms: 250 # 示例 HTTP 阈值，确保异步演示入口进入慢 Trace 列表。
       job-slow-threshold-ms: 250 # 降低示例定时任务阈值，便于快速看到慢任务 Trace。
-      cpu-threshold-ms: 100 # 示例 CPU 告警阈值。
-      allocated-memory-threshold: 8MB # 示例分配量告警阈值。
+      cpu-threshold-ms: 100 # 示例入口线程 CPU 时间阈值。
+      allocated-memory-threshold: 8MB # 示例入口线程内存分配量阈值。
       diagnostic-trace-file: ./data/easy-observability-example-spring-boot-4/traces.jsonl

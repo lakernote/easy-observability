@@ -3,7 +3,7 @@ package io.github.lakernote.observability.trace;
 import java.lang.management.ManagementFactory;
 import java.lang.management.ThreadMXBean;
 
-/** A point-in-time sample of per-thread CPU time and allocated bytes. */
+/** Point-in-time per-thread CPU-time and cumulative-allocation counters; allocation is not retained heap. */
 public record ThreadResourceSnapshot(long threadId, long cpuNanos, long allocatedBytes) {
     private static final ThreadMXBean THREADS = ManagementFactory.getThreadMXBean();
     private static final com.sun.management.ThreadMXBean HOTSPOT =

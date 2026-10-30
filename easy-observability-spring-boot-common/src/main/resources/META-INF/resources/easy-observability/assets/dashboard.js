@@ -91,7 +91,7 @@ function filtered() {
       [item.name, item.tag, item.kind, item.errorType, item.threadName]
         .some(value => String(value || '').toLocaleLowerCase().includes(query)) || matchesNode(item.children))
     return [trace.name, trace.method, trace.traceId, trace.errorType, trace.errorMessage,
-      trace.highCpu ? '高 CPU' : '', trace.highAllocation ? '高分配' : '']
+      trace.highCpu ? 'CPU 时间超阈值' : '', trace.highAllocation ? '内存分配量超阈值' : '']
       .some(value => String(value || '').toLocaleLowerCase().includes(query)) || matchesNode(trace.treeNodes)
   })
 }
@@ -108,8 +108,8 @@ function render() {
     const resultCell = node('td')
     if (trace.error) resultCell.append(node('span', 'badge error', '错误'))
     if (trace.slow) resultCell.append(node('span', 'badge slow', '慢调用'))
-    if (trace.highCpu) resultCell.append(node('span', 'badge resource', '高 CPU'))
-    if (trace.highAllocation) resultCell.append(node('span', 'badge resource', '高分配'))
+    if (trace.highCpu) resultCell.append(node('span', 'badge resource', 'CPU 时间超阈值'))
+    if (trace.highAllocation) resultCell.append(node('span', 'badge resource', '内存分配量超阈值'))
     if (unfinishedSpanCount(trace.treeNodes)) {
       const unfinishedBadge = node('span', 'badge unfinished', '请求结束时未完成')
       unfinishedBadge.title = '该子 Span 在入口请求结束时仍在运行'
@@ -307,7 +307,7 @@ async function openTrace(summary) {
     if (requestId !== detailRequest || !$('detail-dialog').open) return
     if (!detail) throw new Error('这条 Trace 已不在保留范围内')
     $('facts').replaceChildren()
-    const resourceAlerts = [detail.highCpu ? '高 CPU' : '', detail.highAllocation ? '高分配' : ''].filter(Boolean)
+    const resourceAlerts = [detail.highCpu ? 'CPU 时间超阈值' : '', detail.highAllocation ? '内存分配量超阈值' : ''].filter(Boolean)
     const result = [detail.error ? '错误' : '', detail.slow ? '慢调用' : '', ...resourceAlerts]
       .filter(Boolean).join(' · ') || '正常'
     addFact($('facts'), '结果', result, detail.error ? 'bad' : detail.slow || resourceAlerts.length ? 'warn' : '')
@@ -330,11 +330,11 @@ async function openTrace(summary) {
     $('resource-facts-content').replaceChildren()
     addFact($('resource-facts-content'), '入口线程', detail.threadName || detail.threadId)
     const cpuTimeMs = detail.cpuTimeMs == null ? NaN : Number(detail.cpuTimeMs)
-    addFact($('resource-facts-content'), '入口线程 CPU', Number.isFinite(cpuTimeMs) && cpuTimeMs >= 0
+    addFact($('resource-facts-content'), 'CPU 时间', Number.isFinite(cpuTimeMs) && cpuTimeMs >= 0
       ? `${cpuTimeMs.toLocaleString()} ms` : '未采集', '',
-      '只统计入口线程在 Trace 期间消耗的 CPU 时间；不等于整个请求链路的 CPU 总和')
-    addFact($('resource-facts-content'), '入口线程分配量', formatAllocatedBytes(detail.allocatedBytes), '',
-      '入口线程在 Trace 期间累计分配的对象内存；不是当前堆占用，也不代表 DB 或远程服务的内存')
+      '统计入口线程在本次入口执行期间实际占用 CPU 的累计时间；不是 CPU 使用率，也不包含子线程')
+    addFact($('resource-facts-content'), '内存分配量', formatAllocatedBytes(detail.allocatedBytes), '',
+      '统计入口线程在本次入口执行期间累计分配的对象大小；不是当前堆占用，也不包含子线程或远程服务')
     renderTraceTree($('tree'), $('span-detail'), detail.treeNodes, Number(detail.durationMs || 0))
     if (detail.error || detail.errorType || detail.errorStackTrace) {
       $('error-section').hidden = false

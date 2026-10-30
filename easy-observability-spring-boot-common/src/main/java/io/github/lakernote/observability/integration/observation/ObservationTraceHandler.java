@@ -82,7 +82,7 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
             String detail = observationDetail(context, type);
             long threadId = Thread.currentThread().getId();
             String threadName = root ? safe(Thread.currentThread().getName(), 128) : "";
-            // CPU and allocated bytes are sampled only at the entry boundary; child spans retain timing only.
+            // CPU 时间和内存分配量在入口线程的请求开始/结束处采样；不归因到单个 Span 或子线程。
             ThreadResourceSnapshot resources = root ? ThreadResourceSnapshot.capture(threadId) : null;
             if (root) {
                 // 入口建立请求级 Trace；依赖调用只挂到当前 Trace，不会单独伪装成请求。

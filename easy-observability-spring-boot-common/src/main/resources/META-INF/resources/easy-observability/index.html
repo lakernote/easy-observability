@@ -25,7 +25,7 @@
     <section class="intro">
       <p class="eyebrow">TRACE EXPLORER</p>
       <h1>Trace 诊断</h1>
-      <p>集中查看慢调用、错误、高 CPU 和高内存分配入口；打开记录沿调用时间线定位根因。</p>
+      <p>集中查看慢调用、错误以及 CPU 时间或内存分配量超阈值的入口；打开记录沿调用时间线定位根因。</p>
     </section>
     <div id="notice" class="notice" role="status" hidden></div>
     <section class="filters" aria-label="Trace 筛选">
@@ -37,8 +37,8 @@
     <section class="trace-list" aria-label="慢调用、资源告警和错误 Trace 列表">
       <p class="scroll-hint">表格可横向滚动查看全部字段</p>
       <div class="table-scroll"><table>
-        <caption class="sr-only">慢调用、资源告警和错误 Trace；选择记录可查看入口线程分配量与调用时间线</caption>
-        <thead><tr><th scope="col">结果</th><th scope="col">入口</th><th scope="col">入口分配量</th><th scope="col">总耗时</th><th scope="col">Trace ID</th><th scope="col">完成时间</th></tr></thead>
+        <caption class="sr-only">慢调用、资源告警和错误 Trace；选择记录可查看入口线程 CPU 时间、内存分配量与调用时间线</caption>
+        <thead><tr><th scope="col">结果</th><th scope="col">入口</th><th scope="col" title="入口线程在本次入口执行期间累计分配的对象大小，不是当前堆占用">内存分配量</th><th scope="col">总耗时</th><th scope="col">Trace ID</th><th scope="col">完成时间</th></tr></thead>
         <tbody id="trace-rows"></tbody>
       </table></div>
       <p id="empty" class="empty" hidden>暂无诊断 Trace；正常请求不会显示在此列表中</p>

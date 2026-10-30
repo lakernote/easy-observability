@@ -60,8 +60,8 @@ public class DemoController {
                 <a href="/api/demo/real-flow">H2 → Redis → HTTP → Kafka producer</a>
 
                 <h2>入口线程资源阈值</h2>
-                <a href="/api/demo/resources/cpu">高 CPU（约 200 ms 计算）</a>
-                <a href="/api/demo/resources/allocation">高内存分配（约 24 MiB）</a>
+                <a href="/api/demo/resources/cpu">高 CPU 时间（约 200 ms 计算）</a>
+                <a href="/api/demo/resources/allocation">高内存分配量（约 24 MiB）</a>
 
                 <p class="note">H2 内嵌数据库无需额外启动。Redis 和 Kafka 场景需要先启动 <code>examples/docker-compose.yml</code>；远程 HTTP 场景需要可访问 httpbingo。慢和错误用例是有界的本地诊断演示。</p>
                 </html>

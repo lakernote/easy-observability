@@ -67,10 +67,10 @@ Kafka 首次启动时 broker 和 consumer group 需要一些时间完成协调�
 
 - `/api/demo/real-flow` 在一个请求中执行 H2 写入/查询、Redis SET/GET、远程 HTTP 和 Kafka producer，适合检查跨依赖 Trace 串联。
 - `/api/demo/transaction/error` 在 Spring 事务内写入后抛出异常，适合检查 SQL、事务回滚结果和根因堆栈。
-- `/api/demo/resources/cpu` 在请求线程上运行约 200 ms 的计算，触发 CPU 阈值而不依赖外部服务。
+- `/api/demo/resources/cpu` 在请求线程上运行约 200 ms 的计算，触发 CPU 时间阈值而不依赖外部服务。
 - `/api/demo/resources/allocation` 在请求期间累计分配约 24 MiB 临时字节数组，触发分配量阈值；对象在响应后可回收，不会长期占用堆。
 
-每个入口 Trace 都会采集入口线程 CPU 时间和线程分配量。示例将 CPU 告警阈值设为 100 ms、分配量阈值设为 `8MB`。这里的分配量是该线程在请求期间新分配的对象字节数，不代表进程当前堆内存占用。HTTP 服务依赖失败仍会作为 Trace 错误保存；Redis 和 Kafka 的场景需要本地 Docker 依赖可用。
+每个入口 Trace 都会采集入口线程在本次入口执行期间消耗的 CPU 时间，以及该线程期间的内存分配量。CPU 时间不是 CPU 使用率；内存分配量是创建对象的累计大小，不代表进程当前堆内存占用；两项都不包含子线程。示例将 CPU 时间阈值设为 100 ms、内存分配量阈值设为 `8MB`。HTTP 服务依赖失败仍会作为 Trace 错误保存；Redis 和 Kafka 的场景需要本地 Docker 依赖可用。
 
 完成后可关闭本地依赖：
 
