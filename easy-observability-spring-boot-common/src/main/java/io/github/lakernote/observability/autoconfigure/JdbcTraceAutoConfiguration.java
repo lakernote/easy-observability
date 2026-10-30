@@ -1,6 +1,5 @@
 package io.github.lakernote.observability.autoconfigure;
 
-import io.github.lakernote.observability.config.EasyObservabilityProperties;
 import io.github.lakernote.observability.integration.jdbc.JdbcTraceQueryExecutionListener;
 import io.github.lakernote.observability.integration.jdbc.SpringAwareJdbcProxyFactory;
 import net.ttddyy.dsproxy.proxy.ProxyJdbcObject;
@@ -24,14 +23,12 @@ import javax.sql.DataSource;
 @ConditionalOnClass({DataSource.class, ProxyDataSourceBuilder.class})
 @ConditionalOnProperty(prefix = "easy.observability", name = "enabled", havingValue = "true", matchIfMissing = true)
 @ConditionalOnProperty(prefix = "easy.observability.trace", name = "enabled", havingValue = "true", matchIfMissing = true)
-@ConditionalOnProperty(prefix = "easy.observability.trace", name = "database-observation-enabled",
-        havingValue = "true", matchIfMissing = true)
 @ConditionalOnProperty(prefix = "jdbc.datasource-proxy", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class JdbcTraceAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
-    JdbcTraceQueryExecutionListener jdbcTraceQueryExecutionListener(EasyObservabilityProperties properties) {
-        return new JdbcTraceQueryExecutionListener(properties);
+    JdbcTraceQueryExecutionListener jdbcTraceQueryExecutionListener() {
+        return new JdbcTraceQueryExecutionListener();
     }
 
     @Bean

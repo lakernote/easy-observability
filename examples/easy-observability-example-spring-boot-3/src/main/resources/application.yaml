@@ -37,13 +37,8 @@ easy:
       schedule-delay: 30s
       httpbingo-base-url: https://httpbingo.org
     web:
-      enabled: true
       allow-anonymous: true # 仅用于本机示例，不要在生产环境开放匿名访问。
     trace:
       resource-sampling-enabled: true # 仅为演示线程 CPU/分配数据；生产默认关闭。
-      http-slow-threshold-ms: 250
-      job-slow-threshold-ms: 250
-      executor-task-slow-threshold-ms: 250
-      kafka-consumer-slow-threshold-ms: 250
-      redis-observation-enabled: true # 由 Lettuce Observation 自动生成 Redis 命令 Span。
+      job-slow-threshold-ms: 250 # 降低示例定时任务阈值，便于快速看到慢任务 Trace。
       slow-error-trace-file: ./data/easy-observability-example-spring-boot-3/traces.jsonl

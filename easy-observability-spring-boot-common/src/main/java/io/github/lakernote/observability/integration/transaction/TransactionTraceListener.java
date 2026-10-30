@@ -7,24 +7,16 @@ import org.springframework.transaction.TransactionExecutionListener;
 
 import java.util.IdentityHashMap;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
-import java.util.function.LongSupplier;
 
 /**
  * Records Spring transaction boundaries without proxying application services.
  */
 public final class TransactionTraceListener implements TransactionExecutionListener {
     private final EasyObservabilityProperties properties;
-    private final LongSupplier nanoTime;
     private final ThreadLocal<Map<TransactionExecution, State>> states = new ThreadLocal<>();
 
     public TransactionTraceListener(EasyObservabilityProperties properties) {
-        this(properties, System::nanoTime);
-    }
-
-    TransactionTraceListener(EasyObservabilityProperties properties, LongSupplier nanoTime) {
         this.properties = properties;
-        this.nanoTime = nanoTime;
     }
 
     @Override
@@ -39,8 +31,7 @@ public final class TransactionTraceListener implements TransactionExecutionListe
                     : currentId == null ? "" : currentId;
             Thread currentThread = Thread.currentThread();
             State state = new State(traceId, ownsTraceId, tracing,
-                    safeName(execution.getTransactionName()), execution.isReadOnly(), nanoTime.getAsLong(),
-                    currentThread.getId());
+                    safeName(execution.getTransactionName()), execution.isReadOnly(), currentThread.getId());
             if (tracing && TraceContext.active()) {
                 // Begin before the transaction manager acquires its connection so connection work is nested here.
                 state.span = TraceContext.startScopedSpan(state.name, SpanKind.TRANSACTION,
@@ -63,14 +54,9 @@ public final class TransactionTraceListener implements TransactionExecutionListe
         if (state == null) return;
         if (failure != null) {
             finish(execution, state, false, failure);
-            return;
-        }
-        try {
-            state.startedNanos = nanoTime.getAsLong();
+        } else {
+            // A transaction can be completed on another thread by some transaction managers.
             state.threadId = Thread.currentThread().getId();
-            state.started = true;
-        } catch (Throwable ignored) {
-            // Instrumentation must never change the transaction result.
         }
     }
 
@@ -88,12 +74,7 @@ public final class TransactionTraceListener implements TransactionExecutionListe
         if (state == null) return;
         removeState(execution);
         try {
-            long durationMs = Math.max(0, TimeUnit.NANOSECONDS.toMillis(nanoTime.getAsLong()
-                    - (state.started ? state.startedNanos : state.createdNanos)));
-            boolean slow = properties.getTrace().getTransactionSlowThresholdMs() > 0
-                    && durationMs >= properties.getTrace().getTransactionSlowThresholdMs();
             boolean sameThread = state.threadId == Thread.currentThread().getId();
-            if (state.tracing && sameThread && slow) TraceContext.markSlow("LONG_TRANSACTION");
             BoundedThrowableFormatter.FailureEvidence error = failure == null
                     ? success ? null : new BoundedThrowableFormatter.FailureEvidence(
                     "TransactionRollback", "Transaction rolled back", "")
@@ -131,20 +112,16 @@ public final class TransactionTraceListener implements TransactionExecutionListe
         private final String name;
         private final boolean readOnly;
         private final boolean tracing;
-        private final long createdNanos;
-        private long startedNanos;
         private long threadId;
         private TraceContext.ScopedSpan span;
-        private boolean started;
 
         private State(String traceId, boolean ownsTraceId, boolean tracing, String name, boolean readOnly,
-                      long createdNanos, long threadId) {
+                      long threadId) {
             this.traceId = traceId;
             this.ownsTraceId = ownsTraceId;
             this.tracing = tracing;
             this.name = name;
             this.readOnly = readOnly;
-            this.createdNanos = createdNanos;
             this.threadId = threadId;
         }
     }

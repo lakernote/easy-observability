@@ -2,7 +2,6 @@ package io.github.lakernote.observability.autoconfigure.boot3;
 
 import io.github.lakernote.observability.autoconfigure.ObservabilityAutoConfiguration;
 
-import io.github.lakernote.observability.config.EasyObservabilityProperties;
 import io.github.lakernote.observability.integration.redis.RedissonTraceConnectionFactoryPostProcessor;
 import io.micrometer.observation.ObservationRegistry;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -48,9 +47,8 @@ public class RedisTraceAutoConfiguration {
         @org.springframework.context.annotation.Bean
         @ConditionalOnProperty(prefix = "easy.observability.trace", name = "enabled",
                 havingValue = "true", matchIfMissing = true)
-        static RedissonTraceConnectionFactoryPostProcessor redissonTraceConnectionFactoryPostProcessor(
-                org.springframework.beans.factory.ObjectProvider<EasyObservabilityProperties> propertiesProvider) {
-            return new RedissonTraceConnectionFactoryPostProcessor(propertiesProvider);
+        static RedissonTraceConnectionFactoryPostProcessor redissonTraceConnectionFactoryPostProcessor() {
+            return new RedissonTraceConnectionFactoryPostProcessor();
         }
     }
 }

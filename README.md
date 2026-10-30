@@ -1,8 +1,21 @@
 # Easy Observability
 
-面向 Spring Boot 应用的轻量 Trace Starter。它把 HTTP 请求、Spring 定时任务和 Kafka 消费作为入口 Trace，并把可观测到的数据库、Redis、事务和远程调用挂到同一调用树中，帮助从一次慢调用或错误定位具体耗时节点和异常堆栈。
+**Spring Boot 慢调用与错误 Trace 诊断 Starter**
+
+面向 Spring Boot 3/4 应用的轻量嵌入式排障工具。它从 HTTP 请求、定时任务和 Kafka 消费入口采集 Trace，并串联可观测到的 JDBC、Redis、事务及远程调用，帮助快速找到最慢或失败的调用节点。Trace ID 可沿受支持的 HTTP 客户端和 Kafka 消息传播；页面和有界历史聚焦当前应用实例。
 
 项目提供 Spring Boot 3 和 Spring Boot 4 两个 Starter。项目不注册自定义 Micrometer Meter、不保存指标历史；Actuator 自带的指标能力由应用自己的 Actuator 配置管理。
+
+[![Boot 3 Starter on Maven Central](https://img.shields.io/maven-central/v/io.github.lakernote/easy-observability-spring-boot-3-starter?label=Boot%203%20Starter&logo=apachemaven)](https://central.sonatype.com/artifact/io.github.lakernote/easy-observability-spring-boot-3-starter)
+[![Boot 4 Starter on Maven Central](https://img.shields.io/maven-central/v/io.github.lakernote/easy-observability-spring-boot-4-starter?label=Boot%204%20Starter&logo=apachemaven)](https://central.sonatype.com/artifact/io.github.lakernote/easy-observability-spring-boot-4-starter)
+
+## 界面预览
+
+Trace 列表聚焦慢调用和错误；打开记录后，可沿时间线查看数据库、Redis、远程调用等节点，并直接定位耗时最长的子调用。
+
+![慢调用与错误 Trace 列表](docs/images/trace-list.png)
+
+![Trace 详情时间线及最长子调用](docs/images/trace-detail-timeline.png)
 
 ## 安装
 
@@ -49,11 +62,11 @@ examples/                                       # 两个 Boot 版本的端到端
 | --- | --- | --- |
 | HTTP server | 记录入口路由、状态、耗时和错误 | 非 Spring MVC 入口需要显式接入 |
 | Spring HTTP client、OkHttp | 在对应客户端 Observation 可用时记录远程调用；Spring 管理的 `RestClient.Builder` 自动传递 Trace ID；Spring 容器中的 OkHttpClient 会自动增强 | `RestClient.create()` 等绕过 Spring Builder 的客户端不会自动增强 |
-| JDBC | 在当前 Trace 中记录脱敏 SQL 模板、耗时和错误 | 不记录绑定参数，也不做 SQL 汇总统计；可关闭 `easy.observability.trace.database-observation-enabled` |
+| JDBC | 在当前 Trace 中记录脱敏 SQL 模板、耗时和错误 | 自动采集；不记录绑定参数，也不做 SQL 汇总统计 |
 | Spring 事务、MyBatis | 记录事务范围；MyBatis SQL 通过 DataSource/JDBC 监听器记录为 SQL Span | 不额外创建 Mapper Span；自定义事务或非 Spring 边界需自行接入 |
 | Redis | Lettuce Observation 自动记录命令级 Span，保留命令、耗时和错误 | Spring Boot 3/4 的 Lettuce Observation 接入随 Starter 自动配置；自定义 `ClientResources` 需自行接入 Observation |
 | Kafka | Listener 和 producer Observation 记录为入口或依赖 Span，并传播 Trace ID | Spring Kafka 需要启用 Listener/Template Observation；自定义消费者需自行接入 |
-| 线程池任务 | `TraceContextTaskDecorator` 在线程池边界传播活动 Trace，并自动记录任务耗时、慢状态和异常 | 在线程池配置一次装饰器；无活动父 Trace 时不创建任务节点 |
+| 线程池任务 | `TraceContextTaskDecorator` 在线程池边界传播活动 Trace，并自动记录任务耗时和异常 | 在线程池配置一次装饰器；无活动父 Trace 时不创建任务节点 |
 | 业务方法 | `TraceBlock` 或 `@TraceSpan` 添加业务 Span | 不扫描所有 Service；`@TraceSpan` 需要应用已有 Spring AOP |
 
 Spring Boot Actuator 可以按应用配置提供 JVM、进程、连接池等原生指标。本项目不读取、存储或绘制这些指标；要查看 Actuator 指标，请使用应用自己的 Actuator 端点或现有监控系统。
@@ -62,7 +75,7 @@ Redis 接入复用 Lettuce 的 Micrometer Observation，不单独注册 Meter；
 
 ## 慢调用与错误定位
 
-Trace 列表只保留慢调用和错误入口，不会显示正常请求。列表支持按入口、慢/错误状态和文本搜索，可匹配 Trace ID、SQL、依赖名称与错误摘要。详情包含入口总耗时、各调用节点耗时、HTTP 状态、线程信息及调用树；启用资源采样时还会显示线程 CPU 时间和线程分配量。列表中的分配内存也是请求线程累计分配量，不代表当前堆占用。单个依赖错误会标记在对应 Span 上，便于直接判断慢或错发生在哪个下游操作。
+Trace 列表只保留慢调用和错误入口，不会显示正常请求。列表支持按入口、慢/错误状态和文本搜索，可匹配 Trace ID、SQL、依赖名称与错误摘要。详情包含入口总耗时、各调用节点耗时、HTTP 状态、线程信息及调用时间线；启用资源采样时还会显示线程 CPU 时间和线程分配量。列表中的分配内存也是请求线程累计分配量，不代表当前堆占用。单个依赖错误会标记在对应 Span 上；依赖耗时仍完整保留，便于从入口慢 Trace 中定位耗时步骤。
 
 捕获到异常时，详情和慢错归档会保存异常类型、消息及有界堆栈；HTTP 5xx 等只有状态码的错误会标记为错误，但没有异常对象时不会生成虚构堆栈。SQL 会在进入 Trace 前清理字面量和注释。调用树和异常堆栈均有大小限制，避免单条异常无限扩张存储。
 
@@ -70,48 +83,53 @@ Trace 列表只保留慢调用和错误入口，不会显示正常请求。列�
 
 ## 配置
 
+以下配置均可省略；默认开启 Trace、HTTP 页面及 JDBC/Redis/事务节点采集。Starter 会提供线程池上下文装饰器 Bean，在线程池配置使用后才会传播和记录任务。资源采样默认关闭。慢阈值仅用于 HTTP、定时任务和 Kafka 消费入口；设为 `0` 或负数可关闭对应入口的慢分类。依赖节点始终记录耗时和错误，不单独按慢阈值标记；错误 Trace 仍会保留。
+
 ```yaml
 easy:
   observability:
     enabled: true
     trace:
+      enabled: true
+      header-name: X-Trace-Id
       http-slow-threshold-ms: 250
       job-slow-threshold-ms: 1000
-      transaction-slow-threshold-ms: 1000
       kafka-consumer-slow-threshold-ms: 250
-      dependency-slow-threshold-ms: 250
-      database-observation-enabled: true
       resource-sampling-enabled: false
+      slow-error-trace-file: ./data/easy-observability/traces.jsonl
       slow-error-history-limit: 1000
       slow-error-max-bytes: 8MB
     web:
       enabled: true
       allow-anonymous: false
+      trace-limit: 500
 ```
 
 | 配置 | 默认值 | 作用 |
 | --- | --- | --- |
-| `easy.observability.enabled` | `true` | Starter 总开关 |
-| `easy.observability.trace.http-slow-threshold-ms` | `250` | HTTP 慢调用阈值；设为 0 或负数可关闭慢分类 |
-| `easy.observability.trace.job-slow-threshold-ms` | `1000` | 定时任务慢阈值 |
-| `easy.observability.trace.transaction-slow-threshold-ms` | `1000` | 事务慢阈值 |
-| `easy.observability.trace.kafka-consumer-slow-threshold-ms` | `250` | Kafka 消费慢阈值 |
-| `easy.observability.trace.dependency-slow-threshold-ms` | `250` | 依赖调用慢阈值 |
-| `easy.observability.trace.database-observation-enabled` | `true` | 是否在 Trace 中记录 JDBC SQL Span |
-| `easy.observability.trace.resource-sampling-enabled` | `false` | 是否在入口 Trace 附带线程 CPU 和分配量；逐操作读取 JVM 管理接口 |
-| `easy.observability.trace.slow-error-history-limit` | `1000` | 内存近期慢错 Trace 与慢错归档条数上限 |
-| `easy.observability.trace.slow-error-max-bytes` | `8MB` | Trace JSONL 文件容量上限 |
+| `easy.observability.enabled` | `true` | Starter 总开关；关闭后不创建 Easy Observability 自动配置 |
+| `easy.observability.trace.enabled` | `true` | Trace 采集和上下文传播总开关 |
+| `easy.observability.trace.header-name` | `X-Trace-Id` | HTTP 请求/响应及受支持客户端、Kafka 消息使用的 Trace ID 名称 |
+| `easy.observability.trace.http-slow-threshold-ms` | `250` | HTTP 入口慢阈值 |
+| `easy.observability.trace.job-slow-threshold-ms` | `1000` | 定时任务入口慢阈值 |
+| `easy.observability.trace.kafka-consumer-slow-threshold-ms` | `250` | Kafka 消费入口慢阈值 |
+| `easy.observability.trace.resource-sampling-enabled` | `false` | 是否采集入口线程 CPU 时间和分配量；启用后会读取 JVM 管理接口 |
+| `easy.observability.trace.slow-error-trace-file` | `./data/easy-observability/traces.jsonl` | 慢错入口 Trace 的 JSONL 归档路径，相对路径以应用工作目录为基准 |
+| `easy.observability.trace.slow-error-history-limit` | `1000` | 慢错归档索引的最大记录数；实际下限为 `100` |
+| `easy.observability.trace.slow-error-max-bytes` | `8MB` | JSONL 归档文件上限；实际下限为 `1MB`，超限时保留较新的记录 |
+| `easy.observability.web.enabled` | `true` | 是否提供 Trace 页面和只读 API |
 | `easy.observability.web.allow-anonymous` | `false` | 是否允许匿名读取 Trace 页面/API；生产环境保持关闭 |
+| `easy.observability.web.trace-limit` | `500` | 最近慢错入口 Trace 的内存窗口容量，不影响 JSONL 归档容量 |
 
-页面默认使用 `ObservabilityAccessPolicy` 拒绝匿名访问。生产环境请接入应用自己的认证授权，可提供该策略的 Bean。`easy.observability.web.allow-anonymous=true` 适用于可信的本地示例环境。
+页面默认使用 `ObservabilityAccessPolicy` 拒绝匿名访问。生产环境请接入应用自己的认证授权，可提供该策略的 Bean。`easy.observability.web.allow-anonymous=true` 适用于可信的本地示例环境。近期内存窗口和 JSONL 归档都只保存慢或错误的入口 Trace；`web.trace-limit` 控制内存窗口，`slow-error-history-limit` 控制归档索引条数，`slow-error-max-bytes` 控制磁盘文件大小。
 
-### Kafka Listener Trace 拦截范围
+### Kafka Listener Trace 接入范围
 
-`KafkaTraceAutoConfiguration` 负责 Kafka 消费端的两项集成：Observation 启动时从消息头解析 Trace ID，让消费 Trace 与生产端 Trace 关联；同时提供 `TraceIdRecordInterceptor` Bean，由 Spring Boot 的 Listener Factory 配置器安装到默认 Listener 容器。因此使用 Boot 默认 Listener Factory 的 `@KafkaListener` 通常会自动接入，无需在监听方法上加注解。
+Kafka 消费端从消息头恢复 Trace ID，并提供 `TraceIdRecordInterceptor` 给 Spring Boot 默认 Listener Factory，因此使用默认 Factory 的 `@KafkaListener` 通常无需额外配置。生产端自动写入消息头；Spring Kafka 还需启用 Listener/Template Observation，Trace ID 才能跨生产和消费关联。
 
-拦截器在 Listener 执行前读取消息头（默认 `X-Trace-Id`），恢复当前线程的 Trace ID/MDC；消息头缺失或格式无效时会为这次消费生成新的 Trace ID；Listener 执行后恢复线程原有上下文，避免复用消费线程时 Trace 串线。它不读取消息体，也不负责 Producer 写入消息头；Producer 侧由单独的自动配置处理。它不会自动拦截原生 `KafkaConsumer`、Kafka Streams，或不经过 Spring Boot Listener Factory 的自定义消费代码。
+拦截器在 Listener 执行前读取消息头（默认 `X-Trace-Id`），恢复当前线程上下文；消息头缺失或格式无效时会生成新的 Trace ID。Listener 执行后会恢复线程原有上下文。它不读取消息体，也不会自动接入原生 `KafkaConsumer`、Kafka Streams 或绕过 Spring Boot Listener Factory 的自定义消费代码。
 
-Kafka 自动接入由类路径上的 Spring Kafka 和全局开关 `easy.observability.enabled`、`easy.observability.trace.enabled` 控制，不再提供单独的 `easy.observability.kafka.enabled` 开关。要记录消费操作，还需在 Spring Kafka 中启用 Listener Observation。若应用已经定义自己的 `RecordInterceptor` Bean，Starter 会让出该 Bean，避免 Boot 在多个候选拦截器之间无法选择；此时请显式组合 Trace 拦截器。自定义 Listener Factory 若不使用 Boot 的 Factory 配置器，也需要在创建时手动设置：
+Kafka 自动接入由类路径上的 Spring Kafka 和 `easy.observability.enabled`、`easy.observability.trace.enabled` 控制，没有单独的 Kafka 开关。若应用已定义自己的 `RecordInterceptor` Bean，Starter 会让出该 Bean；请显式组合 Trace 拦截器。自定义 Listener Factory 若不使用 Boot 的 Factory 配置器，也需手动设置：
 
 ```java
 @Bean
@@ -130,9 +148,7 @@ public void consume(String message) {
 }
 ```
 
-如果 Factory 已经配置了自己的 `RecordInterceptor`，请用 Spring Kafka 的 `CompositeRecordInterceptor` 把两者组合起来，避免 `setRecordInterceptor` 覆盖原有拦截器。
-
-Spring Kafka 3.x/4.x 可通过构造器组合已有拦截器和 Trace 拦截器。若应用定义了自己的拦截器 Bean，Starter 的 Trace Bean 会退让，可在自定义配置中创建 Trace 拦截器并组合：
+如果 Factory 已有拦截器，请用 Spring Kafka 的 `CompositeRecordInterceptor` 组合，避免覆盖原有逻辑：
 
 ```java
 factory.setRecordInterceptor(new CompositeRecordInterceptor<>(

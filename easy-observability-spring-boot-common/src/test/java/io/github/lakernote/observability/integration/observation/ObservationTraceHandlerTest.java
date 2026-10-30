@@ -22,9 +22,8 @@ class ObservationTraceHandlerTest {
     }
 
     @Test
-    void convertsFrameworkObservationToChildSpanInTheTraceTree() throws Exception {
+    void convertsFrameworkObservationToChildSpanInTheTraceTree() {
         EasyObservabilityProperties properties = new EasyObservabilityProperties();
-        properties.getTrace().setRedisSlowThresholdMs(1);
         RecentTraceStore history = new RecentTraceStore(10);
         ObservationRegistry registry = ObservationRegistry.create();
         registry.observationConfig().observationHandler(new ObservationTraceHandler(history, null, properties, java.util.List.of()));
@@ -35,12 +34,12 @@ class ObservationTraceHandlerTest {
                 .contextualName("GET")
                 .lowCardinalityKeyValue("db.operation", "GET");
         observation.start();
-        Thread.sleep(5);
         observation.stop();
 
         TraceContext.Completion[] completion = new TraceContext.Completion[1];
         TraceContext.stopRoot(Long.MAX_VALUE, "test", null, result -> completion[0] = result);
         assertThat(completion[0].tree()).contains("[Redis] GET");
+        assertThat(completion[0].slow()).isFalse();
         history.add("trace-redis-1", "GET /cache", "GET", "HTTP", 200, 20, false, false, completion[0].tree(), "", -1, -1, -1, "", "", "");
         assertThat(history.find("trace-redis-1", "HTTP").tree()).contains("[Redis] GET");
     }
@@ -48,7 +47,6 @@ class ObservationTraceHandlerTest {
     @Test
     void recordsStandaloneDependencyWithoutInventingTraceRoot() {
         EasyObservabilityProperties properties = new EasyObservabilityProperties();
-        properties.getTrace().setRedisSlowThresholdMs(0);
         RecentTraceStore history = new RecentTraceStore(10);
         ObservationRegistry registry = ObservationRegistry.create();
         registry.observationConfig().observationHandler(new ObservationTraceHandler(history, null, properties, java.util.List.of()));
@@ -86,44 +84,6 @@ class ObservationTraceHandlerTest {
             assertThat(trace.errorType()).isEqualTo("HTTP_503");
             assertThat(trace.errorMessage()).isEqualTo("HTTP status 503");
         });
-    }
-
-    @Test
-    void canLeaveHttpEntryToAHostSpecificAsyncAwareAdapter() {
-        EasyObservabilityProperties properties = new EasyObservabilityProperties();
-        properties.getTrace().setHttpServerObservationEnabled(false);
-        RecentTraceStore history = new RecentTraceStore(10);
-        ObservationRegistry registry = ObservationRegistry.create();
-        registry.observationConfig().observationHandler(new ObservationTraceHandler(history, null, properties, java.util.List.of()));
-
-        Observation.createNotStarted("http.server.requests", registry)
-                .lowCardinalityKeyValue("http.request.method", "GET")
-                .lowCardinalityKeyValue("http.route", "/orders")
-                .start().stop();
-
-        assertThat(history.recent(10)).isEmpty();
-        assertThat(TraceContext.active()).isFalse();
-    }
-
-    @Test
-    void canDisableFrameworkObservationsWhenNativeAdaptersOwnRedisAndDatabase() {
-        EasyObservabilityProperties properties = new EasyObservabilityProperties();
-        properties.getTrace().setRedisObservationEnabled(false);
-        properties.getTrace().setDatabaseObservationEnabled(false);
-        ObservationTraceHandler handler = new ObservationTraceHandler(
-                new RecentTraceStore(10), null, properties, java.util.List.of());
-
-        Observation.Context redis = new Observation.Context();
-        redis.setName("spring.data.redis");
-        Observation.Context database = new Observation.Context();
-        database.setName("spring.jdbc");
-        Observation.Context transaction = new Observation.Context();
-        transaction.setName("spring.transaction");
-
-        // The observation name may not exist yet when Micrometer asks this question.
-        assertThat(handler.supportsContext(redis)).isTrue();
-        assertThat(handler.supportsContext(database)).isTrue();
-        assertThat(handler.supportsContext(transaction)).isTrue();
     }
 
     @Test

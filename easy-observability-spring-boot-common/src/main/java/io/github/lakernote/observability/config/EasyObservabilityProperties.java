@@ -61,17 +61,10 @@ public class EasyObservabilityProperties {
 
     public static class Trace {
         private boolean enabled = true;
-        private boolean httpServerObservationEnabled = true;
-        private boolean redisObservationEnabled = true;
-        private boolean databaseObservationEnabled = true;
         private String headerName = "X-Trace-Id";
-        private long redisSlowThresholdMs = 250;
         private long jobSlowThresholdMs = 1_000;
-        private long executorTaskSlowThresholdMs = 250;
         private long httpSlowThresholdMs = 250;
         private long kafkaConsumerSlowThresholdMs = 250;
-        private long transactionSlowThresholdMs = 1_000;
-        private long dependencySlowThresholdMs = 250;
         // CPU and allocation counters require JVM management calls for every observed operation; keep opt-in.
         private boolean resourceSamplingEnabled;
         private String slowErrorTraceFile = "./data/easy-observability/traces.jsonl";
@@ -86,30 +79,6 @@ public class EasyObservabilityProperties {
             this.enabled = enabled;
         }
 
-        public boolean isHttpServerObservationEnabled() {
-            return httpServerObservationEnabled;
-        }
-
-        public void setHttpServerObservationEnabled(boolean enabled) {
-            this.httpServerObservationEnabled = enabled;
-        }
-
-        public boolean isRedisObservationEnabled() {
-            return redisObservationEnabled;
-        }
-
-        public void setRedisObservationEnabled(boolean enabled) {
-            this.redisObservationEnabled = enabled;
-        }
-
-        public boolean isDatabaseObservationEnabled() {
-            return databaseObservationEnabled;
-        }
-
-        public void setDatabaseObservationEnabled(boolean enabled) {
-            this.databaseObservationEnabled = enabled;
-        }
-
         public String getHeaderName() {
             return headerName;
         }
@@ -118,28 +87,12 @@ public class EasyObservabilityProperties {
             this.headerName = headerName == null || headerName.isBlank() ? "X-Trace-Id" : headerName;
         }
 
-        public long getRedisSlowThresholdMs() {
-            return redisSlowThresholdMs;
-        }
-
-        public void setRedisSlowThresholdMs(long redisSlowThresholdMs) {
-            this.redisSlowThresholdMs = redisSlowThresholdMs;
-        }
-
         public long getJobSlowThresholdMs() {
             return jobSlowThresholdMs;
         }
 
         public void setJobSlowThresholdMs(long jobSlowThresholdMs) {
             this.jobSlowThresholdMs = jobSlowThresholdMs;
-        }
-
-        public long getExecutorTaskSlowThresholdMs() {
-            return executorTaskSlowThresholdMs;
-        }
-
-        public void setExecutorTaskSlowThresholdMs(long thresholdMs) {
-            this.executorTaskSlowThresholdMs = thresholdMs;
         }
 
         public long getHttpSlowThresholdMs() {
@@ -156,22 +109,6 @@ public class EasyObservabilityProperties {
 
         public void setKafkaConsumerSlowThresholdMs(long kafkaConsumerSlowThresholdMs) {
             this.kafkaConsumerSlowThresholdMs = kafkaConsumerSlowThresholdMs;
-        }
-
-        public long getTransactionSlowThresholdMs() {
-            return transactionSlowThresholdMs;
-        }
-
-        public void setTransactionSlowThresholdMs(long transactionSlowThresholdMs) {
-            this.transactionSlowThresholdMs = transactionSlowThresholdMs;
-        }
-
-        public long getDependencySlowThresholdMs() {
-            return dependencySlowThresholdMs;
-        }
-
-        public void setDependencySlowThresholdMs(long dependencySlowThresholdMs) {
-            this.dependencySlowThresholdMs = dependencySlowThresholdMs;
         }
 
         public boolean isResourceSamplingEnabled() {

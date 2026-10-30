@@ -178,7 +178,7 @@ public final class TraceContext {
         if (trace != null) trace.freezeRoot();
     }
 
-    /** 即使根节点未达到慢阈值，也可因内部慢节点将整条 Trace 标记为慢调用。 */
+    /** 由调用方显式标记当前 Trace 为慢调用，不代表自动依赖节点阈值。 */
     public static void markSlow(String reason) {
         ExecutionFrame current = currentFrame();
         if (current != null) {

@@ -6,8 +6,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.transaction.TransactionExecution;
 
-import java.util.concurrent.atomic.AtomicLong;
-
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -21,8 +19,7 @@ class TransactionTraceListenerTest {
     @Test
     void attachesTransactionAsSingleChildOfExistingHttpTrace() {
         EasyObservabilityProperties properties = new EasyObservabilityProperties();
-        AtomicLong clock = new AtomicLong();
-        TransactionTraceListener listener = new TransactionTraceListener(properties, clock::get);
+        TransactionTraceListener listener = new TransactionTraceListener(properties);
         TransactionExecution execution = execution("OrderService#create", true);
         io.github.lakernote.observability.trace.TraceContext.startRoot("POST /orders",
                 io.github.lakernote.observability.trace.SpanKind.HTTP, "", 8, 0);
@@ -38,7 +35,6 @@ class TransactionTraceListenerTest {
                 "OrderMapper#insert", io.github.lakernote.observability.trace.SpanKind.DATABASE, "INSERT");
         assertThat(query.parentSpanId()).isEqualTo(transactionSpanId);
         query.close();
-        clock.addAndGet(20_000_000L);
         listener.afterCommit(execution, null);
         java.util.concurrent.atomic.AtomicReference<io.github.lakernote.observability.trace.TraceContext.Completion> completion =
                 new java.util.concurrent.atomic.AtomicReference<>();
@@ -55,7 +51,7 @@ class TransactionTraceListenerTest {
     @Test
     void closesTransactionSpanWhenBeginFails() {
         EasyObservabilityProperties properties = new EasyObservabilityProperties();
-        TransactionTraceListener listener = new TransactionTraceListener(properties, () -> 0L);
+        TransactionTraceListener listener = new TransactionTraceListener(properties);
         TransactionExecution execution = execution("OrderService#create", false);
         io.github.lakernote.observability.trace.TraceContext.startRoot("POST /orders",
                 io.github.lakernote.observability.trace.SpanKind.HTTP, "", 8, 0);

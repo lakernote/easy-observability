@@ -8,7 +8,6 @@ import java.util.Objects;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -59,7 +58,6 @@ public final class TraceContextTaskDecorator implements TaskDecorator {
             return;
         }
 
-        long startedAt = System.nanoTime();
         Throwable failure = null;
         try {
             task.run();
@@ -69,15 +67,10 @@ public final class TraceContextTaskDecorator implements TaskDecorator {
         } finally {
             try {
                 if (failure == null) failure = completedFutureFailure(task);
-                long durationMs = Math.max(0, TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt));
-                long thresholdMs = properties.getTrace().getExecutorTaskSlowThresholdMs();
                 if (failure != null) {
                     BoundedThrowableFormatter.FailureEvidence evidence = BoundedThrowableFormatter.capture(failure);
                     span.markError(evidence);
                     if (trace != null) trace.markError("EXECUTOR_TASK_ERROR", evidence);
-                } else if (thresholdMs > 0 && durationMs >= thresholdMs) {
-                    span.markSlow();
-                    if (trace != null) trace.markSlow("SLOW_EXECUTOR_TASK");
                 }
             } catch (RuntimeException instrumentationFailure) {
                 logFailure(instrumentationFailure);

@@ -55,7 +55,7 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
         TraceContext.SpanHandle span = null;
         try {
             type = findObservationType(context);
-            if (type == null || !type.isEnabled(properties)) return;
+            if (type == null) return;
             // 诊断页轮询自身 API 和静态资源会持续制造 HTTP Trace；仅跳过本组件记录，不改动宿主 Actuator/Micrometer 指标。
             if (type == ObservationType.HTTP && isDashboardRequest(context)) return;
             // 只有入口 Observation 创建根 Trace。客户端调用、SQL、Redis 和事务是依赖节点；脱离入口时不生成孤立 Trace。
@@ -193,7 +193,7 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
                     TraceContext.markError("HTTP_" + status, statusFailure);
                 }
             }
-            long threshold = state.observationType.threshold(properties);
+            long threshold = state.rootObservation ? state.observationType.slowThresholdMs(properties) : 0;
             boolean slow = threshold > 0 && durationMs >= threshold;
             // 通过所属 Trace 句柄更新标记，不读取结束线程当前的 ThreadLocal Trace。
             if (slow) {
@@ -513,22 +513,12 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
             return false;
         }
 
-        private boolean isEnabled(EasyObservabilityProperties properties) {
+        private long slowThresholdMs(EasyObservabilityProperties properties) {
             return switch (this) {
-                case HTTP -> properties.getTrace().isHttpServerObservationEnabled();
-                case REDIS -> properties.getTrace().isRedisObservationEnabled();
-                case DATABASE -> properties.getTrace().isDatabaseObservationEnabled();
-                default -> true;
-            };
-        }
-
-        private long threshold(EasyObservabilityProperties properties) {
-            return switch (this) {
-                case REDIS -> properties.getTrace().getRedisSlowThresholdMs();
                 case JOB -> properties.getTrace().getJobSlowThresholdMs();
                 case HTTP -> properties.getTrace().getHttpSlowThresholdMs();
                 case KAFKA_CONSUMER -> properties.getTrace().getKafkaConsumerSlowThresholdMs();
-                default -> properties.getTrace().getDependencySlowThresholdMs();
+                default -> 0;
             };
         }
 

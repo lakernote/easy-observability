@@ -44,11 +44,11 @@ Kafka 首次启动时 broker 和 consumer group 需要一些时间完成协调�
 
 主页的“异步线程池上下文传播对照”提供 `normal`、`slow`、`error` 三种任务，以及带/不带 Trace 包装器两种线程池：
 
-- `propagation=wrapped`：线程池只需配置一次公共 `TraceContextTaskDecorator`。任务自动继承父 Trace，并以 `executor.task` 节点记录耗时、慢状态和异常；不需要在任务代码里手动包装。接口会等待任务结束，保证父 Trace 仍处于活动状态。
+- `propagation=wrapped`：线程池只需配置一次公共 `TraceContextTaskDecorator`。任务自动继承父 Trace，并以 `executor.task` 节点记录耗时和异常；不需要在任务代码里手动包装。接口会等待任务结束，保证父 Trace 仍处于活动状态。
 - `propagation=unwrapped`：线程池不使用包装器。任务状态响应显示上下文未传播，任务不会出现在请求 Trace 调用树中。
 - `/api/demo/executor/{taskId}` 可查看任务执行状态；提交入口也会等待任务完成并返回任务状态、worker 线程以及上下文传播结果。
 
-任务节点使用通用名称 `executor.task`，标签显示执行线程名；慢阈值由 `easy.observability.trace.executor-task-slow-threshold-ms` 控制。Trace 记录不注册 Timer 或其他 Micrometer meter。Spring 的 `Future` 会吸收任务异常，装饰器会在任务结束后读取已完成 Future 的异常结果；任务内部自行捕获且不再抛出的异常无法由边界装饰器判断。
+任务节点使用通用名称 `executor.task`，标签显示执行线程名；任务耗时随父入口 Trace 记录，只有 HTTP、定时任务和 Kafka 消费入口会按阈值分类为慢 Trace。Trace 记录不注册 Timer 或其他 Micrometer meter。Spring 的 `Future` 会吸收任务异常，装饰器会在任务结束后读取已完成 Future 的异常结果；任务内部自行捕获且不再抛出的异常无法由边界装饰器判断。
 
 ## Redis 与 RestClient 自动接入
 

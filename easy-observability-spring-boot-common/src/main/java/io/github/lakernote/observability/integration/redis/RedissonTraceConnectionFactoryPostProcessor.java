@@ -1,10 +1,8 @@
 package io.github.lakernote.observability.integration.redis;
 
-import io.github.lakernote.observability.config.EasyObservabilityProperties;
 import io.github.lakernote.observability.trace.SpanKind;
 import io.github.lakernote.observability.trace.TraceContext;
 import org.springframework.beans.BeansException;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
@@ -19,44 +17,34 @@ import java.util.Set;
 
 /** Uses Spring Data's connection extension point for the Redisson community client. */
 public final class RedissonTraceConnectionFactoryPostProcessor implements BeanPostProcessor {
-    private final ObjectProvider<EasyObservabilityProperties> propertiesProvider;
-
-    public RedissonTraceConnectionFactoryPostProcessor(ObjectProvider<EasyObservabilityProperties> propertiesProvider) {
-        this.propertiesProvider = propertiesProvider;
-    }
-
     @Override
     public Object postProcessAfterInitialization(Object bean, String beanName) throws BeansException {
         if (!(bean instanceof RedisConnectionFactory factory)
                 || !ClassUtils.getUserClass(bean).getName().startsWith("org.redisson.spring.data.connection.RedissonConnectionFactory")) {
             return bean;
         }
-        EasyObservabilityProperties properties = propertiesProvider.getIfAvailable();
-        if (properties == null) return bean;
         Set<Class<?>> interfaces = publicInterfaces(bean.getClass());
         interfaces.add(RedisConnectionFactory.class);
         return Proxy.newProxyInstance(bean.getClass().getClassLoader(), interfaces.toArray(Class<?>[]::new),
                 (proxy, method, args) -> {
                     if (method.getDeclaringClass() == Object.class) return invokeTarget(method, factory, args);
                     Object result = invokeTarget(method, factory, args);
-                    return result instanceof RedisConnection connection ? wrap(connection, properties) : result;
+                    return result instanceof RedisConnection connection ? wrap(connection) : result;
                 });
     }
 
-    private RedisConnection wrap(RedisConnection connection, EasyObservabilityProperties properties) {
+    private RedisConnection wrap(RedisConnection connection) {
         Set<Class<?>> interfaces = publicInterfaces(connection.getClass());
         interfaces.add(RedisConnection.class);
         return (RedisConnection) Proxy.newProxyInstance(connection.getClass().getClassLoader(),
-                interfaces.toArray(Class<?>[]::new), new ConnectionHandler(connection, properties));
+                interfaces.toArray(Class<?>[]::new), new ConnectionHandler(connection));
     }
 
     private final class ConnectionHandler implements InvocationHandler {
         private final RedisConnection delegate;
-        private final EasyObservabilityProperties properties;
 
-        private ConnectionHandler(RedisConnection delegate, EasyObservabilityProperties properties) {
+        private ConnectionHandler(RedisConnection delegate) {
             this.delegate = delegate;
-            this.properties = properties;
         }
 
         @Override
@@ -65,7 +53,6 @@ public final class RedissonTraceConnectionFactoryPostProcessor implements BeanPo
             // Redis is always a dependency operation. Only an inbound HTTP, job, or Kafka
             // consumer observation may create a trace root.
             String name = method.getName();
-            long startedNanos = System.nanoTime();
             TraceContext.DetachedSpan span = TraceContext.startDetachedSpan("Redis " + name, SpanKind.REDIS, name);
             Throwable failure = null;
             try {
@@ -74,19 +61,14 @@ public final class RedissonTraceConnectionFactoryPostProcessor implements BeanPo
                 failure = error;
                 throw error;
             } finally {
-                finish(startedNanos, span, failure, properties);
+                finish(span, failure);
             }
         }
     }
 
-    private void finish(long startedNanos, TraceContext.DetachedSpan span, Throwable failure,
-                        EasyObservabilityProperties properties) {
-        long durationMs = Math.max(0, (System.nanoTime() - startedNanos) / 1_000_000);
-        long threshold = properties.getTrace().getRedisSlowThresholdMs();
-        boolean slow = threshold > 0 && durationMs >= threshold;
+    private void finish(TraceContext.DetachedSpan span, Throwable failure) {
         try {
             span.close();
-            if (slow) TraceContext.markSlow("SLOW_REDIS");
             if (failure != null) TraceContext.markError("REDIS_ERROR", failure);
         } catch (Throwable ignored) {
             // Instrumentation must never change the application's Redis result.
