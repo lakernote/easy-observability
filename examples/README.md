@@ -25,6 +25,8 @@ java -jar examples/easy-observability-example-spring-boot-4/target/easy-observab
 
 打开应用主页，再打开 `/easy-observability/` 查看最近 Trace。Boot 3 示例可用 `http://localhost:8083/`，Boot 4 示例可用 `http://localhost:8084/`。
 
+两个本地示例都设置了 `easy.observability.web.allow-anonymous: true`，因此页面可以匿名读取 Trace API，也可以匿名清空示例历史；仅用于本机体验，不要将示例直接暴露到不可信网络。生产应用应复用自己的登录和授权，详见主 [README 的页面访问控制说明](../README.md#页面访问控制)。
+
 ## 依赖调用场景
 
 所有场景都在一个 HTTP Trace 中查看入口及依赖调用树。

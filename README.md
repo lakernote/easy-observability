@@ -79,7 +79,7 @@ Redis 接入复用 Lettuce 的 Micrometer Observation，不单独注册 Meter；
 
 捕获到异常时，详情和诊断归档会保存异常类型、消息及有界堆栈；HTTP 5xx 等只有状态码的错误会标记为错误，但没有异常对象时不会生成虚构堆栈。SQL 会在进入 Trace 前清理字面量和注释。调用树和异常堆栈均有大小限制，避免单条异常无限扩张存储。
 
-慢调用、错误及资源超阈值 Trace 会同时保留在有界内存近期列表和本地 JSONL 文件中；正常 Trace 不会占用这两处历史记录。默认文件为 `./data/easy-observability/traces.jsonl`；多实例之间不会自动汇总。Trace ID 默认通过 `X-Trace-Id` 请求头传递。页面路径为 `/easy-observability/`，只读 API 路径为 `/api/easy-observability`，诊断筛选 API 为 `/api/easy-observability/diagnostics?kind=slow|error|resource`。
+慢调用、错误及资源超阈值 Trace 会同时保留在有界内存近期列表和本地 JSONL 文件中；正常 Trace 不会占用这两处历史记录。默认文件为 `./data/easy-observability/traces.jsonl`；多实例之间不会自动汇总。Trace ID 默认通过 `X-Trace-Id` 请求头传递。页面路径为 `/easy-observability/`，Trace API 路径为 `/api/easy-observability`；查询接口为 GET，清空历史为 `POST /api/easy-observability/storage/clear`。诊断筛选 API 为 `/api/easy-observability/diagnostics?kind=slow|error|resource`。
 
 ## 配置
 
@@ -119,11 +119,38 @@ easy:
 | `easy.observability.trace.diagnostic-trace-file` | `./data/easy-observability/traces.jsonl` | 诊断入口 Trace 的 JSONL 归档路径，相对路径以应用工作目录为基准 |
 | `easy.observability.trace.diagnostic-history-limit` | `1000` | 诊断归档索引的最大记录数；实际下限为 `100` |
 | `easy.observability.trace.diagnostic-max-bytes` | `8MB` | JSONL 诊断归档文件上限；实际下限为 `1MB`，超限时保留较新的记录 |
-| `easy.observability.web.enabled` | `true` | 是否提供 Trace 页面和只读 API |
-| `easy.observability.web.allow-anonymous` | `false` | 是否允许匿名读取 Trace 页面/API；生产环境保持关闭 |
+| `easy.observability.web.enabled` | `true` | 是否提供 Trace 页面和 API |
+| `easy.observability.web.allow-anonymous` | `false` | 默认访问策略是否允许匿名调用 Trace API；不是认证配置，也不保护页面文件本身 |
 | `easy.observability.web.trace-limit` | `500` | 最近诊断入口 Trace 的内存窗口容量，不影响 JSONL 归档容量 |
 
-页面默认使用 `ObservabilityAccessPolicy` 拒绝匿名访问。生产环境请接入应用自己的认证授权，可提供该策略的 Bean。`easy.observability.web.allow-anonymous=true` 适用于可信的本地示例环境。近期内存窗口和 JSONL 归档保存慢、错误或 CPU/分配量达到阈值的入口 Trace；`web.trace-limit` 控制内存窗口，`diagnostic-history-limit` 控制归档索引条数，`diagnostic-max-bytes` 控制磁盘文件大小。
+### 页面访问控制
+
+Starter 不提供用户名、密码、登录页或独立的用户系统。`easy.observability.web.allow-anonymous` 只决定默认 `ObservabilityAccessPolicy` 是否放行 Trace API：默认 `false` 时，默认策略拒绝所有 API 请求（到达控制器时返回 403），即使应用已完成登录也需提供自己的 `ObservabilityAccessPolicy`；设为 `true` 时，默认策略允许匿名 API 请求，但应用已有的 Spring Security、网关或网络访问控制仍然有效。
+
+该策略只在 Trace API 控制器中检查。HTML 页面 `/easy-observability/` 和静态资源 `/easy-observability/assets/**` 不经过 `ObservabilityAccessPolicy`；若页面本身也不能公开，应在应用现有的 Spring Security `SecurityFilterChain` 或反向代理中，同时保护 `/easy-observability/**` 和 `/api/easy-observability/**`。生产环境通常复用应用已有的登录和角色，不需要为这个嵌入式页面再建一套认证；再提供策略 Bean，将当前登录用户的权限用于 API 授权。例如：
+
+```java
+import io.github.lakernote.observability.web.ObservabilityAccessPolicy;
+import org.springframework.context.annotation.Bean;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+
+@Bean
+ObservabilityAccessPolicy observabilityAccessPolicy() {
+    return () -> {
+        var authentication = SecurityContextHolder.getContext().getAuthentication();
+        return authentication != null
+                && authentication.isAuthenticated()
+                && !(authentication instanceof AnonymousAuthenticationToken)
+                && authentication.getAuthorities().stream()
+                    .anyMatch(authority -> authority.getAuthority().equals("ROLE_OBSERVABILITY_VIEW"));
+    };
+}
+```
+
+上例需要应用已有 Spring Security。也可在 `ObservabilityAccessPolicy` Bean 中调用应用自己的授权服务。该策略目前同时保护 Trace 查询和清空历史的 `POST /api/easy-observability/storage/clear`；若查看者不能清空历史，应在应用的 `SecurityFilterChain` 或网关中单独要求该 POST 路径具备管理权限。`allow-anonymous=true` 适用于可信的本地示例环境，不适合直接暴露到不可信网络。近期内存窗口和 JSONL 归档保存慢、错误或 CPU/分配量达到阈值的入口 Trace；`web.trace-limit` 控制内存窗口，`diagnostic-history-limit` 控制归档索引条数，`diagnostic-max-bytes` 控制磁盘文件大小。
+
+页面也可嵌入同源 iframe。父页面收到 `easy-observability:auth-request` 后，可向 iframe 回发 `easy-observability:auth-response` 和应用的 Bearer token；页面会将 token 加到 Trace API 请求的 `Authorization` 头。Starter 本身不校验该 token，应用的 Spring Security 或网关仍需负责验证和授权。若应用使用同源 Cookie 登录，页面 API 请求会自动携带同源凭证，不需要额外传 token。内置的清空历史按钮会发送 POST，但目前不会自动附带应用的 CSRF token；如果 Spring Security 的 CSRF 保护启用，需要将现有 CSRF token 接入该请求。
 
 ### Kafka Listener Trace 接入范围
 
