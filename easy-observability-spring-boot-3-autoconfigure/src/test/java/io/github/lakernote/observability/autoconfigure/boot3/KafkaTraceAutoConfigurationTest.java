@@ -1,4 +1,6 @@
-package io.github.lakernote.observability.autoconfigure;
+package io.github.lakernote.observability.autoconfigure.boot3;
+
+import io.github.lakernote.observability.autoconfigure.KafkaTraceAutoConfiguration;
 
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
 import io.github.lakernote.observability.integration.kafka.TraceIdProducerInterceptor;

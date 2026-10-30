@@ -39,10 +39,6 @@ public final class BoundedHistoryWriter implements AutoCloseable {
         }
     }
 
-    public long droppedTaskCount() {
-        return droppedTasks.get();
-    }
-
     @PreDestroy
     @Override
     public void close() {

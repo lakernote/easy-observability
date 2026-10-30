@@ -1,2 +1,3 @@
-io.github.lakernote.observability.autoconfigure.RedisLettuceTraceAutoConfiguration
-io.github.lakernote.observability.autoconfigure.RestClientTraceAutoConfiguration
+io.github.lakernote.observability.autoconfigure.boot3.RestClientTraceAutoConfiguration
+io.github.lakernote.observability.autoconfigure.boot3.RedisTraceAutoConfiguration
+io.github.lakernote.observability.autoconfigure.boot3.KafkaProducerTraceAutoConfiguration

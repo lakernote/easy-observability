@@ -233,7 +233,7 @@ final class TraceTree {
     }
 
     synchronized List<TraceNode> snapshotNodes() {
-        return List.of(root.snapshotNode());
+        return List.of(root.snapshotNode(root.startNanos()));
     }
 
     /** Bounded append target shared with {@link Span}; once truncated, all later tree traversal stops. */

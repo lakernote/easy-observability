@@ -1,4 +1,6 @@
-package io.github.lakernote.observability.autoconfigure;
+package io.github.lakernote.observability.autoconfigure.boot4;
+
+import io.github.lakernote.observability.autoconfigure.ObservabilityAutoConfiguration;
 
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
 import io.github.lakernote.observability.trace.TraceIdContext;

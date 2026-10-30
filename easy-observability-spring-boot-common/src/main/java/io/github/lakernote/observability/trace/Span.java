@@ -65,6 +65,10 @@ final class Span {
         return parent == null ? "" : parent.spanId();
     }
 
+    long startNanos() {
+        return startNanos;
+    }
+
     int subtreeSize() {
         int size = 1;
         if (children != null) {
@@ -100,12 +104,13 @@ final class Span {
         return (end - startNanos) / 1_000_000;
     }
 
-    TraceNode snapshotNode() {
+    TraceNode snapshotNode(long traceStartNanos) {
         List<TraceNode> childNodes = new ArrayList<>();
         if (children != null) {
-            for (Span child : children) childNodes.add(child.snapshotNode());
+            for (Span child : children) childNodes.add(child.snapshotNode(traceStartNanos));
         }
-        return new TraceNode(kind.displayName(), bounded(name, 512), bounded(tag, 2048), costMs(), slow, error,
+        long offsetMs = Math.max(0, (startNanos - traceStartNanos) / 1_000_000);
+        return new TraceNode(kind.displayName(), bounded(name, 512), bounded(tag, 2048), costMs(), offsetMs, slow, error,
                 bounded(errorType, 256), bounded(threadName, 256), threadId, childNodes);
     }
 
