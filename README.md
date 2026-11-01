@@ -179,12 +179,12 @@ public void consume(String message) {
 }
 ```
 
-如果 Factory 已有拦截器，请用 Spring Kafka 的 `CompositeRecordInterceptor` 组合，避免覆盖原有逻辑：
+如果 Factory 已有拦截器，用 Spring Kafka 的 `CompositeRecordInterceptor` 组合。Trace 拦截器放在前面，让应用拦截器可以读取当前 Trace ID：
 
 ```java
 factory.setRecordInterceptor(new CompositeRecordInterceptor<>(
-        existingInterceptor,
-        new TraceIdRecordInterceptor(properties)));
+        new TraceIdRecordInterceptor<>(properties),
+        existingInterceptor));
 ```
 
 ## 手动添加业务 Span

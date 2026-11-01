@@ -1,6 +1,5 @@
 package io.github.lakernote.observability.trace;
 
-import io.github.lakernote.observability.config.EasyObservabilityProperties;
 import org.springframework.core.task.TaskDecorator;
 
 import java.util.Map;
@@ -16,12 +15,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public final class TraceContextTaskDecorator implements TaskDecorator {
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(TraceContextTaskDecorator.class);
-    private final EasyObservabilityProperties properties;
     private final AtomicBoolean failureLogged = new AtomicBoolean();
-
-    public TraceContextTaskDecorator(EasyObservabilityProperties properties) {
-        this.properties = Objects.requireNonNull(properties, "properties");
-    }
 
     @Override
     public Runnable decorate(Runnable task) {
@@ -42,7 +36,7 @@ public final class TraceContextTaskDecorator implements TaskDecorator {
     }
 
     private void runTask(Runnable task) {
-        if (!properties.getTrace().isEnabled() || !TraceContext.active()) {
+        if (!TraceContext.active()) {
             task.run();
             return;
         }

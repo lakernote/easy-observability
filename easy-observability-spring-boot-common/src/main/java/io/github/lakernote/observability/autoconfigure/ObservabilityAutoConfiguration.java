@@ -75,8 +75,8 @@ public class ObservabilityAutoConfiguration {
     @ConditionalOnProperty(prefix = "easy.observability.trace", name = "enabled",
             havingValue = "true", matchIfMissing = true)
     @ConditionalOnMissingBean(org.springframework.core.task.TaskDecorator.class)
-    TraceContextTaskDecorator traceContextTaskDecorator(EasyObservabilityProperties properties) {
-        return new TraceContextTaskDecorator(properties);
+    TraceContextTaskDecorator traceContextTaskDecorator() {
+        return new TraceContextTaskDecorator();
     }
 
     /**

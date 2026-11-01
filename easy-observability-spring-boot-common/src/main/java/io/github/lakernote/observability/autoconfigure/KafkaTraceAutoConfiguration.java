@@ -50,8 +50,8 @@ public class KafkaTraceAutoConfiguration {
     @ConditionalOnProperty(prefix = "easy.observability.trace", name = "enabled",
             havingValue = "true", matchIfMissing = true)
     @ConditionalOnMissingBean(RecordInterceptor.class)
-    TraceIdRecordInterceptor easyObservabilityKafkaListenerTraceInterceptor(
+    TraceIdRecordInterceptor<Object, Object> easyObservabilityKafkaListenerTraceInterceptor(
             EasyObservabilityProperties properties) {
-        return new TraceIdRecordInterceptor(properties);
+        return new TraceIdRecordInterceptor<>(properties);
     }
 }
