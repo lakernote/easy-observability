@@ -1,12 +1,12 @@
 # Easy Observability
 
-**Spring Boot Trace 诊断 Starter**
+**Spring Boot Trace 与公共指标诊断 Starter**
 
 [更新记录](CHANGELOG.md)
 
 面向 Spring Boot 3/4 应用的轻量嵌入式排障工具。它从 HTTP 请求、定时任务和 Kafka 消费入口采集 Trace，并串联可观测到的 JDBC、Redis、事务及远程调用，帮助快速定位慢调用、异常、CPU 消耗和内存分配问题。Trace ID 可沿受支持的 HTTP 客户端和 Kafka 消息传播；页面和有界历史聚焦当前应用实例。
 
-项目提供 Spring Boot 3 和 Spring Boot 4 两个 Starter。项目不注册自定义 Micrometer Meter、不保存指标历史；Actuator 自带的指标能力由应用自己的 Actuator 配置管理。
+项目提供 Spring Boot 3 和 Spring Boot 4 两个 Starter。除 Trace 诊断外，组件还会把一组固定的公共运行指标写入本地 RRD 历史，并在嵌入页面展示趋势。该历史使用独立的 Micrometer `StepMeterRegistry`，不会替换或重新配置应用已有的 InfluxDB 等指标后端。
 
 [![Boot 3 Starter on Maven Central](https://img.shields.io/maven-central/v/io.github.lakernote/easy-observability-spring-boot-3-starter?label=Boot%203%20Starter&logo=apachemaven)](https://central.sonatype.com/artifact/io.github.lakernote/easy-observability-spring-boot-3-starter)
 [![Boot 4 Starter on Maven Central](https://img.shields.io/maven-central/v/io.github.lakernote/easy-observability-spring-boot-4-starter?label=Boot%204%20Starter&logo=apachemaven)](https://central.sonatype.com/artifact/io.github.lakernote/easy-observability-spring-boot-4-starter)
@@ -14,6 +14,8 @@
 ## 界面预览
 
 Trace 诊断页汇总慢调用、错误以及 CPU 时间或内存分配量超阈值的入口；打开记录后，可沿时间线查看数据库、Redis、远程调用等节点，并定位耗时最长的子调用或资源告警。
+
+指标趋势页仅展示公共运行指标，并使用固定指标清单和定长本地历史；不会把应用所有自定义 Meter 自动写入 RRD。
 
 ![Trace 诊断列表](docs/images/trace-list.png)
 
@@ -71,7 +73,13 @@ examples/                                       # 两个 Boot 版本的端到端
 | 线程池任务 | `TraceContextTaskDecorator` 在线程池边界传播活动 Trace，并自动记录任务耗时和异常 | 在线程池配置一次装饰器；无活动父 Trace 时不创建任务节点 |
 | 业务方法 | `TraceBlock` 或 `@TraceSpan` 添加业务 Span | 不扫描所有 Service；`@TraceSpan` 需要应用已有 Spring AOP |
 
-Spring Boot Actuator 可以按应用配置提供 JVM、进程、连接池等原生指标。本项目不读取、存储或绘制这些指标；要查看 Actuator 指标，请使用应用自己的 Actuator 端点或现有监控系统。
+组件维护自己的 RRD4J `StepMeterRegistry`，只接受下文列出的公共指标，并限制会形成历史序列的标签数量。应用已有的 `MeterRegistry`（例如 InfluxDB）仍按原配置工作；Micrometer 的 Composite registry 会把观察数据同时发送给各 registry。RRD 历史只在当前实例本地保存，不会跨实例汇总。
+
+公共指标范围包括 HTTP 入口/出口请求数、错误数和平均耗时，定时任务与 Kafka Listener/发送，Redis/Lettuce 命令延迟，JVM 内存池与 GC 暂停，进程/系统 CPU、JVM 活跃线程，以及 Spring/JDK 线程池活跃数、排队数、池大小、最大值和完成任务数。历史保留有助于定位问题的有限标签维度：HTTP 方法与 URI、任务和 Kafka 名称、Redis 命令、JVM 内存池、GC 事件和线程池名称均可独立成线；每类维度设有上限，超出部分进入“其他”。点击图例可隐藏或显示曲线，拖动可缩放时间范围。CPU 和活跃线程等实例级指标按实例展示；Trace 用于查看单次调用细节。Kafka 发送/消费指标遵循 Spring Kafka Observation 开关；Redis 命令指标在 Lettuce Observation 可用时记录，不会为了历史指标改写应用的 Observation 配置。
+
+短时间范围按配置的采样周期显示；默认 60 秒采样时，7 天和 30 天范围分别使用约 5 分钟和 1 小时分辨率。更改采样周期后，归档间隔会按采样周期取整，并由查询接口返回实际间隔。长时间范围中的每个点是该归档区间内已有采样值的平均，不是区间总数；平均耗时先按采样周期计算，降采样后也不是按请求数加权的全时段均值。部分 JVM 内存池没有固定上限，不会绘制该池的上限线。
+
+指标页面地址为 `/easy-observability/metrics/`，只读 API 为 `/api/easy-observability/metrics?period=1h|24h|7d|30d`。历史默认每分钟采样、保留 30 天，RRD 文件上限 64 MiB。可配置存储目录和上限；调整采样周期或保留周期会重建固定大小的 RRD 文件并清除旧的本地指标历史。每个服务实例应使用自己的本地目录，不要让多个进程同时写同一个 RRD 文件。
 
 Redis 接入复用 Lettuce 的 Micrometer Observation，不单独注册 Meter；应用若启用了 Actuator 的 Meter handler，也会看到 Lettuce 自带的命令耗时指标。
 
@@ -102,6 +110,12 @@ easy:
       diagnostic-trace-file: ./data/easy-observability/traces.jsonl
       diagnostic-history-limit: 1000
       diagnostic-max-bytes: 8MB
+    metrics:
+      enabled: true
+      step: 60s
+      storage-directory: ./data/easy-observability/metrics
+      retention-days: 30
+      max-storage-bytes: 64MB
     web:
       enabled: true
       allow-anonymous: false
@@ -121,15 +135,20 @@ easy:
 | `easy.observability.trace.diagnostic-trace-file` | `./data/easy-observability/traces.jsonl` | 诊断入口 Trace 的 JSONL 归档路径，相对路径以应用工作目录为基准 |
 | `easy.observability.trace.diagnostic-history-limit` | `1000` | 诊断归档索引的最大记录数；实际下限为 `100` |
 | `easy.observability.trace.diagnostic-max-bytes` | `8MB` | JSONL 诊断归档文件上限；实际下限为 `1MB`，超限时保留较新的记录 |
-| `easy.observability.web.enabled` | `true` | 是否提供 Trace 页面和 API |
-| `easy.observability.web.allow-anonymous` | `false` | 默认访问策略是否允许匿名调用 Trace API；不是认证配置，也不保护页面文件本身 |
+| `easy.observability.metrics.enabled` | `true` | 公共指标采集和本地 RRD 历史总开关；不影响应用其他指标后端 |
+| `easy.observability.metrics.step` | `60s` | 指标采样周期，允许范围 10 秒至 1 小时 |
+| `easy.observability.metrics.storage-directory` | `./data/easy-observability/metrics` | RRD 历史目录，相对路径以应用工作目录为基准 |
+| `easy.observability.metrics.retention-days` | `30` | 本地历史保留时间，允许范围 7 至 365 天；较早数据以更粗粒度归档 |
+| `easy.observability.metrics.max-storage-bytes` | `64MB` | RRD 历史文件大小上限；配置需足以容纳当前采样周期、保留期和固定指标集 |
+| `easy.observability.web.enabled` | `true` | 是否提供 Trace/指标页面和查询 API |
+| `easy.observability.web.allow-anonymous` | `false` | 默认访问策略是否允许匿名调用 Trace 与指标 API；不是认证配置，也不保护页面文件本身 |
 | `easy.observability.web.trace-limit` | `500` | 最近诊断入口 Trace 的内存窗口容量，不影响 JSONL 归档容量 |
 
 ### 页面访问控制
 
-Starter 不提供用户名、密码、登录页或独立的用户系统。`easy.observability.web.allow-anonymous` 只决定默认 `ObservabilityAccessPolicy` 是否放行 Trace API：默认 `false` 时，默认策略拒绝所有 API 请求（到达控制器时返回 403），即使应用已完成登录也需提供自己的 `ObservabilityAccessPolicy`；设为 `true` 时，默认策略允许匿名 API 请求，但应用已有的 Spring Security、网关或网络访问控制仍然有效。
+Starter 不提供用户名、密码、登录页或独立的用户系统。`easy.observability.web.allow-anonymous` 只决定默认 `ObservabilityAccessPolicy` 是否放行 Trace 和指标 API：默认 `false` 时，默认策略拒绝所有 API 请求（到达控制器时返回 403），即使应用已完成登录也需提供自己的 `ObservabilityAccessPolicy`；设为 `true` 时，默认策略允许匿名 API 请求，但应用已有的 Spring Security、网关或网络访问控制仍然有效。
 
-该策略只在 Trace API 控制器中检查。HTML 页面 `/easy-observability/` 和静态资源 `/easy-observability/assets/**` 不经过 `ObservabilityAccessPolicy`；若页面本身也不能公开，应在应用现有的 Spring Security `SecurityFilterChain` 或反向代理中，同时保护 `/easy-observability/**` 和 `/api/easy-observability/**`。生产环境通常复用应用已有的登录和角色，不需要为这个嵌入式页面再建一套认证；再提供策略 Bean，将当前登录用户的权限用于 API 授权。例如：
+该策略只在 Trace/指标 API 控制器中检查。HTML 页面 `/easy-observability/**` 和静态资源 `/easy-observability/assets/**` 不经过 `ObservabilityAccessPolicy`；若页面本身也不能公开，应在应用现有的 Spring Security `SecurityFilterChain` 或反向代理中，同时保护 `/easy-observability/**` 和 `/api/easy-observability/**`。生产环境通常复用应用已有的登录和角色，不需要为这个嵌入式页面再建一套认证；再提供策略 Bean，将当前登录用户的权限用于 API 授权。例如：
 
 ```java
 import io.github.lakernote.observability.web.ObservabilityAccessPolicy;

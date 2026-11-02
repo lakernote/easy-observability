@@ -74,6 +74,10 @@ button:disabled { cursor: default; opacity: .5; }
 .instance-pill { display: flex; align-items: center; gap: 7px; margin-right: 8px; color: var(--muted); font-size: 12px; }
 .instance-pill i { width: 7px; height: 7px; border-radius: 50%; background: #d18a1f; }
 .instance-pill.connected i { background: #15966a; }
+.view-nav { display: flex; align-self: stretch; align-items: center; gap: 5px; margin-left: auto; margin-right: 22px; }
+.view-nav a { padding: 8px 11px; border-radius: 7px; color: #66768c; font-size: 12px; font-weight: 650; text-decoration: none; }
+.view-nav a:hover { background: #f1f4f9; color: var(--ink); }
+.view-nav a.active { background: #edf2ff; color: var(--blue); }
 
 .report { max-width: 1488px; margin: 0 auto; padding: 28px 32px 24px; }
 .intro { margin-bottom: 19px; }
@@ -279,6 +283,8 @@ body:has(dialog[open]) { overflow: hidden; }
   .brand { gap: 8px; }
   .brand-mark { width: 32px; height: 32px; font-size: 20px; }
   .toolbar { gap: 5px; }
+  .view-nav { margin-right: 6px; }
+  .view-nav a { padding: 7px 6px; font-size: 10px; }
   .toolbar button { min-height: 36px; padding: 6px 8px; font-size: 11px; }
   .instance-pill { margin-right: 1px; font-size: 0; }
   .instance-pill i { width: 8px; height: 8px; }

@@ -1,4 +1,5 @@
 io.github.lakernote.observability.autoconfigure.ObservabilityAutoConfiguration
+io.github.lakernote.observability.autoconfigure.MetricsHistoryAutoConfiguration
 io.github.lakernote.observability.autoconfigure.ObservabilityWebAutoConfiguration
 io.github.lakernote.observability.autoconfigure.TraceIdAutoConfiguration
 io.github.lakernote.observability.autoconfigure.TraceSpanAutoConfiguration

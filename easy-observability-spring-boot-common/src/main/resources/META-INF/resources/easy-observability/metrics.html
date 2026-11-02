@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Easy Observability · 指标趋势</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/easy-observability/assets/dashboard.css?v=20261101.1">
+  <link rel="stylesheet" href="/easy-observability/assets/uplot.min.css?v=1.6.32">
+  <link rel="stylesheet" href="/easy-observability/assets/metrics.css?v=20261102.8">
+</head>
+<body>
+  <a class="skip-link" href="#main-content">跳到主要内容</a>
+  <header class="masthead">
+    <a class="brand" href="/easy-observability/">
+      <span class="brand-mark" aria-hidden="true">↗</span>
+      <span><strong>Easy Observability</strong><small>公共运行指标</small></span>
+    </a>
+    <nav class="view-nav" aria-label="可观测性视图">
+      <a href="/easy-observability/">Trace 诊断</a>
+      <a class="active" href="/easy-observability/metrics/">指标趋势</a>
+    </nav>
+    <div class="toolbar">
+      <span id="instance" class="instance-pill"><i></i>连接中</span>
+      <button id="refresh" type="button">刷新</button>
+    </div>
+  </header>
+  <main id="main-content" class="report">
+    <section class="intro">
+      <p class="eyebrow">METRICS HISTORY</p>
+      <h1>公共指标趋势</h1>
+      <p>查看 HTTP、任务、Kafka、Redis、JVM 和线程池的实例级趋势；RRD 历史独立存储，不改变应用已有的指标后端。</p>
+      <p class="metric-semantics">请求、错误、执行、消费和发送数量按采样窗口计数，不是所选时间范围的累计量；平均耗时是该窗口内的均值。7 天和 30 天视图会把较短窗口的数据取平均，平均耗时不会按请求量加权；CPU、内存和线程池状态是采样值。HTTP 按方法和 URI、任务与 Kafka 按名称、Redis 按命令、JVM 内存按内存池、GC 按动作和原因、线程池按池名称拆分曲线。点击图例可开关曲线，拖动图表可缩放，双击或点“重置缩放”恢复范围。</p>
+    </section>
+    <div id="notice" class="notice" role="status" hidden></div>
+    <section class="metrics-controls" aria-label="指标趋势筛选">
+      <label><span>时间范围</span><select id="period"><option value="1h" selected>最近 1 小时</option><option value="24h">最近 24 小时</option><option value="7d">最近 7 天</option><option value="30d">最近 30 天</option></select></label>
+      <div id="storage" class="storage-summary" role="status">历史存储：读取中</div>
+    </section>
+    <nav id="categories" class="metric-categories" aria-label="指标类别"></nav>
+    <section id="metric-grid" class="metric-grid" aria-live="polite"></section>
+    <p id="empty" class="metrics-empty" hidden></p>
+    <footer>指标仅包含 Easy Observability 定义的公共指标。每个实例各自保存历史；可通过 easy.observability.metrics.storage-directory 调整目录。</footer>
+  </main>
+  <script src="/easy-observability/assets/uplot.min.js?v=1.6.32"></script>
+  <script type="module" src="/easy-observability/assets/metrics.js?v=20261102.9"></script>
+</body>
+</html>

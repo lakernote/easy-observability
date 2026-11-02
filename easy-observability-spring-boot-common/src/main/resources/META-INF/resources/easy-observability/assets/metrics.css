@@ -1,0 +1,37 @@
+.metric-semantics { margin:5px 0 0; color:#68788f; font-size:12px; line-height:1.6; }
+.metrics-controls { display:flex; align-items:end; justify-content:space-between; gap:18px; margin:16px 0 12px; padding:14px; border:1px solid var(--line); border-radius:9px; background:var(--surface); }
+.metrics-controls label { display:grid; gap:6px; color:#56677f; font-size:12px; font-weight:650; }
+.metrics-controls select { min-width:180px; height:40px; padding:0 10px; border:1px solid #d6dee9; border-radius:6px; background:#fff; color:var(--ink); font:inherit; font-size:13px; }
+.storage-summary { color:var(--muted); font-size:12px; font-variant-numeric:tabular-nums; }
+.metric-categories { display:flex; flex-wrap:wrap; gap:7px; margin:0 0 12px; }
+.metric-categories button { min-height:40px; padding:8px 14px; border:1px solid var(--line); border-radius:20px; background:#fff; color:#5e6d82; font-size:12px; font-weight:650; cursor:pointer; transition:background-color 140ms ease,border-color 140ms ease,color 140ms ease; }
+.metric-categories button:hover { border-color:#b7c6e0; background:#f8faff; }
+.metric-categories button:focus-visible,.metric-reset:focus-visible { outline:3px solid #9cb8ff; outline-offset:2px; }
+.metric-categories button.active { border-color:#c9d7fb; background:#edf2ff; color:var(--blue); }
+.metric-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }
+.metric-chart { min-width:0; padding:16px 16px 12px; border:1px solid var(--line); border-radius:10px; background:var(--surface); box-shadow:0 2px 8px rgb(30 48 78 / 3%); }
+.metric-chart-head { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px; }
+.metric-chart h2 { margin:0; color:#293b55; font-size:14px; font-weight:700; }
+.metric-chart-actions { display:flex; align-items:center; justify-content:flex-end; gap:8px; }
+.metric-chart-hint { color:#8290a4; font-size:11px; }
+.metric-reset { min-height:40px; padding:7px 11px; border:1px solid #dbe3ee; border-radius:6px; background:#fff; color:#56677f; font-size:11px; font-weight:650; cursor:pointer; transition:background-color 140ms ease,border-color 140ms ease,color 140ms ease; }
+.metric-reset:hover { background:#f5f8fd; }
+.metric-plot { width:100%; min-height:250px; }
+.metric-uplot { width:100%; font-family:inherit; }
+.metric-legend { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,230px),1fr)); gap:6px; margin-top:9px; }
+.metric-legend-item { display:flex; min-width:0; min-height:40px; align-items:center; gap:8px; padding:6px 9px; border:1px solid #e8edf4; border-radius:6px; background:#f9fbfd; color:#394b65; text-align:left; cursor:pointer; transition:background-color 140ms ease,border-color 140ms ease,opacity 140ms ease; }
+.metric-legend-item:hover { border-color:#c5d2e5; background:#f0f5fc; }
+.metric-legend-item:focus-visible { outline:3px solid #9cb8ff; outline-offset:2px; }
+.metric-legend-marker { width:11px; height:4px; flex:none; border-radius:3px; background:var(--series-color); }
+.metric-legend-label { min-width:0; flex:1; overflow:hidden; font-size:11px; font-weight:650; text-overflow:ellipsis; white-space:nowrap; }
+.metric-legend-value { color:#53647b; font-size:11px; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.metric-legend-item.is-hidden { border-color:#edf0f4; background:#f3f5f8; color:#8b96a6; }
+.metric-legend-item.is-hidden .metric-legend-label { text-decoration:line-through; }
+.metric-legend-item.is-hidden .metric-legend-marker { opacity:.3; }
+.metric-legend-item.is-hidden .metric-legend-value { color:#9aa4b1; }
+.metric-chart-foot { display:flex; justify-content:space-between; gap:10px; margin-top:9px; color:#8290a4; font-size:11px; }
+.metric-hover-time { color:#56677f; font-variant-numeric:tabular-nums; }
+.metric-empty { display:grid; min-height:250px; place-items:center; color:#8a96a8; font-size:12px; }
+.metrics-empty { margin:0; padding:36px 18px; border:1px dashed #d6deea; border-radius:9px; background:#fff; color:var(--muted); text-align:center; font-size:13px; }
+@media(max-width:920px) { .metric-grid { grid-template-columns:1fr; } }
+@media(max-width:720px) { .view-nav { margin-right:6px; } .metrics-controls { align-items:flex-start; flex-direction:column; } .metric-chart { padding:13px 12px 10px; } .metric-chart-head { align-items:flex-start; flex-direction:column; } .metric-chart-actions { width:100%; justify-content:space-between; flex-wrap:wrap; } .metric-chart-hint { line-height:1.5; } .metric-chart-foot { align-items:flex-start; flex-direction:column; font-size:10px; } }

@@ -3,6 +3,8 @@ package io.github.lakernote.observability.config;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.util.unit.DataSize;
 
+import java.time.Duration;
+
 /**
  * Public configuration for the Easy Observability Spring Boot Starter.
  */
@@ -11,6 +13,7 @@ public class EasyObservabilityProperties {
     private boolean enabled = true;
     private final Trace trace = new Trace();
     private final Web web = new Web();
+    private final Metrics metrics = new Metrics();
 
     public boolean isEnabled() {
         return enabled;
@@ -26,6 +29,29 @@ public class EasyObservabilityProperties {
 
     public Web getWeb() {
         return web;
+    }
+
+    public Metrics getMetrics() {
+        return metrics;
+    }
+
+    public static class Metrics {
+        private boolean enabled = true;
+        private Duration step = Duration.ofSeconds(60);
+        private String storageDirectory = "./data/easy-observability/metrics";
+        private int retentionDays = 30;
+        private DataSize maxStorageBytes = DataSize.ofMegabytes(64);
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+        public Duration getStep() { return step; }
+        public void setStep(Duration step) { this.step = step; }
+        public String getStorageDirectory() { return storageDirectory; }
+        public void setStorageDirectory(String storageDirectory) { this.storageDirectory = storageDirectory; }
+        public int getRetentionDays() { return retentionDays; }
+        public void setRetentionDays(int retentionDays) { this.retentionDays = retentionDays; }
+        public DataSize getMaxStorageBytes() { return maxStorageBytes; }
+        public void setMaxStorageBytes(DataSize maxStorageBytes) { this.maxStorageBytes = maxStorageBytes; }
     }
 
     public static class Web {
