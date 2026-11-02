@@ -80,7 +80,7 @@ public final class Rrd4jStepMeterRegistry extends StepMeterRegistry {
                     "name", "topic", "group.id", "listener.id");
             case "kafka_template" -> joinTags(id,
                     "spring.kafka.template.name", "messaging.destination.name", "name", "topic");
-            case "redis" -> joinTags(id, "command", "operation");
+            case "redis" -> joinTags(id, "client", "command", "operation");
             case "memory" -> joinNonblank(" · ", id.getTag("area"), id.getTag("id"));
             case "gc" -> joinNonblank(" · ", id.getTag("action"), id.getTag("cause"));
             case "executor" -> firstNonblank(id, "name", "executor");

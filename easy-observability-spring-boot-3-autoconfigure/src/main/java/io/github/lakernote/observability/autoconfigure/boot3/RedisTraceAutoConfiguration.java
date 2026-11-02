@@ -2,8 +2,10 @@ package io.github.lakernote.observability.autoconfigure.boot3;
 
 import io.github.lakernote.observability.autoconfigure.ObservabilityAutoConfiguration;
 
+import io.github.lakernote.observability.metrics.Rrd4jStepMeterRegistry;
 import io.github.lakernote.observability.integration.redis.RedissonTraceConnectionFactoryPostProcessor;
 import io.micrometer.observation.ObservationRegistry;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -45,10 +47,9 @@ public class RedisTraceAutoConfiguration {
     })
     static class RedissonConfiguration {
         @org.springframework.context.annotation.Bean
-        @ConditionalOnProperty(prefix = "easy.observability.trace", name = "enabled",
-                havingValue = "true", matchIfMissing = true)
-        static RedissonTraceConnectionFactoryPostProcessor redissonTraceConnectionFactoryPostProcessor() {
-            return new RedissonTraceConnectionFactoryPostProcessor();
+        static RedissonTraceConnectionFactoryPostProcessor redissonTraceConnectionFactoryPostProcessor(
+                ObjectProvider<Rrd4jStepMeterRegistry> metricsRegistryProvider) {
+            return new RedissonTraceConnectionFactoryPostProcessor(metricsRegistryProvider::getIfAvailable);
         }
     }
 }

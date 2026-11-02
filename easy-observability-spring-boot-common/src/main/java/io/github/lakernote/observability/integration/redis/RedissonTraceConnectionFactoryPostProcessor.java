@@ -2,6 +2,7 @@ package io.github.lakernote.observability.integration.redis;
 
 import io.github.lakernote.observability.trace.SpanKind;
 import io.github.lakernote.observability.trace.TraceContext;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.data.redis.connection.RedisConnection;
@@ -14,9 +15,19 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.util.LinkedHashSet;
 import java.util.Set;
+import java.util.function.Supplier;
+import java.util.concurrent.TimeUnit;
 
-/** Uses Spring Data's connection extension point for the Redisson community client. */
+/** Instruments Redisson commands that are issued through Spring Data Redis connections. */
 public final class RedissonTraceConnectionFactoryPostProcessor implements BeanPostProcessor {
+    private final Supplier<? extends MeterRegistry> metricsRegistryProvider;
+    private volatile boolean metricsRegistryResolved;
+    private volatile MeterRegistry metricsRegistry;
+
+    public RedissonTraceConnectionFactoryPostProcessor(Supplier<? extends MeterRegistry> metricsRegistryProvider) {
+        this.metricsRegistryProvider = metricsRegistryProvider;
+    }
+
     @Override
     public Object postProcessAfterInitialization(Object bean, String beanName) throws BeansException {
         if (!(bean instanceof RedisConnectionFactory factory)
@@ -33,7 +44,7 @@ public final class RedissonTraceConnectionFactoryPostProcessor implements BeanPo
                 });
     }
 
-    private RedisConnection wrap(RedisConnection connection) {
+    RedisConnection wrap(RedisConnection connection) {
         Set<Class<?>> interfaces = publicInterfaces(connection.getClass());
         interfaces.add(RedisConnection.class);
         return (RedisConnection) Proxy.newProxyInstance(connection.getClass().getClassLoader(),
@@ -55,6 +66,8 @@ public final class RedissonTraceConnectionFactoryPostProcessor implements BeanPo
             String name = method.getName();
             TraceContext.DetachedSpan span = TraceContext.startDetachedSpan("Redis " + name, SpanKind.REDIS, name);
             Throwable failure = null;
+            boolean recordMetric = !isPipelined(delegate);
+            long startedAt = System.nanoTime();
             try {
                 return invokeTarget(method, delegate, args);
             } catch (Throwable error) {
@@ -62,8 +75,45 @@ public final class RedissonTraceConnectionFactoryPostProcessor implements BeanPo
                 throw error;
             } finally {
                 finish(span, failure);
+                if (recordMetric) recordMetric(method, startedAt, failure);
             }
         }
+    }
+
+    private static boolean isPipelined(RedisConnection connection) {
+        try {
+            return connection.isPipelined();
+        } catch (RuntimeException ignored) {
+            return false;
+        }
+    }
+
+    private void recordMetric(Method method, long startedAt, Throwable failure) {
+        try {
+            MeterRegistry registry = metricsRegistry();
+            if (registry == null) return;
+            String command = method.getName().toUpperCase(java.util.Locale.ROOT);
+            registry.timer("spring.data.redis",
+                            "client", "Redisson",
+                            "command", command,
+                            "operation", method.getName(),
+                            "result", failure == null ? "success" : "error")
+                    .record(Math.max(0, System.nanoTime() - startedAt), TimeUnit.NANOSECONDS);
+        } catch (RuntimeException ignored) {
+            // Metrics must not affect the application's Redis result.
+        }
+    }
+
+    private MeterRegistry metricsRegistry() {
+        if (!metricsRegistryResolved) {
+            synchronized (this) {
+                if (!metricsRegistryResolved) {
+                    metricsRegistry = metricsRegistryProvider.get();
+                    metricsRegistryResolved = true;
+                }
+            }
+        }
+        return metricsRegistry;
     }
 
     private void finish(TraceContext.DetachedSpan span, Throwable failure) {
@@ -78,7 +128,8 @@ public final class RedissonTraceConnectionFactoryPostProcessor implements BeanPo
     private static boolean isCommand(Method method) {
         return switch (method.getName()) {
             case "close", "isClosed", "getNativeConnection", "getSubscription", "openPipeline", "closePipeline",
-                    "isQueueing", "open", "isPipelined", "multi", "exec", "discard", "watch", "unwatch" -> false;
+                    "getSentinelConnection", "isQueueing", "open", "isPipelined", "multi", "exec", "discard",
+                    "watch", "unwatch" -> false;
             default -> true;
         };
     }

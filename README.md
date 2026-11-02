@@ -30,7 +30,7 @@ Trace 诊断页汇总慢调用、错误以及 CPU 时间或内存分配量超阈
 <dependency>
     <groupId>io.github.lakernote</groupId>
     <artifactId>easy-observability-spring-boot-3-starter</artifactId>
-    <version>0.1.0-alpha.2</version>
+    <version>0.1.0-alpha.3</version>
 </dependency>
 ```
 
@@ -39,7 +39,7 @@ Trace 诊断页汇总慢调用、错误以及 CPU 时间或内存分配量超阈
 <dependency>
     <groupId>io.github.lakernote</groupId>
     <artifactId>easy-observability-spring-boot-4-starter</artifactId>
-    <version>0.1.0-alpha.2</version>
+    <version>0.1.0-alpha.3</version>
 </dependency>
 ```
 
@@ -68,20 +68,20 @@ examples/                                       # 两个 Boot 版本的端到端
 | Spring HTTP client、OkHttp | 在对应客户端 Observation 可用时记录远程调用；Spring 管理的 `RestClient.Builder` 自动传递 Trace ID；Spring 容器中的 OkHttpClient 会自动增强 | `RestClient.create()` 等绕过 Spring Builder 的客户端不会自动增强 |
 | JDBC | 在当前 Trace 中记录脱敏 SQL 模板、耗时和错误 | 自动采集；不记录绑定参数，也不做 SQL 汇总统计 |
 | Spring 事务、MyBatis | 记录事务范围；MyBatis SQL 通过 DataSource/JDBC 监听器记录为 SQL Span | 不额外创建 Mapper Span；自定义事务或非 Spring 边界需自行接入 |
-| Redis | Lettuce Observation 自动记录命令级 Span，保留命令、耗时和错误 | Spring Boot 3/4 的 Lettuce Observation 接入随 Starter 自动配置；自定义 `ClientResources` 需自行接入 Observation |
+| Redis | Lettuce Observation 记录命令级 Span；通过 Spring Data Redis 使用 Redisson 时，连接命令也会记录为 Span | Spring Boot 3/4 自动接入 Lettuce Observation；Redisson 需通过 `RedissonConnectionFactory` 暴露为 `RedisConnectionFactory` |
 | Kafka | Listener 和 producer Observation 记录为入口或依赖 Span，并传播 Trace ID | Spring Kafka 需要启用 Listener/Template Observation；自定义消费者需自行接入 |
 | 线程池任务 | `TraceContextTaskDecorator` 在线程池边界传播活动 Trace，并自动记录任务耗时和异常 | 在线程池配置一次装饰器；无活动父 Trace 时不创建任务节点 |
 | 业务方法 | `TraceBlock` 或 `@TraceSpan` 添加业务 Span | 不扫描所有 Service；`@TraceSpan` 需要应用已有 Spring AOP |
 
 组件维护自己的 RRD4J `StepMeterRegistry`，只接受下文列出的公共指标，并限制会形成历史序列的标签数量。应用已有的 `MeterRegistry`（例如 InfluxDB）仍按原配置工作；Micrometer 的 Composite registry 会把观察数据同时发送给各 registry。RRD 历史只在当前实例本地保存，不会跨实例汇总。
 
-公共指标范围包括 HTTP 入口/出口请求数、错误数和平均耗时，定时任务与 Kafka Listener/发送，Redis/Lettuce 命令延迟，JVM 内存池与 GC 暂停，进程/系统 CPU、JVM 活跃线程，以及 Spring/JDK 线程池活跃数、排队数、池大小、最大值和完成任务数。历史保留有助于定位问题的有限标签维度：HTTP 方法与 URI、任务和 Kafka 名称、Redis 命令、JVM 内存池、GC 事件和线程池名称均可独立成线；每类维度设有上限，超出部分进入“其他”。点击图例可隐藏或显示曲线，拖动可缩放时间范围。CPU 和活跃线程等实例级指标按实例展示；Trace 用于查看单次调用细节。Kafka 发送/消费指标遵循 Spring Kafka Observation 开关；Redis 命令指标在 Lettuce Observation 可用时记录，不会为了历史指标改写应用的 Observation 配置。
+公共指标范围包括 HTTP 入口/出口请求数、错误数和平均耗时，定时任务与 Kafka Listener/发送，Redis 命令/操作耗时，JVM 内存池与 GC 暂停，进程/系统 CPU、JVM 活跃线程，以及 Spring/JDK 线程池活跃数、排队数、池大小、最大值和完成任务数。历史保留有助于定位问题的有限标签维度：HTTP 方法与 URI、任务和 Kafka 名称、Redis 客户端与命令、JVM 内存池、GC 事件和线程池名称均可独立成线；每类维度设有上限，超出部分进入“其他”。点击图例可隐藏或显示曲线，拖动可缩放时间范围。CPU 和活跃线程等实例级指标按实例展示；Trace 用于查看单次调用细节。Kafka 发送/消费指标遵循 Spring Kafka Observation 开关；Redis 指标来自 Lettuce Observation，或通过 Redisson `RedisConnectionFactory` 执行的 Spring Data Redis 命令。
 
 短时间范围按配置的采样周期显示；默认 60 秒采样时，7 天和 30 天范围分别使用约 5 分钟和 1 小时分辨率。更改采样周期后，归档间隔会按采样周期取整，并由查询接口返回实际间隔。长时间范围中的每个点是该归档区间内已有采样值的平均，不是区间总数；平均耗时先按采样周期计算，降采样后也不是按请求数加权的全时段均值。部分 JVM 内存池没有固定上限，不会绘制该池的上限线。
 
 指标页面地址为 `/easy-observability/metrics/`，只读 API 为 `/api/easy-observability/metrics?period=1h|24h|7d|30d`。历史默认每分钟采样、保留 30 天，RRD 文件上限 64 MiB。可配置存储目录和上限；调整采样周期或保留周期会重建固定大小的 RRD 文件并清除旧的本地指标历史。每个服务实例应使用自己的本地目录，不要让多个进程同时写同一个 RRD 文件。
 
-Redis 接入复用 Lettuce 的 Micrometer Observation，不单独注册 Meter；应用若启用了 Actuator 的 Meter handler，也会看到 Lettuce 自带的命令耗时指标。
+Lettuce Redis 指标复用 Micrometer Observation；Redisson 的 Spring Data Redis 命令由 Starter 记录低基数操作计时。直接通过 Redisson API 调用的操作（例如 `RLock`、`RMap`）不经过 `RedisConnectionFactory`，不会进入这组命令指标。
 
 ## Trace 诊断与根因定位
 
@@ -236,7 +236,7 @@ Spring 管理的 `RestClient.Builder` 也会自动传递当前 Trace ID，并使
 ```bash
 docker compose -f examples/docker-compose.yml up -d --wait
 mvn -pl examples/easy-observability-example-spring-boot-3 -am package
-java -jar examples/easy-observability-example-spring-boot-3/target/easy-observability-example-spring-boot-3-0.1.0-alpha.2.jar
+java -jar examples/easy-observability-example-spring-boot-3/target/easy-observability-example-spring-boot-3-0.1.0-alpha.3.jar
 ```
 
 Boot 3 示例运行在 `http://localhost:8083/`，Boot 4 示例运行在 `http://localhost:8084/`。示例启用了匿名 Trace 页面，仅用于本地体验。完整场景见 [示例使用说明](examples/README.md)。
