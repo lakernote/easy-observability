@@ -30,7 +30,7 @@ Trace 诊断页汇总慢调用、错误以及 CPU 时间或内存分配量超阈
 <dependency>
     <groupId>io.github.lakernote</groupId>
     <artifactId>easy-observability-spring-boot-3-starter</artifactId>
-    <version>0.1.0-alpha.1</version>
+    <version>0.1.0-alpha.2</version>
 </dependency>
 ```
 
@@ -39,7 +39,7 @@ Trace 诊断页汇总慢调用、错误以及 CPU 时间或内存分配量超阈
 <dependency>
     <groupId>io.github.lakernote</groupId>
     <artifactId>easy-observability-spring-boot-4-starter</artifactId>
-    <version>0.1.0-alpha.1</version>
+    <version>0.1.0-alpha.2</version>
 </dependency>
 ```
 
@@ -236,7 +236,7 @@ Spring 管理的 `RestClient.Builder` 也会自动传递当前 Trace ID，并使
 ```bash
 docker compose -f examples/docker-compose.yml up -d --wait
 mvn -pl examples/easy-observability-example-spring-boot-3 -am package
-java -jar examples/easy-observability-example-spring-boot-3/target/easy-observability-example-spring-boot-3-0.1.0-alpha.1.jar
+java -jar examples/easy-observability-example-spring-boot-3/target/easy-observability-example-spring-boot-3-0.1.0-alpha.2.jar
 ```
 
 Boot 3 示例运行在 `http://localhost:8083/`，Boot 4 示例运行在 `http://localhost:8084/`。示例启用了匿名 Trace 页面，仅用于本地体验。完整场景见 [示例使用说明](examples/README.md)。
