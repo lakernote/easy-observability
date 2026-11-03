@@ -3,7 +3,7 @@
 - `easy-observability-example-spring-boot-3`：Spring Boot 3，默认 `http://localhost:8083/`
 - `easy-observability-example-spring-boot-4`：Spring Boot 4，默认 `http://localhost:8084/`
 
-主页按 JDBC、Redis、远程 HTTP、Kafka 和异步线程池分组。每个依赖提供正常、慢、错误场景，便于在 Trace 页面核对耗时节点和异常堆栈。示例不额外记录业务 Metrics。
+主页按 JDBC、Redis、远程 HTTP、Kafka 和异步线程池分组。每个依赖提供正常、慢、错误场景，便于在 Trace 页面核对耗时节点和异常堆栈。示例同时开启组件内置的公共 Metrics 历史，不添加应用专属的自定义指标。
 
 ## 启动
 
@@ -17,15 +17,15 @@ docker compose -f examples/docker-compose.yml up -d --wait
 
 ```bash
 mvn -pl examples/easy-observability-example-spring-boot-3 -am package
-java -jar examples/easy-observability-example-spring-boot-3/target/easy-observability-example-spring-boot-3-0.1.0-alpha.1.jar
+java -jar examples/easy-observability-example-spring-boot-3/target/easy-observability-example-spring-boot-3-0.1.0-alpha.3.jar
 
 mvn -pl examples/easy-observability-example-spring-boot-4 -am package
-java -jar examples/easy-observability-example-spring-boot-4/target/easy-observability-example-spring-boot-4-0.1.0-alpha.1.jar
+java -jar examples/easy-observability-example-spring-boot-4/target/easy-observability-example-spring-boot-4-0.1.0-alpha.3.jar
 ```
 
-打开应用主页，再打开 `/easy-observability/` 查看最近 Trace。Boot 3 示例可用 `http://localhost:8083/`，Boot 4 示例可用 `http://localhost:8084/`。
+打开应用主页，Trace 页面为 `/easy-observability/`，指标趋势页为 `/easy-observability/metrics/`。Boot 3 示例可用 `http://localhost:8083/`，Boot 4 示例可用 `http://localhost:8084/`。
 
-两个本地示例都设置了 `easy.observability.web.allow-anonymous: true`，因此页面可以匿名读取 Trace API，也可以匿名清空示例历史；仅用于本机体验，不要将示例直接暴露到不可信网络。生产应用应复用自己的登录和授权，详见主 [README 的页面访问控制说明](../README.md#页面访问控制)。
+两个本地示例都设置了 `easy.observability.web.allow-anonymous: true`，因此页面可以匿名读取 Trace API，也可以匿名清空示例历史；仅用于本机体验，不要将示例直接暴露到不可信网络。生产应用应复用自己的登录和授权，详见[接入与配置指南](../docs/guide.md#页面和-api-访问)。
 
 ## 依赖调用场景
 
