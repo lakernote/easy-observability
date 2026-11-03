@@ -364,10 +364,11 @@ public final class TraceContext {
             completion.accept(result);
             if (throwable != null) {
                 logDiagnosticSummary(ERROR_LOG_LIMITER, true, description, costMs, slowThresholdMs,
-                        throwable.getClass().getName(), result.reasons(), traceId, countUnfinishedSpans(result.nodes()));
+                        throwable.getClass().getName(), result.reasons(), traceId,
+                        countUnfinishedSpans(result.nodes()), result.tree());
             } else if (slowThresholdMs > 0 && costMs >= slowThresholdMs) {
                 logDiagnosticSummary(SLOW_LOG_LIMITER, false, description, costMs, slowThresholdMs,
-                        "", result.reasons(), traceId, countUnfinishedSpans(result.nodes()));
+                        "", result.reasons(), traceId, countUnfinishedSpans(result.nodes()), result.tree());
             }
         } finally {
             ExecutionFrame current = CURRENT_FRAME.get();
@@ -477,7 +478,7 @@ public final class TraceContext {
 
     private static void logDiagnosticSummary(DiagnosticLogLimiter limiter, boolean error, String description,
                                            long costMs, long thresholdMs, String exceptionType,
-                                           List<String> reasons, String traceId, int unfinishedSpanCount) {
+                                           List<String> reasons, String traceId, int unfinishedSpanCount, String tree) {
         long suppressed = limiter.tryAcquire(System.nanoTime());
         if (suppressed < 0) return;
         String safeDescription = oneLine(description, MAX_LOG_DESCRIPTION_CHARS);
@@ -485,14 +486,15 @@ public final class TraceContext {
         String safeReasons = summarizeReasons(reasons, MAX_LOG_REASON_CHARS);
         String safeTraceId = oneLine(traceId, MAX_LOG_DESCRIPTION_CHARS);
         if (error) {
-            log.error("错误 Trace 摘要: description={}, cost={}ms, threshold={}ms, exception={}, "
-                            + "reasons={}, unfinishedSpansAtTraceEnd={}, traceId={}, previousWindowSuppressed={}",
+            log.error("Trace error summary: description={}, cost={}ms, threshold={}ms, exception={}, "
+                            + "reasons={}, unfinishedSpansAtTraceEnd={}, traceId={}, previousWindowSuppressed={}\n{}",
                     safeDescription, costMs, thresholdMs, safeExceptionType, safeReasons, unfinishedSpanCount,
-                    safeTraceId, suppressed);
+                    safeTraceId, suppressed, tree == null ? "" : tree);
         } else {
-            log.warn("慢调用 Trace 摘要: description={}, cost={}ms, threshold={}ms, reasons={}, "
-                            + "unfinishedSpansAtTraceEnd={}, traceId={}, previousWindowSuppressed={}",
-                    safeDescription, costMs, thresholdMs, safeReasons, unfinishedSpanCount, safeTraceId, suppressed);
+            log.warn("Slow trace summary: description={}, cost={}ms, threshold={}ms, reasons={}, "
+                            + "unfinishedSpansAtTraceEnd={}, traceId={}, previousWindowSuppressed={}\n{}",
+                    safeDescription, costMs, thresholdMs, safeReasons, unfinishedSpanCount, safeTraceId, suppressed,
+                    tree == null ? "" : tree);
         }
     }
 

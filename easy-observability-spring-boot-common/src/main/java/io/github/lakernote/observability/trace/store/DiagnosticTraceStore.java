@@ -58,9 +58,9 @@ public final class DiagnosticTraceStore {
                         if (RecentTraceStore.isEntrySource(trace.sourceType())
                                 && isDiagnosticTrace(trace)) addToIndex(trace);
                     }
-                    catch (Exception invalid) { log.debug("跳过损坏的 Easy Observability Trace 记录", invalid); }
+                    catch (Exception invalid) { log.debug("Skipping malformed Easy Observability trace record", invalid); }
                 }
-            } catch (Exception failure) { log.warn("无法恢复 Easy Observability 诊断 Trace 历史：{}", historyFile, failure); }
+            } catch (Exception failure) { log.warn("Failed to restore Easy Observability trace history: {}", historyFile, failure); }
         }
     }
 
@@ -91,7 +91,7 @@ public final class DiagnosticTraceStore {
                 }
                 Files.write(historyFile, bytes, java.nio.file.StandardOpenOption.CREATE,
                         java.nio.file.StandardOpenOption.WRITE, java.nio.file.StandardOpenOption.APPEND);
-            } catch (Exception failure) { log.warn("写入 Easy Observability 诊断 Trace 历史失败", failure); }
+            } catch (Exception failure) { log.warn("Failed to write Easy Observability trace history", failure); }
         }
     }
 

@@ -33,7 +33,8 @@ public final class BoundedHistoryWriter implements AutoCloseable {
             // 队列满时丢弃新任务而不让业务线程反向执行落盘；计数和告警便于发现持久化压力。
             long dropped = droppedTasks.incrementAndGet();
             if (dropWarningLogged.compareAndSet(false, true)) {
-                log.warn("Easy Observability 历史写入队列已满，后续记录可能丢弃；queueCapacity={}, dropped={}",
+                log.warn("Easy Observability history queue is full; subsequent records may be dropped; "
+                                + "queueCapacity={}, dropped={}",
                         QUEUE_CAPACITY, dropped);
             }
         }
@@ -46,12 +47,12 @@ public final class BoundedHistoryWriter implements AutoCloseable {
         try {
             if (!executor.awaitTermination(3, TimeUnit.SECONDS)) {
                 int abandoned = executor.shutdownNow().size();
-                if (abandoned > 0) log.warn("Easy Observability 关闭时丢弃了 {} 条待写历史记录", abandoned);
+                if (abandoned > 0) log.warn("Easy Observability shutdown discarded {} pending history records", abandoned);
             }
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
             int abandoned = executor.shutdownNow().size();
-            if (abandoned > 0) log.warn("Easy Observability 关闭时丢弃了 {} 条待写历史记录", abandoned);
+            if (abandoned > 0) log.warn("Easy Observability shutdown discarded {} pending history records", abandoned);
         }
     }
 }

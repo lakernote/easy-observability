@@ -119,7 +119,7 @@ class TraceContextTest {
     }
 
     @Test
-    void shouldKeepFullErrorEvidenceInCompletionButLogOnlyBoundedSummary() {
+    void shouldKeepFullErrorEvidenceAndIncludeTheBoundedTreeInTheLog() {
         Logger logger = (Logger) LoggerFactory.getLogger(TraceContext.class);
         ListAppender<ILoggingEvent> appender = new ListAppender<>();
         boolean additive = logger.isAdditive();
@@ -139,10 +139,37 @@ class TraceContextTest {
             assertThat(result.get().stackTrace()).contains("raw-error-message");
             assertThat(appender.list).singleElement().satisfies(event -> {
                 assertThat(event.getFormattedMessage())
-                        .contains("错误 Trace 摘要", "root error", IllegalStateException.class.getName())
-                        .doesNotContain("raw-error-message", "POST /orders", "OrderService#create", "\n", "\r");
+                        .contains("Trace error summary", "root error", IllegalStateException.class.getName(),
+                                "POST /orders", "OrderService#create")
+                        .doesNotContain("raw-error-message");
                 assertThat(event.getThrowableProxy()).isNull();
             });
+        } finally {
+            logger.detachAppender(appender);
+            logger.setAdditive(additive);
+            appender.stop();
+        }
+    }
+
+    @Test
+    void shouldIncludeTheBoundedTreeInSlowCallLogs() throws InterruptedException {
+        Logger logger = (Logger) LoggerFactory.getLogger(TraceContext.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        boolean additive = logger.isAdditive();
+        logger.setAdditive(false);
+        logger.addAppender(appender);
+        appender.start();
+        try {
+            TraceContext.startRoot("GET /slow", SpanKind.HTTP, "", 8, 0);
+            TraceContext.addSpan("http.client.requests", SpanKind.REMOTE, "/catalog");
+            TraceContext.stopSpan();
+            Thread.sleep(5);
+
+            TraceContext.stopRoot(1, "HTTP observation");
+
+            assertThat(appender.list).singleElement().satisfies(event ->
+                    assertThat(event.getFormattedMessage())
+                            .contains("Slow trace summary", "GET /slow", "http.client.requests", "/catalog"));
         } finally {
             logger.detachAppender(appender);
             logger.setAdditive(additive);
