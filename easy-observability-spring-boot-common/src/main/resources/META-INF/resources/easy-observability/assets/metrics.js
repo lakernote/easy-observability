@@ -70,6 +70,12 @@ function displayValue(value, source) {
   return number(value, source.unit)
 }
 
+function valueAxisSize(values) {
+  const longestLabel = (values || []).reduce((length, value) =>
+    Math.max(length, Array.from(String(value ?? '')).length), 0)
+  return Math.max(48, Math.ceil(longestLabel * 8 + 18))
+}
+
 function pointIntervalLabel() {
   const seconds = latestHistory.pointIntervalSeconds
   if (seconds < 60) return `${seconds}秒`
@@ -217,6 +223,7 @@ function chart(chartSources, points) {
                 : date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
         }) },
       { stroke: '#77869a', grid: { stroke: '#edf1f6', width: 1 }, ticks: { stroke: '#e4e9f0' },
+        size: (u, values) => valueAxisSize(values),
         values: (u, values) => values.map(value => displayValue(value, source)) }
     ],
     series: plottedSeries,
