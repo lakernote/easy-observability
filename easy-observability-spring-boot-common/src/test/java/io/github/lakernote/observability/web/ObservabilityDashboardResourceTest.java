@@ -83,4 +83,29 @@ class ObservabilityDashboardResourceTest {
                             "if (hasMultipleThreads)");
         }
     }
+
+    @Test
+    void keepsUnboundedExecutorLimitsOutOfTheMetricChartScale() throws IOException {
+        var classLoader = getClass().getClassLoader();
+        try (var script = classLoader.getResourceAsStream(
+                "META-INF/resources/easy-observability/assets/metrics.js");
+             var style = classLoader.getResourceAsStream(
+                     "META-INF/resources/easy-observability/assets/metrics.css")) {
+            assertThat(script).isNotNull();
+            assertThat(style).isNotNull();
+            assertThat(new String(script.readAllBytes(), StandardCharsets.UTF_8))
+                    .contains("const UNBOUNDED_EXECUTOR_MAX = 2147483647",
+                            "function isUnboundedExecutorMax(value, source)",
+                            "const samplesPerPoint = Math.max(1, Math.round(pointIntervalSeconds / stepSeconds))",
+                            "const unboundedThreshold = UNBOUNDED_EXECUTOR_MAX / samplesPerPoint",
+                            "function plotValue(value, source)",
+                            "chartPoints.map(point => plotValue(point.values[item.id], item))",
+                            "不设上限，不参与纵轴缩放",
+                            "statusOnly ? null : legendItem")
+                    .doesNotContain("Number.isFinite(point.values[item.id]) ? point.values[item.id] : null");
+            assertThat(new String(style.readAllBytes(), StandardCharsets.UTF_8))
+                    .contains(".metric-legend-status { grid-column:1 / -1;",
+                            ".metric-status-only {");
+        }
+    }
 }

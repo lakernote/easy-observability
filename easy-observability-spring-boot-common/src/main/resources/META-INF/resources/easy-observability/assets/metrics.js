@@ -10,6 +10,7 @@ const groups = [
 let selectedGroup = 'http'
 let latestHistory
 let activePlots = []
+const UNBOUNDED_EXECUTOR_MAX = 2147483647
 
 async function request(path) {
   const headers = new Headers()
@@ -62,8 +63,23 @@ function number(value, unit) {
   return `${value.toLocaleString('zh-CN', { maximumFractionDigits: digits })}${unit === 'count' ? '' : ` ${unit}`}`
 }
 
+function isUnboundedExecutorMax(value, source) {
+  if (!source.id.endsWith('_pool_max') || !Number.isFinite(value)) return false
+  const stepSeconds = Math.max(1, Number(latestHistory?.stepSeconds) || 1)
+  const pointIntervalSeconds = Math.max(stepSeconds, Number(latestHistory?.pointIntervalSeconds) || stepSeconds)
+  // Archived points average several raw samples. A single MAX_VALUE sentinel is therefore
+  // reduced to MAX_VALUE / samples when a pool changes between bounded and unbounded.
+  const samplesPerPoint = Math.max(1, Math.round(pointIntervalSeconds / stepSeconds))
+  const unboundedThreshold = UNBOUNDED_EXECUTOR_MAX / samplesPerPoint
+  return value >= unboundedThreshold
+}
+
+function plotValue(value, source) {
+  return Number.isFinite(value) && !isUnboundedExecutorMax(value, source) ? value : null
+}
+
 function displayValue(value, source) {
-  if (source.id.endsWith('_pool_max') && value >= 2147483647) return '不设上限'
+  if (isUnboundedExecutorMax(value, source)) return '不设上限'
   if (source.id === 'process_cpu_pct' || source.id === 'system_cpu_pct') {
     return Number.isFinite(value) ? `${value.toFixed(1)}%` : '暂无数据'
   }
@@ -126,12 +142,21 @@ function renderCategories() {
 function chart(chartSources, points) {
   const source = chartSources[0]
   const sources = chartSources.filter(item => points.some(point => Number.isFinite(point.values[item.id])))
+  const chartPoints = points.filter(point => sources.some(item => Number.isFinite(point.values[item.id])))
+  const plottableSources = sources.map(item => chartPoints.some(point => plotValue(point.values[item.id], item) != null))
+  const plottedCount = plottableSources.filter(Boolean).length
+  const statusOnlyCount = sources.length - plottedCount
+  const hasUnboundedSamples = sources.some(item => chartPoints.some(point =>
+    isUnboundedExecutorMax(point.values[item.id], item)))
   const card = node('article', 'metric-chart')
   const head = node('div', 'metric-chart-head')
   head.append(node('h2', '', source.displayName))
   const actions = node('div', 'metric-chart-actions')
+  const summary = []
+  if (plottedCount) summary.push(`${plottedCount} 条曲线`)
+  if (statusOnlyCount) summary.push(`${statusOnlyCount} 个不设上限配置`)
   actions.append(node('span', 'metric-chart-hint', sources.length
-    ? `${sources.length} 条曲线 · ${pointValueLabel(source)} · 点击图例开关`
+    ? `${summary.join(' · ')}${plottedCount ? ` · ${pointValueLabel(source)} · 点击图例开关` : ''}`
     : '暂无曲线'))
   const showAll = node('button', 'metric-reset metric-show-all', '显示全部')
   showAll.type = 'button'
@@ -139,7 +164,7 @@ function chart(chartSources, points) {
   actions.append(showAll)
   const reset = node('button', 'metric-reset', '重置缩放')
   reset.type = 'button'
-  reset.hidden = !sources.length
+  reset.hidden = !plottedCount
   actions.append(reset)
   head.append(actions)
   card.append(head)
@@ -147,35 +172,48 @@ function chart(chartSources, points) {
     card.append(node('div', 'metric-empty', emptyDataHint()))
     return card
   }
-  const chartPoints = points.filter(point => sources.some(item => Number.isFinite(point.values[item.id])))
   const plotHost = node('div', 'metric-plot')
   plotHost.setAttribute('role', 'img')
-  plotHost.setAttribute('aria-label', `${source.displayName}趋势图`)
-  card.append(plotHost)
+  plotHost.setAttribute('aria-label', `${source.displayName}趋势图${hasUnboundedSamples ? '；不设上限配置不参与纵轴缩放' : ''}`)
+  if (plottedCount) {
+    card.append(plotHost)
+  } else {
+    const status = node('div', 'metric-status-only')
+    status.append(node('strong', '', '无需绘制数值曲线'),
+      node('span', '', '当前配置均为“不设上限”，不会参与纵轴缩放。'))
+    card.append(status)
+  }
   const legend = node('div', 'metric-legend')
-  legend.setAttribute('aria-label', `${source.displayName}曲线开关`)
+  legend.setAttribute('aria-label', `${source.displayName}${plottedCount ? '曲线开关与配置状态' : '配置状态'}`)
   card.append(legend)
   const times = chartPoints.map(point => point.timestamp)
   const colors = ['#4169c9', '#08a68a', '#df8d28', '#8a62c2', '#db5d68', '#2696ad', '#5d9d4d', '#bd6e31',
     '#3955a5', '#00a6a6', '#e27730', '#a0559a', '#c94747', '#197aa6', '#799b34', '#8f6637',
     '#6876d9', '#24a37b', '#cf6b9e', '#64748b', '#9a741d', '#667b27', '#5266a8', '#b55230']
-  const data = [times, ...sources.map(item => chartPoints.map(point => Number.isFinite(point.values[item.id]) ? point.values[item.id] : null))]
   const legendValues = []
   const legendButtons = []
   const visible = sources.map(() => true)
   sources.forEach((item, index) => {
-    const button = node('button', 'metric-legend-item')
-    button.type = 'button'
-    button.setAttribute('aria-pressed', 'true')
-    button.setAttribute('aria-label', `${item.legend}，显示曲线`)
-    button.title = item.legend
-    const marker = node('span', 'metric-legend-marker')
+    const statusOnly = !plottableSources[index]
+    const legendItem = node(statusOnly ? 'div' : 'button', `metric-legend-item${statusOnly ? ' metric-legend-status' : ''}`)
+    if (statusOnly) {
+      legendItem.setAttribute('aria-label', `${item.legend}，不设上限，不参与纵轴缩放`)
+      legendItem.title = `${item.legend} · 不设上限 · 不参与纵轴缩放`
+    } else {
+      legendItem.type = 'button'
+      legendItem.setAttribute('aria-pressed', 'true')
+      legendItem.setAttribute('aria-label', `${item.legend}，显示曲线`)
+      legendItem.title = item.legend
+    }
+    const marker = node('span', `metric-legend-marker${statusOnly ? ' is-unbounded' : ''}`, statusOnly ? '∞' : '')
+    marker.setAttribute('aria-hidden', 'true')
     marker.style.setProperty('--series-color', colors[index % colors.length])
     const label = node('span', 'metric-legend-label', item.legend)
     const value = node('span', 'metric-legend-value', '—')
-    button.append(marker, label, value)
-    legend.append(button)
-    legendButtons.push(button)
+    legendItem.append(marker, label, value)
+    if (statusOnly) legendItem.append(node('span', 'metric-legend-note', '不参与纵轴缩放'))
+    legend.append(legendItem)
+    legendButtons.push(statusOnly ? null : legendItem)
     legendValues.push(value)
   })
   const latestIndex = item => {
@@ -189,11 +227,15 @@ function chart(chartSources, points) {
     legendValues[index].textContent = pointIndex < 0
       ? '暂无数据' : displayValue(chartPoints[pointIndex].values[item.id], item)
   })
+  showLatestValues()
+  if (!plottedCount) return card
+  const data = [times, ...sources.map(item => chartPoints.map(point => plotValue(point.values[item.id], item)))]
   const hoverTime = node('span', 'metric-hover-time', '最新值')
   const plottedSeries = [{ label: '时间' }, ...sources.map((item, index) => ({
     label: item.legend,
     stroke: colors[index % colors.length],
     width: 2,
+    show: plottableSources[index],
     points: { show: false },
     value: (u, value) => value == null ? '—' : displayValue(value, item)
   }))]
@@ -261,27 +303,30 @@ function chart(chartSources, points) {
     }] } }]
   }, data, plotHost)
   sources.forEach((item, index) => {
-    legendButtons[index].addEventListener('click', () => {
+    const button = legendButtons[index]
+    if (!button) return
+    button.addEventListener('click', () => {
       visible[index] = !visible[index]
       plot.setSeries(index + 1, { show: visible[index] })
-      legendButtons[index].setAttribute('aria-pressed', String(visible[index]))
-      legendButtons[index].setAttribute('aria-label', `${item.legend}，${visible[index] ? '显示' : '隐藏'}曲线`)
-      legendButtons[index].classList.toggle('is-hidden', !visible[index])
+      button.setAttribute('aria-pressed', String(visible[index]))
+      button.setAttribute('aria-label', `${item.legend}，${visible[index] ? '显示' : '隐藏'}曲线`)
+      button.classList.toggle('is-hidden', !visible[index])
       showAll.hidden = !visible.some(show => !show)
     })
   })
   showAll.addEventListener('click', () => {
     sources.forEach((_, index) => {
+      const button = legendButtons[index]
+      if (!button) return
       visible[index] = true
       plot.setSeries(index + 1, { show: true })
-      legendButtons[index].setAttribute('aria-pressed', 'true')
-      legendButtons[index].setAttribute('aria-label', `${sources[index].legend}，显示曲线`)
-      legendButtons[index].classList.remove('is-hidden')
+      button.setAttribute('aria-pressed', 'true')
+      button.setAttribute('aria-label', `${sources[index].legend}，显示曲线`)
+      button.classList.remove('is-hidden')
     })
     showAll.hidden = true
   })
   plotHost.addEventListener('dblclick', () => plot.setScale('x', { min: times[0], max: times.at(-1) }))
-  showLatestValues()
   const resizeObserver = new ResizeObserver(entries => {
     const width = Math.floor(entries[0].contentRect.width)
     if (width > 0 && width !== plot.width) plot.setSize({ width, height: 250 })
