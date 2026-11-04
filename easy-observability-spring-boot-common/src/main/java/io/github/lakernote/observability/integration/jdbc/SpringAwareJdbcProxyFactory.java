@@ -6,24 +6,55 @@ import net.ttddyy.dsproxy.proxy.ProxyConfig;
 import net.ttddyy.dsproxy.proxy.ProxyJdbcObject;
 import net.ttddyy.dsproxy.proxy.jdk.DataSourceInvocationHandler;
 import org.aopalliance.intercept.MethodInterceptor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.aop.ProxyMethodInvocation;
+import org.springframework.aop.RawTargetAccess;
 import org.springframework.aop.framework.ProxyFactory;
 
 import javax.sql.DataSource;
 import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.sql.CallableStatement;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
 /** Keep the outer data source Spring-aware and use datasource-proxy's cached JDK proxies for JDBC calls. */
 public final class SpringAwareJdbcProxyFactory implements JdbcProxyFactory {
+    private static final Logger log = LoggerFactory.getLogger(SpringAwareJdbcProxyFactory.class);
+    private static final Set<MethodSignature> JDBC_PROXY_METHODS = jdbcProxyMethods();
     private final JdbcProxyFactory delegate = JdbcProxyFactory.DEFAULT;
+
+    /** Prevents Spring AOP from replacing ProxyJdbcObject.getTarget() with the class proxy itself. */
+    public interface TypePreservingProxyJdbcObject extends ProxyJdbcObject, RawTargetAccess {
+        @Override
+        Object getTarget();
+
+        @Override
+        ProxyConfig getProxyConfig();
+    }
 
     @Override
     public DataSource createDataSource(DataSource dataSource, ProxyConfig proxyConfig) {
-        return createProxy(dataSource, new DataSourceInvocationHandler(dataSource, proxyConfig), DataSource.class);
+        Class<?> targetClass = dataSource.getClass();
+        try {
+            if (!supportsTypePreservingProxy(targetClass)) {
+                log.warn("JDBC tracing is disabled for data source '{}' because type {} cannot be safely class-proxied",
+                        proxyConfig.getDataSourceName(), targetClass.getName());
+                return dataSource;
+            }
+            return createDataSourceProxy(dataSource, new DataSourceInvocationHandler(dataSource, proxyConfig));
+        } catch (RuntimeException | LinkageError failure) {
+            log.warn("JDBC tracing is disabled for data source '{}' because a type-preserving proxy for {} "
+                            + "could not be created", proxyConfig.getDataSourceName(), targetClass.getName(), failure);
+            return dataSource;
+        }
     }
 
     @Override
@@ -62,15 +93,46 @@ public final class SpringAwareJdbcProxyFactory implements JdbcProxyFactory {
         return delegate.createGeneratedKeys(resultSet, connectionInfo, proxyConfig);
     }
 
-    private <T> T createProxy(Object target, InvocationHandler handler, Class<T> proxyType) {
+    private DataSource createDataSourceProxy(DataSource target, InvocationHandler handler) {
         MethodInterceptor interceptor = invocation -> {
+            if (!isJdbcProxyMethod(invocation.getMethod())) return invocation.proceed();
             Object proxy = invocation instanceof ProxyMethodInvocation proxyInvocation
                     ? proxyInvocation.getProxy() : invocation.getThis();
             return handler.invoke(proxy, invocation.getMethod(), invocation.getArguments());
         };
-        ProxyFactory proxyFactory = new ProxyFactory(ProxyJdbcObject.class, proxyType);
-        proxyFactory.addAdvice(interceptor);
+        ProxyFactory proxyFactory = new ProxyFactory();
         proxyFactory.setTarget(target);
-        return proxyType.cast(proxyFactory.getProxy(ProxyJdbcObject.class.getClassLoader()));
+        proxyFactory.setProxyTargetClass(true);
+        proxyFactory.addInterface(TypePreservingProxyJdbcObject.class);
+        proxyFactory.addAdvice(interceptor);
+        return (DataSource) proxyFactory.getProxy(target.getClass().getClassLoader());
+    }
+
+    private static boolean isJdbcProxyMethod(Method method) {
+        return JDBC_PROXY_METHODS.contains(MethodSignature.from(method));
+    }
+
+    private static Set<MethodSignature> jdbcProxyMethods() {
+        Set<MethodSignature> methods = new HashSet<>();
+        for (Class<?> contract : List.of(DataSource.class, ProxyJdbcObject.class, Object.class)) {
+            for (Method method : contract.getMethods()) methods.add(MethodSignature.from(method));
+        }
+        return Set.copyOf(methods);
+    }
+
+    private static boolean supportsTypePreservingProxy(Class<?> targetClass) {
+        if (Modifier.isFinal(targetClass.getModifiers())) return false;
+        for (Method method : targetClass.getMethods()) {
+            int modifiers = method.getModifiers();
+            if (method.getDeclaringClass() != Object.class && !Modifier.isStatic(modifiers)
+                    && Modifier.isFinal(modifiers)) return false;
+        }
+        return true;
+    }
+
+    private record MethodSignature(String name, List<Class<?>> parameterTypes) {
+        private static MethodSignature from(Method method) {
+            return new MethodSignature(method.getName(), List.of(method.getParameterTypes()));
+        }
     }
 }
