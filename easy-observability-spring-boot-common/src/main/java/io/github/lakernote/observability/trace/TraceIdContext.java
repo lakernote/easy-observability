@@ -6,11 +6,12 @@ import org.slf4j.MDC;
  * Reads the current trace ID.
  *
  * <p>The trace ID is stored in SLF4J MDC under {@link #MDC_KEY}, so log patterns can print it with
- * {@code %X{traceId}}. The starter binds it at HTTP, Kafka, scheduled-job and executor boundaries.</p>
+ * {@code %X{easyTraceId}}. The starter binds it at HTTP, Kafka, scheduled-job and executor boundaries.
+ * The key is deliberately different from Micrometer Tracing's {@code traceId}, so both can coexist.</p>
  */
 public final class TraceIdContext {
     /** MDC key used to store the current trace ID. */
-    public static final String MDC_KEY = "traceId";
+    public static final String MDC_KEY = "easyTraceId";
 
     private TraceIdContext() {
     }

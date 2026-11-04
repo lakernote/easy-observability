@@ -30,6 +30,9 @@ spring:
       observation-enabled: true
     listener:
       observation-enabled: true
+logging:
+  pattern:
+    correlation: "[%X{easyTraceId:-}] "
 easy:
   observability:
     demo:

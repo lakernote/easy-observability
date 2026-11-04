@@ -113,6 +113,18 @@ private static boolean hasAnyRole(String... roles) {
 
 如果应用启用了 Spring Security 的 CSRF 防护，清空历史的 POST 请求需要 CSRF 令牌：使用 `CookieCsrfTokenRepository` 时页面会自动读取 `XSRF-TOKEN` Cookie 并回传 `X-XSRF-TOKEN` 请求头，否则需要对该路径单独配置 CSRF 策略。
 
+## 日志中的 Trace ID
+
+当前 Trace ID 写在 SLF4J MDC 的 `easyTraceId` 键中，可在日志格式中用 `%X{easyTraceId}` 输出。Spring Boot 可直接配置：
+
+```yaml
+logging:
+  pattern:
+    correlation: "[%X{easyTraceId:-}] "
+```
+
+该键与 Micrometer Tracing 使用的 `traceId`、`spanId` 不同。应用同时接入 Micrometer Tracing（OpenTelemetry 或 Brave）时，两套 ID 并存、互不覆盖，可在格式中同时输出 `%X{traceId}` 与 `%X{easyTraceId}`。代码中读取当前 ID 请使用 `TraceIdContext.currentTraceId()`。
+
 ## Kafka 与线程池
 
 Spring Kafka 的 Listener/Template Observation 需要启用，才能记录相应入口/发送指标和 Trace Span。默认 Listener Factory 会自动接入 Trace ID 拦截器；应用使用自定义 `RecordInterceptor` 或 Listener Factory 时，需要按应用现有配置组合/注册 `TraceIdRecordInterceptor`。自定义消费者、Kafka Streams 不会被默认 Listener 集成自动覆盖。

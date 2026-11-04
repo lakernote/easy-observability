@@ -26,6 +26,18 @@ class TraceIdsTest {
     }
 
     @Test
+    void doesNotShareTheMdcKeyUsedByMicrometerTracing() {
+        MDC.put("traceId", "micrometer-trace");
+
+        String traceId = TraceIds.getOrCreateTraceId();
+        TraceIds.clear();
+
+        assertThat(TraceIdContext.MDC_KEY).isEqualTo("easyTraceId");
+        assertThat(traceId).isNotEqualTo("micrometer-trace");
+        assertThat(MDC.get("traceId")).isEqualTo("micrometer-trace");
+    }
+
+    @Test
     void getOrCreateTraceIdShouldCreateMissingTraceId() {
         String traceId = TraceIds.getOrCreateTraceId();
 
