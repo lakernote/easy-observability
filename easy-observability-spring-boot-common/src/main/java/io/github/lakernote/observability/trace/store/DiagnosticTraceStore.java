@@ -6,18 +6,33 @@ import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.nio.charset.StandardCharsets;
+import java.io.ByteArrayOutputStream;
+import java.io.EOFException;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Deque;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.function.Consumer;
 
 /** Persists completed diagnostic traces so they remain available after a restart. */
 public final class DiagnosticTraceStore {
     private static final Logger log = LoggerFactory.getLogger(DiagnosticTraceStore.class);
+    private static final int FILE_BUFFER_BYTES = 16 * 1024;
+    // A corrupt record must not turn a generously configured archive limit into one giant heap allocation.
+    private static final long MAX_HISTORY_RECORD_BYTES = 16L * 1024 * 1024;
+    private static final long MAX_TRIM_SCAN_BYTES = 64L * 1024 * 1024;
     private final ObjectMapper objectMapper;
     private final Path historyFile;
     private final int maxHistorySize;
@@ -28,6 +43,7 @@ public final class DiagnosticTraceStore {
     private long clearGeneration;
     private boolean persistenceEnabled = true;
     private boolean storageWarningLogged;
+    private boolean oversizedRecordWarningLogged;
 
     public DiagnosticTraceStore(ObjectMapper mapper, String historyFile, int maxHistorySize, long maxHistoryFileBytes) {
         this(mapper, historyFile, maxHistorySize, maxHistoryFileBytes, Runnable::run);
@@ -55,14 +71,7 @@ public final class DiagnosticTraceStore {
                 if (!persistenceEnabled) return;
                 if (!Files.isRegularFile(historyFile)) return;
                 if (Files.size(historyFile) > maxHistoryFileBytes) trimHistoryFile();
-                for (String line : Files.readAllLines(historyFile, StandardCharsets.UTF_8)) {
-                    try {
-                        RecentTraceStore.TraceRecord trace = objectMapper.readValue(line, RecentTraceStore.TraceRecord.class);
-                        if (RecentTraceStore.isEntrySource(trace.sourceType())
-                                && isDiagnosticTrace(trace)) addToIndex(trace);
-                    }
-                    catch (Exception invalid) { log.debug("Skipping malformed Easy Observability trace record", invalid); }
-                }
+                restoreHistoryLines();
             } catch (Exception failure) {
                 disablePersistence("restore trace history", failure);
             }
@@ -95,16 +104,46 @@ public final class DiagnosticTraceStore {
             if (!persistenceEnabled || writeGeneration != clearGeneration) return;
             try {
                 Files.createDirectories(historyFile.getParent());
-                byte[] bytes = (objectMapper.writeValueAsString(trace) + "\n").getBytes(StandardCharsets.UTF_8);
-                if (Files.exists(historyFile) && Files.size(historyFile) + bytes.length > maxHistoryFileBytes) {
-                    trimHistoryFile();
+                int maxRecordBytes = (int) maxHistoryRecordBytes();
+                BoundedHistoryRecordBuffer record = new BoundedHistoryRecordBuffer(maxRecordBytes);
+                try {
+                    objectMapper.writeValue(record, trace);
+                    record.write('\n');
+                } catch (Exception failure) {
+                    if (causedByOversizedRecord(failure)) {
+                        warnOversizedRecord(maxRecordBytes);
+                        return;
+                    }
+                    throw failure;
                 }
-                Files.write(historyFile, bytes, java.nio.file.StandardOpenOption.CREATE,
-                        java.nio.file.StandardOpenOption.WRITE, java.nio.file.StandardOpenOption.APPEND);
+                if (Files.exists(historyFile)
+                        && Files.size(historyFile) > maxHistoryFileBytes - record.size()) {
+                    long retainedBytes = Math.min(maxHistoryFileBytes / 2,
+                            Math.max(0, maxHistoryFileBytes - record.size()));
+                    trimHistoryFile(retainedBytes);
+                }
+                try (FileChannel target = FileChannel.open(historyFile, StandardOpenOption.CREATE,
+                        StandardOpenOption.WRITE, StandardOpenOption.APPEND)) {
+                    writeFully(target, ByteBuffer.wrap(record.bytes(), 0, record.size()));
+                }
             } catch (Exception failure) {
                 disablePersistence("write trace history", failure);
             }
         }
+    }
+
+    private void warnOversizedRecord(long maxRecordBytes) {
+        if (oversizedRecordWarningLogged) return;
+        oversizedRecordWarningLogged = true;
+        log.warn("Skipping oversized Easy Observability trace history record; maxRecordBytes={}, path={}",
+                maxRecordBytes, historyFile);
+    }
+
+    private static boolean causedByOversizedRecord(Throwable failure) {
+        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+            if (cause instanceof HistoryRecordTooLargeException) return true;
+        }
+        return false;
     }
 
     private void disablePersistence(String operation, Exception failure) {
@@ -183,25 +222,238 @@ public final class DiagnosticTraceStore {
         while (diagnosticTraces.size() > maxHistorySize) diagnosticTraces.pollLast();
     }
 
-    private void trimHistoryFile() throws Exception {
-        if (!Files.isRegularFile(historyFile)) return;
-        List<String> lines = Files.readAllLines(historyFile, StandardCharsets.UTF_8);
-        long bytes = 0;
-        List<String> retained = new ArrayList<>();
-        for (int index = lines.size() - 1; index >= 0 && retained.size() < maxHistorySize; index--) {
-            String line = lines.get(index);
-            long size = line.getBytes(StandardCharsets.UTF_8).length + 1L;
-            if (bytes + size > maxHistoryFileBytes / 2) break;
-            retained.add(line);
-            bytes += size;
+    private void restoreHistoryLines() throws IOException {
+        int maxLineBytes = (int) Math.min(maxHistoryRecordBytes() - 1, Integer.MAX_VALUE - 8L);
+        boolean oversizedLineLogged = false;
+        try (InputStream input = Files.newInputStream(historyFile)) {
+            byte[] inputBuffer = new byte[FILE_BUFFER_BYTES];
+            ByteArrayOutputStream line = new ByteArrayOutputStream(Math.min(FILE_BUFFER_BYTES, maxLineBytes));
+            boolean discardLine = false;
+            int read;
+            while ((read = input.read(inputBuffer)) >= 0) {
+                for (int index = 0; index < read; index++) {
+                    int value = inputBuffer[index] & 0xff;
+                    if (value == '\n') {
+                        if (discardLine) {
+                            if (!oversizedLineLogged) {
+                                log.debug("Skipping oversized Easy Observability trace history record: path={}, "
+                                        + "maxRecordBytes={}", historyFile, maxLineBytes);
+                                oversizedLineLogged = true;
+                            }
+                        } else {
+                            restoreHistoryLine(line);
+                        }
+                        line.reset();
+                        discardLine = false;
+                    } else if (!discardLine) {
+                        if (line.size() >= maxLineBytes) {
+                            line.reset();
+                            discardLine = true;
+                        } else {
+                            line.write(value);
+                        }
+                    }
+                }
+            }
+            if (discardLine) {
+                if (!oversizedLineLogged) {
+                    log.debug("Skipping oversized Easy Observability trace history record: path={}, "
+                            + "maxRecordBytes={}", historyFile, maxLineBytes);
+                }
+            } else if (line.size() > 0) {
+                restoreHistoryLine(line);
+            }
         }
-        java.util.Collections.reverse(retained);
-        // 先写临时文件再原子替换，截断过程中进程退出也不损坏原文件。
+    }
+
+    private void restoreHistoryLine(ByteArrayOutputStream line) {
+        try {
+            RecentTraceStore.TraceRecord trace = objectMapper.readValue(
+                    line.toByteArray(), RecentTraceStore.TraceRecord.class);
+            if (RecentTraceStore.isEntrySource(trace.sourceType()) && isDiagnosticTrace(trace)) addToIndex(trace);
+        } catch (Exception invalid) {
+            log.debug("Skipping malformed Easy Observability trace record", invalid);
+        }
+    }
+
+    private long maxHistoryRecordBytes() {
+        return Math.min(maxHistoryFileBytes, MAX_HISTORY_RECORD_BYTES);
+    }
+
+    private void trimHistoryFile() throws Exception {
+        trimHistoryFile(maxHistoryFileBytes / 2);
+    }
+
+    private void trimHistoryFile(long byteBudget) throws Exception {
+        if (!Files.isRegularFile(historyFile)) return;
         Path temporary = historyFile.resolveSibling(historyFile.getFileName() + ".tmp");
-        Files.write(temporary, retained, StandardCharsets.UTF_8);
+        try (FileChannel source = FileChannel.open(historyFile, StandardOpenOption.READ)) {
+            Deque<HistoryLine> retained = retainedHistoryLines(source, Math.max(0, byteBudget));
+            try (FileChannel target = FileChannel.open(temporary, StandardOpenOption.CREATE,
+                    StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE)) {
+                ByteBuffer copyBuffer = ByteBuffer.allocate(FILE_BUFFER_BYTES);
+                for (HistoryLine line : retained) {
+                    copyRange(source, target, line.start(), line.length(), copyBuffer);
+                    if (!line.terminated()) writeFully(target, ByteBuffer.wrap(new byte[]{'\n'}));
+                }
+            }
+        }
+        // 先写临时文件再原子替换，截断过程中进程退出也不损坏原文件。
         try { Files.move(temporary, historyFile, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE); }
         catch (java.nio.file.AtomicMoveNotSupportedException unsupported) {
             Files.move(temporary, historyFile, StandardCopyOption.REPLACE_EXISTING);
+        }
+    }
+
+    private Deque<HistoryLine> retainedHistoryLines(FileChannel source, long byteBudget) throws IOException {
+        HistoryRetention retained = new HistoryRetention(byteBudget);
+        if (byteBudget <= 0) return retained.lines;
+        long fileSize = source.size();
+        if (fileSize == 0) return retained.lines;
+
+        ByteBuffer lastByte = ByteBuffer.allocate(1);
+        readFully(source, lastByte, fileSize - 1);
+        boolean currentLineTerminated = lastByte.get(0) == '\n';
+        long currentLineEnd = fileSize;
+        long cursor = currentLineTerminated ? fileSize - 1 : fileSize;
+        long configuredScanBytes = maxHistoryFileBytes > Long.MAX_VALUE / 2
+                ? Long.MAX_VALUE : maxHistoryFileBytes * 2;
+        long maxScanBytes = Math.min(configuredScanBytes, MAX_TRIM_SCAN_BYTES);
+        long scanFloor = Math.max(0, fileSize - maxScanBytes);
+        if (scanFloor > 0) scanFloor--;
+
+        ByteBuffer scanBuffer = ByteBuffer.allocate(FILE_BUFFER_BYTES);
+        while (cursor > scanFloor && !retained.full) {
+            long chunkStart = Math.max(scanFloor, cursor - scanBuffer.capacity());
+            int chunkBytes = (int) (cursor - chunkStart);
+            scanBuffer.clear();
+            scanBuffer.limit(chunkBytes);
+            readFully(source, scanBuffer, chunkStart);
+            for (int index = chunkBytes - 1; index >= 0; index--) {
+                if (scanBuffer.get(index) != '\n') continue;
+                long lineStart = chunkStart + index + 1;
+                retained.offer(new HistoryLine(lineStart, currentLineEnd - lineStart, currentLineTerminated));
+                currentLineEnd = lineStart;
+                currentLineTerminated = true;
+                if (retained.full) break;
+            }
+            cursor = chunkStart;
+        }
+        if (!retained.full && cursor == 0 && currentLineEnd > 0) {
+            retained.offer(new HistoryLine(0, currentLineEnd, currentLineTerminated));
+        }
+        return retained.lines;
+    }
+
+    private static void readFully(FileChannel source, ByteBuffer buffer, long position) throws IOException {
+        long offset = position;
+        while (buffer.hasRemaining()) {
+            int read = source.read(buffer, offset);
+            if (read < 0) throw new EOFException("Trace history changed while it was being scanned");
+            if (read == 0) throw new EOFException("Could not scan trace history");
+            offset += read;
+        }
+        buffer.flip();
+    }
+
+    private static void copyRange(FileChannel source, FileChannel target, long start, long length,
+                                  ByteBuffer buffer) throws IOException {
+        long position = start;
+        long remaining = length;
+        while (remaining > 0) {
+            buffer.clear();
+            buffer.limit((int) Math.min(buffer.capacity(), remaining));
+            int read = source.read(buffer, position);
+            if (read < 0) throw new EOFException("Trace history changed while it was being trimmed");
+            if (read == 0) throw new EOFException("Could not copy trace history while trimming");
+            buffer.flip();
+            writeFully(target, buffer);
+            position += read;
+            remaining -= read;
+        }
+    }
+
+    private static void writeFully(FileChannel target, ByteBuffer buffer) throws IOException {
+        while (buffer.hasRemaining()) {
+            if (target.write(buffer) == 0) throw new EOFException("Could not write trace history");
+        }
+    }
+
+    private static final class BoundedHistoryRecordBuffer extends OutputStream {
+        private final int maxBytes;
+        private byte[] bytes;
+        private int size;
+
+        private BoundedHistoryRecordBuffer(int maxBytes) {
+            this.maxBytes = maxBytes;
+            this.bytes = new byte[Math.min(FILE_BUFFER_BYTES, maxBytes)];
+        }
+
+        @Override
+        public void write(int value) throws IOException {
+            ensureCapacity(1);
+            bytes[size++] = (byte) value;
+        }
+
+        @Override
+        public void write(byte[] source, int offset, int length) throws IOException {
+            Objects.checkFromIndexSize(offset, length, source.length);
+            ensureCapacity(length);
+            System.arraycopy(source, offset, bytes, size, length);
+            size += length;
+        }
+
+        private void ensureCapacity(int additionalBytes) throws HistoryRecordTooLargeException {
+            if (additionalBytes > maxBytes - size) throw new HistoryRecordTooLargeException();
+            int required = size + additionalBytes;
+            if (required <= bytes.length) return;
+            int grown = Math.max(required, bytes.length + Math.max(1, bytes.length / 2));
+            bytes = Arrays.copyOf(bytes, Math.min(maxBytes, grown));
+        }
+
+        private byte[] bytes() {
+            return bytes;
+        }
+
+        private int size() {
+            return size;
+        }
+    }
+
+    private static final class HistoryRecordTooLargeException extends IOException {
+        private HistoryRecordTooLargeException() {
+            super("Trace history record exceeded its bounded buffer");
+        }
+    }
+
+    private record HistoryLine(long start, long length, boolean terminated) {
+        private long outputBytes() {
+            return terminated ? length : length + 1;
+        }
+    }
+
+    private final class HistoryRetention {
+        private final Deque<HistoryLine> lines = new ArrayDeque<>();
+        private final long byteBudget;
+        private final long maxLineBytes;
+        private long retainedBytes;
+        private boolean full;
+
+        private HistoryRetention(long byteBudget) {
+            this.byteBudget = byteBudget;
+            this.maxLineBytes = Math.min(byteBudget, maxHistoryRecordBytes());
+        }
+
+        private void offer(HistoryLine line) {
+            long lineBytes = line.outputBytes();
+            if (lineBytes > maxLineBytes) return;
+            if (lines.size() >= maxHistorySize || retainedBytes > byteBudget - lineBytes) {
+                full = true;
+                return;
+            }
+            lines.addFirst(line);
+            retainedBytes += lineBytes;
+            full = lines.size() >= maxHistorySize || retainedBytes >= byteBudget;
         }
     }
 

@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.slf4j.LoggerFactory;
 
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -24,6 +25,8 @@ import java.util.concurrent.Future;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class TraceStorePersistenceTest {
+    private static final long MIN_HISTORY_FILE_BYTES = 1024 * 1024;
+
     @TempDir Path directory;
 
     @Test
@@ -175,8 +178,141 @@ class TraceStorePersistenceTest {
         assertThat(replacementStore.storageStatus().persistenceEnabled()).isTrue();
     }
 
+    @Test
+    void oversizedTrailingLineDoesNotHideEarlierValidTraceDuringTrimming() throws Exception {
+        ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
+        Path tracesFile = directory.resolve("oversized-line.jsonl");
+        RecentTraceStore.TraceRecord valid = trace(
+                "valid-before-oversized-line", "HTTP", Instant.parse("2026-10-21T10:00:00Z"));
+        String validJson = mapper.writeValueAsString(valid);
+        String oversizedMalformedLine = "x".repeat((int) MIN_HISTORY_FILE_BYTES + 128 * 1024);
+        Files.writeString(tracesFile, validJson + "\n" + oversizedMalformedLine + "\n",
+                StandardCharsets.UTF_8);
+
+        DiagnosticTraceStore store = new DiagnosticTraceStore(
+                mapper, tracesFile.toString(), 100, MIN_HISTORY_FILE_BYTES);
+        store.restoreHistory();
+
+        assertThat(store.findRecent(10)).extracting(RecentTraceStore.TraceRecord::traceId)
+                .containsExactly("valid-before-oversized-line");
+        assertThat(Files.size(tracesFile)).isLessThanOrEqualTo(MIN_HISTORY_FILE_BYTES / 2);
+        assertThat(store.storageStatus().persistenceEnabled()).isTrue();
+    }
+
+    @Test
+    void trimsOversizedHistoryToNewestRecordsWithinCountAndByteLimits() throws Exception {
+        ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
+        Path tracesFile = directory.resolve("bounded-history.jsonl");
+        String payload = "d".repeat(10 * 1024);
+        StringBuilder jsonl = new StringBuilder();
+        for (int index = 0; index < 140; index++) {
+            jsonl.append(mapper.writeValueAsString(traceWithDetail(
+                    "bounded-" + index, payload, Instant.parse("2026-10-21T10:00:00Z").plusSeconds(index))))
+                    .append('\n');
+        }
+        Files.writeString(tracesFile, jsonl, StandardCharsets.UTF_8);
+        assertThat(Files.size(tracesFile)).isGreaterThan(MIN_HISTORY_FILE_BYTES);
+
+        DiagnosticTraceStore store = new DiagnosticTraceStore(
+                mapper, tracesFile.toString(), 100, MIN_HISTORY_FILE_BYTES);
+        store.restoreHistory();
+
+        List<String> traceIds = store.findRecent(100).stream()
+                .map(RecentTraceStore.TraceRecord::traceId)
+                .toList();
+        assertThat(traceIds).isNotEmpty().hasSizeLessThanOrEqualTo(100);
+        assertThat(traceIds.get(0)).isEqualTo("bounded-139");
+        assertThat(traceIds).doesNotContain("bounded-0");
+        for (int index = 1; index < traceIds.size(); index++) {
+            int previous = Integer.parseInt(traceIds.get(index - 1).substring("bounded-".length()));
+            int current = Integer.parseInt(traceIds.get(index).substring("bounded-".length()));
+            assertThat(current).isEqualTo(previous - 1);
+        }
+        assertThat(Files.size(tracesFile)).isLessThanOrEqualTo(MIN_HISTORY_FILE_BYTES / 2);
+    }
+
+    @Test
+    void skipsMalformedLineWithoutChangingValidRecordOrder() throws Exception {
+        ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
+        Path tracesFile = directory.resolve("malformed-history.jsonl");
+        RecentTraceStore.TraceRecord first = trace(
+                "valid-first", "HTTP", Instant.parse("2026-10-21T10:00:00Z"));
+        RecentTraceStore.TraceRecord second = trace(
+                "valid-second", "HTTP", Instant.parse("2026-10-21T10:00:01Z"));
+        Files.writeString(tracesFile, mapper.writeValueAsString(first) + "\n{not-json}\n"
+                + mapper.writeValueAsString(second) + "\n", StandardCharsets.UTF_8);
+
+        DiagnosticTraceStore store = new DiagnosticTraceStore(
+                mapper, tracesFile.toString(), 100, MIN_HISTORY_FILE_BYTES);
+        store.restoreHistory();
+
+        assertThat(store.findRecent(10)).extracting(RecentTraceStore.TraceRecord::traceId)
+                .containsExactly("valid-second", "valid-first");
+        assertThat(store.storageStatus().persistenceEnabled()).isTrue();
+    }
+
+    @Test
+    void restoresUtf8CrLfHistoryWithAnUnterminatedFinalRecordInOrder() throws Exception {
+        ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
+        Path tracesFile = directory.resolve("utf8-crlf-history.jsonl");
+        RecentTraceStore.TraceRecord first = traceWithDetail(
+                "utf8-first", "第一条：数据库很慢", Instant.parse("2026-10-21T10:00:00Z"));
+        RecentTraceStore.TraceRecord second = traceWithDetail(
+                "utf8-second", "第二条：缓存失败", Instant.parse("2026-10-21T10:00:01Z"));
+        RecentTraceStore.TraceRecord third = traceWithDetail(
+                "utf8-third", "第三条：任务完成", Instant.parse("2026-10-21T10:00:02Z"));
+        Files.writeString(tracesFile, mapper.writeValueAsString(first) + "\r\n"
+                + mapper.writeValueAsString(second) + "\r\n" + mapper.writeValueAsString(third),
+                StandardCharsets.UTF_8);
+
+        DiagnosticTraceStore store = new DiagnosticTraceStore(
+                mapper, tracesFile.toString(), 100, MIN_HISTORY_FILE_BYTES);
+        store.restoreHistory();
+
+        assertThat(store.findRecent(10)).extracting(RecentTraceStore.TraceRecord::traceId)
+                .containsExactly("utf8-third", "utf8-second", "utf8-first");
+        assertThat(store.findByTraceId("utf8-first").method()).isEqualTo("第一条：数据库很慢");
+        assertThat(store.findByTraceId("utf8-third").method()).isEqualTo("第三条：任务完成");
+        assertThat(store.storageStatus().persistenceEnabled()).isTrue();
+    }
+
+    @Test
+    void keepsOversizedNewTraceInMemoryAndPersistsFollowingSmallTrace() throws Exception {
+        ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
+        Path tracesFile = directory.resolve("oversized-new-record.jsonl");
+        DiagnosticTraceStore store = new DiagnosticTraceStore(
+                mapper, tracesFile.toString(), 100, MIN_HISTORY_FILE_BYTES);
+        RecentTraceStore.TraceRecord oversized = traceWithDetail(
+                "oversized-in-memory", "x".repeat((int) MIN_HISTORY_FILE_BYTES + 128 * 1024),
+                Instant.parse("2026-10-21T10:00:00Z"));
+        RecentTraceStore.TraceRecord small = traceWithDetail(
+                "small-persisted", "small diagnostic", Instant.parse("2026-10-21T10:00:01Z"));
+
+        store.recordDiagnosticTrace(oversized);
+        assertThat(tracesFile).doesNotExist();
+        store.recordDiagnosticTrace(small);
+
+        assertThat(store.findRecent(10)).extracting(RecentTraceStore.TraceRecord::traceId)
+                .containsExactly("small-persisted", "oversized-in-memory");
+        assertThat(store.storageStatus().persistenceEnabled()).isTrue();
+        assertThat(tracesFile).exists();
+        assertThat(Files.size(tracesFile)).isLessThan(MIN_HISTORY_FILE_BYTES);
+
+        DiagnosticTraceStore restored = new DiagnosticTraceStore(
+                mapper, tracesFile.toString(), 100, MIN_HISTORY_FILE_BYTES);
+        restored.restoreHistory();
+        assertThat(restored.findRecent(10)).extracting(RecentTraceStore.TraceRecord::traceId)
+                .containsExactly("small-persisted");
+    }
+
     private static RecentTraceStore.TraceRecord trace(String traceId, String source, Instant finishedAt) {
         return new RecentTraceStore.TraceRecord(1, traceId, source, "", 500, 5,
                 false, true, TraceNodeFixtures.named(source + " tree"), finishedAt, -1, -1, -1, source, "", "", "", "", false, false);
+    }
+
+    private static RecentTraceStore.TraceRecord traceWithDetail(String traceId, String detail, Instant finishedAt) {
+        return new RecentTraceStore.TraceRecord(1, traceId, traceId, detail, 500, 5,
+                false, true, TraceNodeFixtures.named("HTTP tree"), finishedAt, -1, -1, -1,
+                "HTTP", "", "", "", "", false, false);
     }
 }
