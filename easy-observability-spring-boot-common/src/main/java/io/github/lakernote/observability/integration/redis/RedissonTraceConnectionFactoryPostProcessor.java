@@ -10,6 +10,8 @@ import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.aop.support.AopUtils;
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.config.BeanPostProcessor;
+import org.springframework.data.redis.connection.RedisClusterCommandsProvider;
+import org.springframework.data.redis.connection.RedisCommandsProvider;
 import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.util.ClassUtils;
@@ -31,8 +33,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public final class RedissonTraceConnectionFactoryPostProcessor implements BeanPostProcessor {
     private static final Logger log = LoggerFactory.getLogger(RedissonTraceConnectionFactoryPostProcessor.class);
     private static final Set<MethodSignature> CONNECTION_FACTORY_METHODS = connectionFactoryMethods();
+    private static final Set<MethodSignature> COMMAND_ACCESSOR_METHODS = commandAccessorMethods();
     private final Supplier<? extends MeterRegistry> metricsRegistryProvider;
     private final AtomicBoolean connectionProxyFailureLogged = new AtomicBoolean();
+    private final AtomicBoolean commandProxyFailureLogged = new AtomicBoolean();
     private volatile boolean metricsRegistryResolved;
     private volatile MeterRegistry metricsRegistry;
 
@@ -102,23 +106,71 @@ public final class RedissonTraceConnectionFactoryPostProcessor implements BeanPo
 
         @Override
         public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
-            if (method.getDeclaringClass() == Object.class || !isCommand(method)) return invokeTarget(method, delegate, args);
-            // Redis is always a dependency operation. Only an inbound HTTP, job, or Kafka
-            // consumer observation may create a trace root.
-            String name = method.getName();
-            TraceContext.DetachedSpan span = TraceContext.startDetachedSpan("Redis " + name, SpanKind.REDIS, name);
-            Throwable failure = null;
-            boolean recordMetric = !isPipelined(delegate);
-            long startedAt = System.nanoTime();
-            try {
-                return invokeTarget(method, delegate, args);
-            } catch (Throwable error) {
-                failure = error;
-                throw error;
-            } finally {
-                finish(span, failure);
-                if (recordMetric) recordMetric(method, startedAt, failure);
+            if (method.getDeclaringClass() == Object.class) return invokeTarget(method, delegate, args);
+            if (isCommandAccessor(method)) {
+                return invokeCommandAccessor(proxy, method, delegate, args, delegate);
             }
+            if (!isCommand(method)) return invokeTarget(method, delegate, args);
+            return invokeCommand(method, delegate, args, delegate);
+        }
+    }
+
+    private final class CommandHandler implements InvocationHandler {
+        private final Object delegate;
+        private final RedisConnection connection;
+
+        private CommandHandler(Object delegate, RedisConnection connection) {
+            this.delegate = delegate;
+            this.connection = connection;
+        }
+
+        @Override
+        public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+            if (method.getDeclaringClass() == Object.class) return invokeTarget(method, delegate, args);
+            if (isCommandAccessor(method)) {
+                return invokeCommandAccessor(proxy, method, delegate, args, connection);
+            }
+            if (!isCommand(method)) return invokeTarget(method, delegate, args);
+            return invokeCommand(method, delegate, args, connection);
+        }
+    }
+
+    private Object invokeCommandAccessor(Object proxy, Method method, Object target, Object[] args,
+                                         RedisConnection connection) throws Throwable {
+        Object commands = invokeTarget(method, target, args);
+        if (commands == null || !method.getReturnType().isInterface()) return commands;
+        if (commands == target && method.getReturnType().isInstance(proxy)) return proxy;
+        try {
+            Set<Class<?>> interfaces = publicInterfaces(commands.getClass());
+            interfaces.add(method.getReturnType());
+            return Proxy.newProxyInstance(commands.getClass().getClassLoader(), interfaces.toArray(Class<?>[]::new),
+                    new CommandHandler(commands, connection));
+        } catch (RuntimeException | LinkageError failure) {
+            if (commandProxyFailureLogged.compareAndSet(false, true)) {
+                log.warn("Redisson tracing is disabled for command provider {} returned by {} because it could not "
+                        + "be proxied", commands.getClass().getName(), method.getName(), failure);
+            }
+            return commands;
+        }
+    }
+
+    private Object invokeCommand(Method method, Object target, Object[] args, RedisConnection connection)
+            throws Throwable {
+        // Redis is always a dependency operation. Only an inbound HTTP, job, or Kafka
+        // consumer observation may create a trace root.
+        String name = method.getName();
+        TraceContext.DetachedSpan span = TraceContext.startDetachedSpan("Redis " + name, SpanKind.REDIS, name);
+        Throwable failure = null;
+        boolean recordMetric = !isPipelined(connection);
+        long startedAt = System.nanoTime();
+        try {
+            return invokeTarget(method, target, args);
+        } catch (Throwable error) {
+            failure = error;
+            throw error;
+        } finally {
+            finish(span, failure);
+            if (recordMetric) recordMetric(method, startedAt, failure);
         }
     }
 
@@ -176,6 +228,11 @@ public final class RedissonTraceConnectionFactoryPostProcessor implements BeanPo
         };
     }
 
+    private static boolean isCommandAccessor(Method method) {
+        return method.getParameterCount() == 0 && method.getReturnType().isInterface()
+                && COMMAND_ACCESSOR_METHODS.contains(MethodSignature.from(method));
+    }
+
     private static Object invokeTarget(Method method, Object target, Object[] args) throws Throwable {
         try { return method.invoke(target, args); }
         catch (InvocationTargetException error) { throw error.getCause(); }
@@ -205,6 +262,16 @@ public final class RedissonTraceConnectionFactoryPostProcessor implements BeanPo
         Set<MethodSignature> methods = new HashSet<>();
         for (Method method : RedisConnectionFactory.class.getMethods()) {
             if (RedisConnection.class.isAssignableFrom(method.getReturnType())) {
+                methods.add(MethodSignature.from(method));
+            }
+        }
+        return Set.copyOf(methods);
+    }
+
+    private static Set<MethodSignature> commandAccessorMethods() {
+        Set<MethodSignature> methods = new HashSet<>();
+        for (Class<?> providerType : List.of(RedisCommandsProvider.class, RedisClusterCommandsProvider.class)) {
+            for (Method method : providerType.getMethods()) {
                 methods.add(MethodSignature.from(method));
             }
         }
