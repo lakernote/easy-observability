@@ -52,6 +52,10 @@ final class Span {
         slow = true;
     }
 
+    boolean diagnostic() {
+        return error || slow;
+    }
+
     void removeFromParent() {
         if (parent != null && parent.children != null) {
             parent.children.remove(this);

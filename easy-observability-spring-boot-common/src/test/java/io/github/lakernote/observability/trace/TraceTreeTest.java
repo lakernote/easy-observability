@@ -56,6 +56,18 @@ class TraceTreeTest {
     }
 
     @Test
+    void shouldKeepSlowChildNodeBelowMinCost() {
+        TraceTree trace = new TraceTree("HTTP", SpanKind.HTTP, "GET /api/users", 8, Long.MAX_VALUE);
+        Span slow = trace.addChild(trace.rootSpan(), 1, "diagnostic-slow", SpanKind.SERVICE, "");
+
+        trace.markSpanSlow(slow);
+        trace.stopSpan(slow);
+        trace.stopRoot();
+
+        assertThat(trace.renderTree()).contains("diagnostic-slow [SLOW]");
+    }
+
+    @Test
     void shouldAggregateOnlyConsecutiveDuplicateLeafSpans() throws Exception {
         TraceTree trace = new TraceTree("HTTP", SpanKind.HTTP, "GET /api/users", 8, 0);
 

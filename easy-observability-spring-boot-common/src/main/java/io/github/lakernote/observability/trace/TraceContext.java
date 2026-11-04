@@ -17,6 +17,7 @@ public final class TraceContext {
     private static final Logger log = LoggerFactory.getLogger(TraceContext.class);
     static final int MAX_DIAGNOSTIC_LOGS_PER_WINDOW = 20;
     static final long DIAGNOSTIC_LOG_WINDOW_NANOS = TimeUnit.MINUTES.toNanos(1);
+    static final String CODE_ERROR_REASON = "CODE_ERROR";
     private static final int MAX_LOG_DESCRIPTION_CHARS = 256;
     private static final int MAX_LOG_REASON_CHARS = 256;
     private static final ThreadLocal<ExecutionFrame> CURRENT_FRAME = new ThreadLocal<>();
@@ -222,6 +223,14 @@ public final class TraceContext {
         return new ScopedSpan(current.trace, Thread.currentThread().getId(), span, current, installed);
     }
 
+    /** Starts an exact, user-declared span and retains successful traces that contain it. */
+    static ScopedSpan startExplicitScopedSpan(String name, SpanKind kind, String tag) {
+        TraceTree trace = currentTrace();
+        if (trace == null) return ScopedSpan.NOOP;
+        trace.requireExplicitTree();
+        return startScopedSpan(name, kind, tag);
+    }
+
     public interface SpanHandle extends AutoCloseable {
         String spanId();
 
@@ -266,6 +275,13 @@ public final class TraceContext {
         @Override
         public void markError(BoundedThrowableFormatter.FailureEvidence failure) {
             if (trace != null && span != null) trace.markSpanError(span, failure);
+        }
+
+        void markTraceError(String reason, Throwable failure) {
+            if (trace == null) return;
+            BoundedThrowableFormatter.FailureEvidence evidence = BoundedThrowableFormatter.capture(failure);
+            trace.markError(reason, evidence);
+            if (span != null) trace.markSpanError(span, evidence);
         }
 
         @Override

@@ -17,11 +17,14 @@ public final class TraceBlock {
     }
 
     public static <T> T call(String spanName, SpanKind kind, String tag, Supplier<T> supplier) {
-        boolean spanStarted = startSpan(spanName, kind, tag);
+        TraceContext.ScopedSpan span = startSpan(spanName, kind, tag);
         try {
             return supplier.get();
+        } catch (Throwable failure) {
+            markFailure(span, failure);
+            throw TraceBlock.<RuntimeException>propagate(failure);
         } finally {
-            stopSpan(spanStarted);
+            closeSpan(span);
         }
     }
 
@@ -35,30 +38,46 @@ public final class TraceBlock {
     }
 
     public static void run(String spanName, SpanKind kind, String tag, Runnable runnable) {
-        boolean spanStarted = startSpan(spanName, kind, tag);
+        TraceContext.ScopedSpan span = startSpan(spanName, kind, tag);
         try {
             runnable.run();
+        } catch (Throwable failure) {
+            markFailure(span, failure);
+            throw TraceBlock.<RuntimeException>propagate(failure);
         } finally {
-            stopSpan(spanStarted);
+            closeSpan(span);
         }
     }
 
-    private static boolean startSpan(String spanName, SpanKind kind, String tag) {
+    private static TraceContext.ScopedSpan startSpan(String spanName, SpanKind kind, String tag) {
         try {
-            TraceContext.addExplicitSpan(spanName, kind, tag);
-            return true;
+            return TraceContext.startExplicitScopedSpan(spanName, kind, tag);
         } catch (Throwable monitoringFailure) {
             TraceContext.clear();
-            return false;
+            return null;
         }
     }
 
-    private static void stopSpan(boolean spanStarted) {
-        if (!spanStarted) return;
+    private static void markFailure(TraceContext.ScopedSpan span, Throwable failure) {
+        if (span == null) return;
         try {
-            TraceContext.stopSpan();
+            span.markTraceError(TraceContext.CODE_ERROR_REASON, failure);
         } catch (Throwable monitoringFailure) {
             TraceContext.clear();
         }
+    }
+
+    private static void closeSpan(TraceContext.ScopedSpan span) {
+        if (span == null) return;
+        try {
+            span.close();
+        } catch (Throwable monitoringFailure) {
+            TraceContext.clear();
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <E extends Throwable> E propagate(Throwable failure) throws E {
+        throw (E) failure;
     }
 }

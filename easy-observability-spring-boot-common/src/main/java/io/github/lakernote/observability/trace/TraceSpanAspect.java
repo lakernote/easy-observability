@@ -49,23 +49,35 @@ public class TraceSpanAspect {
             TraceContext.clear();
             return joinPoint.proceed();
         }
-        boolean spanStarted = false;
+        TraceContext.ScopedSpan span = null;
         try {
-            TraceContext.addExplicitSpan(descriptor.spanName(), descriptor.kind(), descriptor.tag());
-            spanStarted = true;
+            span = TraceContext.startExplicitScopedSpan(
+                    descriptor.spanName(), descriptor.kind(), descriptor.tag());
         } catch (Throwable monitoringFailure) {
             TraceContext.clear();
         }
         try {
             return joinPoint.proceed();
+        } catch (Throwable failure) {
+            markFailure(span, failure);
+            throw failure;
         } finally {
-            if (spanStarted) {
+            if (span != null) {
                 try {
-                    TraceContext.stopSpan();
+                    span.close();
                 } catch (Throwable monitoringFailure) {
                     TraceContext.clear();
                 }
             }
+        }
+    }
+
+    private static void markFailure(TraceContext.ScopedSpan span, Throwable failure) {
+        if (span == null) return;
+        try {
+            span.markTraceError(TraceContext.CODE_ERROR_REASON, failure);
+        } catch (Throwable monitoringFailure) {
+            TraceContext.clear();
         }
     }
 

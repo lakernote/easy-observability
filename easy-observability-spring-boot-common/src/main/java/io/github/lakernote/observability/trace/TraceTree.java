@@ -89,7 +89,7 @@ final class TraceTree {
         if (span == null || span == root) return;
         span.stop();
         int subtreeSize = span.subtreeSize();
-        if (span.costMs() < minNodeCostMs && subtreeSize == 1) {
+        if (!span.diagnostic() && span.costMs() < minNodeCostMs && subtreeSize == 1) {
             recordedNodes = Math.max(1, recordedNodes - subtreeSize);
             span.removeFromParent();
         }
