@@ -1,4 +1,4 @@
-const api = '/api/easy-observability/metrics'
+const api = new URL('../../api/easy-observability/', import.meta.url)
 const $ = id => document.getElementById(id)
 const groups = [
   { id: 'http', label: 'HTTP', prefixes: ['http_'] },
@@ -324,8 +324,8 @@ async function refresh() {
   $('notice').classList.remove('warning')
   try {
     const [history, storage] = await Promise.all([
-      request(`${api}?period=${encodeURIComponent($('period').value)}`),
-      request(`${api}/storage`)
+      request(new URL(`metrics?period=${encodeURIComponent($('period').value)}`, api)),
+      request(new URL('metrics/storage', api))
     ])
     latestHistory = history
     if (!storage.initialized) {

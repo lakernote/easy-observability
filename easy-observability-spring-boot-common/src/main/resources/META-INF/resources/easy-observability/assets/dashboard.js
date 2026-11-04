@@ -1,4 +1,4 @@
-const api = '/api/easy-observability'
+const api = new URL('../../api/easy-observability/', import.meta.url)
 const $ = id => document.getElementById(id)
 const PAGE_SIZE = 50
 let traces = []
@@ -14,7 +14,8 @@ async function request(path, options = {}) {
   const headers = new Headers(options.headers || {})
   const token = typeof window.EasyObservabilityAuth?.token === 'function' ? window.EasyObservabilityAuth.token() : ''
   if (token) headers.set('Authorization', `Bearer ${token}`)
-  const response = await fetch(`${api}${path}`, { credentials: 'same-origin', ...options, headers })
+  const response = await fetch(new URL(path.replace(/^\/+/, ''), api),
+    { credentials: 'same-origin', ...options, headers })
   if (!response.ok) throw new Error(response.status === 401 || response.status === 403
     ? '没有查看 Trace 的权限，请登录或检查 ObservabilityAccessPolicy'
     : `请求失败（HTTP ${response.status}）`)
