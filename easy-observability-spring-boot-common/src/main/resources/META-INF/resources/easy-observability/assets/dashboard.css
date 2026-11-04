@@ -74,6 +74,7 @@ button:disabled { cursor: default; opacity: .5; }
 .instance-pill { display: flex; align-items: center; gap: 7px; margin-right: 8px; color: var(--muted); font-size: 12px; }
 .instance-pill i { width: 7px; height: 7px; border-radius: 50%; background: #d18a1f; }
 .instance-pill.connected i { background: #15966a; }
+.instance-pill.degraded i { background: #d18a1f; }
 .view-nav { display: flex; align-self: stretch; align-items: center; gap: 5px; margin-left: auto; margin-right: 22px; }
 .view-nav a { padding: 8px 11px; border-radius: 7px; color: #66768c; font-size: 12px; font-weight: 650; text-decoration: none; }
 .view-nav a:hover { background: #f1f4f9; color: var(--ink); }
@@ -93,6 +94,7 @@ button:disabled { cursor: default; opacity: .5; }
   color: #9f2634;
   font-size: 13px;
 }
+.notice.warning { border-color: #ead19a; background: #fff9e8; color: #744700; }
 
 .filters {
   display: grid;

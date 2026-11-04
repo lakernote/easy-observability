@@ -6,12 +6,16 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.util.unit.DataSize;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Map;
 import java.util.Set;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class Rrd4jMetricsStoreTest {
@@ -177,6 +181,52 @@ class Rrd4jMetricsStoreTest {
         } finally {
             registry.stop();
         }
+    }
+
+    @Test
+    void disablesLocalHistoryWithoutFailingTheApplicationWhenStorageCannotBeCreated() throws Exception {
+        Path blockingFile = Files.writeString(directory.resolve("not-a-directory"), "blocking file");
+        EasyObservabilityProperties.Metrics settings = properties();
+        settings.setStorageDirectory(blockingFile.resolve("metrics").toString());
+
+        Rrd4jMetricsStore store = assertDoesNotThrow(() -> new Rrd4jMetricsStore(settings));
+
+        assertFalse(store.status().initialized());
+        assertEquals(0, store.status().storageBytes());
+        assertDoesNotThrow(() -> store.update(Map.of("process_cpu_pct", 12.5)));
+        assertEquals(0, assertDoesNotThrow(() -> store.seriesSlotIndex("http_server_uri", "GET /orders")));
+        assertEquals(0, store.seriesSlotIndex("http_server_uri", "GET /orders"));
+        Rrd4jMetricsStore.History history = assertDoesNotThrow(() -> store.fetch("1h"));
+        assertEquals("1h", history.period());
+        assertEquals(10, history.stepSeconds());
+        assertTrue(history.points().isEmpty());
+    }
+
+    @Test
+    void disablesLocalHistoryWithoutThrowingWhenStorageFailsAtRuntime() throws Exception {
+        Rrd4jMetricsStore store = new Rrd4jMetricsStore(properties());
+        Path rrdFile = directory.resolve("common-metrics-v7-10s-30d.rrd");
+        Files.delete(rrdFile);
+        Files.createDirectory(rrdFile);
+
+        assertDoesNotThrow(() -> store.update(Map.of("process_cpu_pct", 12.5)));
+        assertFalse(store.status().initialized());
+        assertTrue(assertDoesNotThrow(() -> store.fetch("1h")).points().isEmpty());
+    }
+
+    @Test
+    void stillRejectsInvalidMetricsConfiguration() {
+        EasyObservabilityProperties.Metrics invalidStep = properties();
+        invalidStep.setStep(Duration.ofSeconds(9));
+        assertThrows(IllegalArgumentException.class, () -> new Rrd4jMetricsStore(invalidStep));
+
+        EasyObservabilityProperties.Metrics invalidRetention = properties();
+        invalidRetention.setRetentionDays(6);
+        assertThrows(IllegalArgumentException.class, () -> new Rrd4jMetricsStore(invalidRetention));
+
+        EasyObservabilityProperties.Metrics insufficientStorage = properties();
+        insufficientStorage.setMaxStorageBytes(DataSize.ofBytes(1));
+        assertThrows(IllegalArgumentException.class, () -> new Rrd4jMetricsStore(insufficientStorage));
     }
 
     private EasyObservabilityProperties.Metrics properties() {

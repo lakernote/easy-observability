@@ -61,6 +61,8 @@ easy:
 
 RRD 历史使用独立的 Micrometer `StepMeterRegistry`。采样周期或保留期变化会重建固定大小的 RRD 文件并清除旧的本地指标历史。多实例部署时，每个实例应使用独立目录；该历史不会自动跨实例汇总。采样与长周期归档的统计口径会显示在 Metrics 页面说明中。
 
+`step`、`retention-days`、`max-storage-bytes` 等无效配置仍会阻止应用启动，以便尽早暴露配置错误。若运行时因目录权限、只读文件系统或磁盘 I/O 导致 RRD 历史不可用，组件会记录警告并停用本地历史，但不会中断宿主应用；Metrics 页面会显示“存储降级”。修复存储问题后需要重启应用以恢复历史采集。
+
 ## 页面和 API 访问
 
 页面路径为 `/easy-observability/`，Metrics 页面为 `/easy-observability/metrics/`，查询 API 位于 `/api/easy-observability/`。`easy.observability.web.allow-anonymous` 不是认证开关：组件不提供用户名、密码或登录系统。默认值 `false` 会让内置 API 访问策略拒绝匿名请求；设为 `true` 会允许匿名访问 API，但仍受应用已有的 Spring Security、网关和网络策略约束。

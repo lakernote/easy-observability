@@ -7,8 +7,11 @@ import org.rrd4j.core.FetchData;
 import org.rrd4j.core.RrdDb;
 import org.rrd4j.core.RrdDef;
 import org.rrd4j.core.Sample;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -20,9 +23,11 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Fixed-size local RRD history for the public runtime metric catalog. */
 public final class Rrd4jMetricsStore {
+    private static final Logger log = LoggerFactory.getLogger(Rrd4jMetricsStore.class);
     private static final String FILE_PREFIX = "common-metrics-v7-";
     private static final long HIGH_RESOLUTION_SECONDS = Duration.ofDays(1).toSeconds();
     private static final long MEDIUM_RESOLUTION_SECONDS = Duration.ofDays(7).toSeconds();
@@ -35,6 +40,8 @@ public final class Rrd4jMetricsStore {
     private final long retentionSeconds;
     private final Map<String, Map<String, Integer>> seriesSlots = new LinkedHashMap<>();
     private final Map<String, Boolean> overflowUsed = new LinkedHashMap<>();
+    private final AtomicBoolean storageWarningLogged = new AtomicBoolean();
+    private volatile boolean initialized;
 
     public Rrd4jMetricsStore(EasyObservabilityProperties.Metrics properties) {
         if (properties.getStorageDirectory() == null || properties.getStorageDirectory().isBlank()) {
@@ -48,14 +55,13 @@ public final class Rrd4jMetricsStore {
             throw new IllegalArgumentException("easy.observability.metrics.max-storage-bytes must not be null");
         }
         this.maxStorageBytes = properties.getMaxStorageBytes().toBytes();
-        loadSeriesSlots();
         long expectedBytes = definition("metrics.rrd", 0, stepSeconds, retentionSeconds).getEstimatedSize();
         if (maxStorageBytes < expectedBytes) {
             throw new IllegalArgumentException("easy.observability.metrics.max-storage-bytes must be at least "
                     + expectedBytes + " bytes for the configured step, retention and fixed metric set");
         }
         this.file = directory.resolve(FILE_PREFIX + stepSeconds + "s-" + properties.getRetentionDays() + "d.rrd");
-        initialize();
+        this.initialized = initialize();
     }
 
     /** Returns a stable bounded series slot. Excess tag values share the family overflow line. */
@@ -81,17 +87,22 @@ public final class Rrd4jMetricsStore {
     }
 
     public synchronized void update(Map<String, Double> values) throws IOException {
-        long timestamp = Instant.now().getEpochSecond();
-        timestamp -= timestamp % stepSeconds;
-        try (RrdDb database = open()) {
-            Sample sample = database.createSample(timestamp);
-            for (MetricsCatalog.DataSource source : dataSources()) {
-                Double value = values.get(source.id());
-                if (value != null && Double.isFinite(value)) sample.setValue(source.id(), value);
+        if (!initialized) return;
+        try {
+            long timestamp = Instant.now().getEpochSecond();
+            timestamp -= timestamp % stepSeconds;
+            try (RrdDb database = open()) {
+                Sample sample = database.createSample(timestamp);
+                for (MetricsCatalog.DataSource source : dataSources()) {
+                    Double value = values.get(source.id());
+                    if (value != null && Double.isFinite(value)) sample.setValue(source.id(), value);
+                }
+                sample.update();
             }
-            sample.update();
+            enforceStorageLimit();
+        } catch (IOException failure) {
+            disableStorage("write metrics history", failure);
         }
-        enforceStorageLimit();
     }
 
     public synchronized History fetch(String period) throws IOException {
@@ -99,38 +110,50 @@ public final class Rrd4jMetricsStore {
         long requested = periodSeconds(period);
         long from = Math.max(end - requested, end - retentionSeconds);
         long resolution = pointIntervalSeconds(period);
-        try (RrdDb database = open()) {
-            FetchData data = database.createFetchRequest(ConsolFun.AVERAGE, from, end, resolution).fetchData();
-            long[] timestamps = data.getTimestamps();
-            Map<String, double[]> series = new LinkedHashMap<>();
-            for (MetricsCatalog.DataSource source : dataSources()) {
-                series.put(source.id(), data.getValues(source.id()));
-            }
-            List<Point> points = new ArrayList<>(timestamps.length);
-            for (int i = 0; i < timestamps.length; i++) {
-                Map<String, Double> values = new LinkedHashMap<>();
+        if (!initialized) return emptyHistory(period, resolution);
+        try {
+            try (RrdDb database = open()) {
+                FetchData data = database.createFetchRequest(ConsolFun.AVERAGE, from, end, resolution).fetchData();
+                long[] timestamps = data.getTimestamps();
+                Map<String, double[]> series = new LinkedHashMap<>();
                 for (MetricsCatalog.DataSource source : dataSources()) {
-                    double value = series.get(source.id())[i];
-                    // MemoryUsage.max is -1 when a pool has no fixed limit. Some JVM/RRD
-                    // combinations surface that as zero in archived samples; zero is not a
-                    // meaningful memory ceiling, so keep the chart honest by omitting it.
-                    if (source.id().startsWith("memory_") && source.id().endsWith("_max") && value <= 0) {
-                        continue;
-                    }
-                    if (Double.isFinite(value)) values.put(source.id(), value);
+                    series.put(source.id(), data.getValues(source.id()));
                 }
-                points.add(new Point(timestamps[i], values));
+                List<Point> points = new ArrayList<>(timestamps.length);
+                for (int i = 0; i < timestamps.length; i++) {
+                    Map<String, Double> values = new LinkedHashMap<>();
+                    for (MetricsCatalog.DataSource source : dataSources()) {
+                        double value = series.get(source.id())[i];
+                        // MemoryUsage.max is -1 when a pool has no fixed limit. Some JVM/RRD
+                        // combinations surface that as zero in archived samples; zero is not a
+                        // meaningful memory ceiling, so keep the chart honest by omitting it.
+                        if (source.id().startsWith("memory_") && source.id().endsWith("_max") && value <= 0) {
+                            continue;
+                        }
+                        if (Double.isFinite(value)) values.put(source.id(), value);
+                    }
+                    points.add(new Point(timestamps[i], values));
+                }
+                return new History(period, stepSeconds, resolution, retentionSeconds, dataSources(), points);
             }
-            return new History(period, stepSeconds, resolution, retentionSeconds, dataSources(), points);
+        } catch (IOException failure) {
+            disableStorage("read metrics history", failure);
+            return emptyHistory(period, resolution);
         }
     }
 
-    public StorageStatus status() throws IOException {
-        long bytes = Files.exists(file) ? Files.size(file) : 0;
-        return new StorageStatus(bytes, maxStorageBytes, stepSeconds, retentionSeconds, Files.exists(file));
+    public synchronized StorageStatus status() throws IOException {
+        if (!initialized) return unavailableStatus();
+        try {
+            long bytes = Files.exists(file) ? Files.size(file) : 0;
+            return new StorageStatus(bytes, maxStorageBytes, stepSeconds, retentionSeconds, Files.exists(file));
+        } catch (IOException failure) {
+            disableStorage("inspect metrics history", failure);
+            return unavailableStatus();
+        }
     }
 
-    private void initialize() {
+    private boolean initialize() {
         try {
             Files.createDirectories(directory);
             try (var files = Files.list(directory)) {
@@ -149,8 +172,30 @@ public final class Rrd4jMetricsStore {
             } else {
                 createDatabase();
             }
+            loadSeriesSlots();
+            return true;
         } catch (IOException failure) {
-            throw new IllegalStateException("Could not initialize RRD4J metrics history at " + file, failure);
+            disableStorage("initialize metrics history", failure);
+            return false;
+        } catch (UncheckedIOException failure) {
+            disableStorage("initialize metrics history", failure.getCause());
+            return false;
+        }
+    }
+
+    private History emptyHistory(String period, long resolution) {
+        return new History(period, stepSeconds, resolution, retentionSeconds, dataSources(), List.of());
+    }
+
+    private StorageStatus unavailableStatus() {
+        return new StorageStatus(0, maxStorageBytes, stepSeconds, retentionSeconds, false);
+    }
+
+    private void disableStorage(String operation, IOException failure) {
+        initialized = false;
+        if (storageWarningLogged.compareAndSet(false, true)) {
+            log.warn("Could not {}; local metrics history is disabled until the application restarts; path={}",
+                    operation, file, failure);
         }
     }
 
@@ -221,11 +266,15 @@ public final class Rrd4jMetricsStore {
         return labelsByFamily;
     }
 
-    private synchronized void loadSeriesSlots() {
+    private synchronized void loadSeriesSlots() throws IOException {
         if (!Files.exists(seriesMapFile)) return;
         Properties properties = new Properties();
         try (var reader = Files.newBufferedReader(seriesMapFile)) {
-            properties.load(reader);
+            try {
+                properties.load(reader);
+            } catch (IllegalArgumentException malformed) {
+                throw new IOException("Malformed metrics series metadata: " + seriesMapFile, malformed);
+            }
             for (MetricsCatalog.SeriesFamily family : MetricsCatalog.FAMILIES) {
                 overflowUsed.put(family.key(), Boolean.parseBoolean(
                         properties.getProperty("overflow." + family.key(), "false")));
@@ -244,12 +293,11 @@ public final class Rrd4jMetricsStore {
                     // Ignore malformed or unknown metadata and keep valid family slots.
                 }
             });
-        } catch (IOException failure) {
-            throw new IllegalStateException("Could not read persisted metrics series metadata", failure);
         }
     }
 
     private synchronized void persistSeriesSlots() {
+        if (!initialized) return;
         Properties properties = new Properties();
         overflowUsed.forEach((family, overflow) -> properties.setProperty("overflow." + family, overflow.toString()));
         seriesSlots.forEach((family, labels) -> labels.forEach((label, slot) ->
@@ -266,7 +314,7 @@ public final class Rrd4jMetricsStore {
                 Files.move(temp, seriesMapFile, StandardCopyOption.REPLACE_EXISTING);
             }
         } catch (IOException failure) {
-            throw new IllegalStateException("Could not persist metric series metadata", failure);
+            disableStorage("persist metrics series metadata", failure);
         }
     }
 

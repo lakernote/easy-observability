@@ -321,18 +321,32 @@ function render() {
 
 async function refresh() {
   $('notice').hidden = true
+  $('notice').classList.remove('warning')
   try {
     const [history, storage] = await Promise.all([
       request(`${api}?period=${encodeURIComponent($('period').value)}`),
       request(`${api}/storage`)
     ])
     latestHistory = history
+    if (!storage.initialized) {
+      $('instance').classList.remove('connected')
+      $('instance').classList.add('degraded')
+      $('instance').lastChild.textContent = '存储降级'
+      $('storage').textContent = '本地指标历史不可用'
+      $('notice').classList.add('warning')
+      $('notice').textContent = '本地指标历史存储不可用，业务应用未受影响；请检查 easy.observability.metrics.storage-directory 和服务日志。'
+      $('notice').hidden = false
+      render()
+      return
+    }
+    $('instance').classList.remove('degraded')
     $('instance').classList.add('connected')
     $('instance').lastChild.textContent = '已连接'
     $('storage').textContent = `历史存储 ${(storage.storageBytes / 1024).toFixed(0)} KiB / ${(storage.maxStorageBytes / 1024 / 1024).toFixed(0)} MiB · ${storage.stepSeconds} 秒采样 · 保留 ${Math.round(storage.retentionSeconds / 86400)} 天`
     render()
   } catch (error) {
     $('instance').classList.remove('connected')
+    $('instance').classList.remove('degraded')
     $('instance').lastChild.textContent = '未连接'
     $('notice').textContent = error.message
     $('notice').hidden = false
