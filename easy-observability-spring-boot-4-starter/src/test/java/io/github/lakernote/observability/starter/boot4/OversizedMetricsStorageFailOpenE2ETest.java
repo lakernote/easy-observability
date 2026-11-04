@@ -30,7 +30,6 @@ import static org.assertj.core.api.Assertions.assertThat;
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {
                 "easy.observability.metrics.max-storage-bytes=64MB",
-                "easy.observability.web.allow-anonymous=true",
                 "easy.observability.trace.enabled=false"
         })
 class OversizedMetricsStorageFailOpenE2ETest {

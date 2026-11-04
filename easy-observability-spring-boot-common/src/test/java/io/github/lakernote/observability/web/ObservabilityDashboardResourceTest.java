@@ -28,7 +28,8 @@ class ObservabilityDashboardResourceTest {
         assertThat(pageContent)
                 .contains("Easy Observability", "src=\"assets/dashboard.js", "href=\"metrics/\"",
                         "Trace 诊断", "正常请求不会显示在此列表中", "内存分配量", "完成时间", "入口线程资源",
-                        "表格可横向滚动查看全部字段")
+                        "表格可横向滚动查看全部字段",
+                        "<button id=\"clear-history\" class=\"quiet-button\" type=\"button\" hidden>")
                 .doesNotContain("href=\"/easy-observability", "src=\"/easy-observability");
         assertThat(metricsPageContent)
                 .contains("src=\"../assets/metrics.js", "href=\"../\"", "href=\"./\"")
@@ -37,7 +38,9 @@ class ObservabilityDashboardResourceTest {
                 .contains("new URL('../../api/easy-observability/', import.meta.url)",
                         "new URL(path.replace(/^\\/+/, ''), api)",
                         "easy-observability:auth-request", "easy-observability:auth-response",
-                        "initializeEmbeddedAuth().then(refresh)", "if (!trace.slow && !trace.error && !resourceAlert) return false",
+                        "initializeEmbeddedAuth().then(() => Promise.all([loadPermissions(), refresh()]))",
+                        "$('clear-history').hidden = !permissions.canClear",
+                        "if (!trace.slow && !trace.error && !resourceAlert) return false",
                         "result === 'slow' && (!trace.slow || trace.error)",
                         "formatAllocatedBytes(trace.allocatedBytes)", "formatAllocatedBytes(detail.allocatedBytes)",
                         "内存分配量", "不是当前堆占用", "条诊断 Trace",

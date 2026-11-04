@@ -32,8 +32,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {
                 "easy.observability.metrics.enabled=false",
-                "easy.observability.trace.enabled=false",
-                "easy.observability.web.allow-anonymous=true"
+                "easy.observability.trace.enabled=false"
         })
 class DiagnosticTraceBoundedRestoreE2ETest {
     private static final long MAX_HISTORY_BYTES = 1024 * 1024;

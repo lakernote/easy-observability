@@ -10,14 +10,18 @@ let detailRequest = 0
 const sourceNames = { HTTP: 'HTTP', JOB: '定时任务', KAFKA_CONSUMER: 'Kafka 消费' }
 const escText = value => value == null || value === '' ? '—' : String(value)
 
-async function request(path, options = {}) {
+async function request(path, options = {}, deniedMessage = '没有查看 Trace 的权限，请登录或检查 ObservabilityAccessPolicy') {
   const headers = new Headers(options.headers || {})
   const token = typeof window.EasyObservabilityAuth?.token === 'function' ? window.EasyObservabilityAuth.token() : ''
   if (token) headers.set('Authorization', `Bearer ${token}`)
+  const method = (options.method || 'GET').toUpperCase()
+  // Spring Security's CookieCsrfTokenRepository exposes XSRF-TOKEN; echo it on state-changing requests.
+  const csrf = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]+)/)
+  if (csrf && method !== 'GET' && method !== 'HEAD') headers.set('X-XSRF-TOKEN', decodeURIComponent(csrf[1]))
   const response = await fetch(new URL(path.replace(/^\/+/, ''), api),
     { credentials: 'same-origin', ...options, headers })
   if (!response.ok) throw new Error(response.status === 401 || response.status === 403
-    ? '没有查看 Trace 的权限，请登录或检查 ObservabilityAccessPolicy'
+    ? deniedMessage
     : `请求失败（HTTP ${response.status}）`)
   return response.status === 204 ? null : response.json()
 }
@@ -381,7 +385,8 @@ function bind() {
   $('confirm-clear').addEventListener('click', async () => {
     $('confirm-clear').disabled = true
     try {
-      await request('/storage/clear', { method: 'POST' })
+      await request('/storage/clear', { method: 'POST' },
+        '没有清空历史的权限，请检查 ObservabilityAccessPolicy#canClear 或 CSRF 配置')
       $('clear-dialog').close()
       await refresh()
     } catch (error) {
@@ -391,7 +396,16 @@ function bind() {
   })
 }
 
+async function loadPermissions() {
+  try {
+    const permissions = await request('/permissions')
+    $('clear-history').hidden = !permissions.canClear
+  } catch {
+    $('clear-history').hidden = true
+  }
+}
+
 bind()
-initializeEmbeddedAuth().then(refresh)
+initializeEmbeddedAuth().then(() => Promise.all([loadPermissions(), refresh()]))
 timer = window.setInterval(refresh, 10000)
 window.addEventListener('beforeunload', () => window.clearInterval(timer), { once: true })

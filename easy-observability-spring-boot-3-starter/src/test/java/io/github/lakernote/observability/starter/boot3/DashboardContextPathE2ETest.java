@@ -32,7 +32,6 @@ import static org.assertj.core.api.Assertions.assertThat;
         properties = {
                 "server.servlet.context-path=/tenant-app",
                 "spring.mvc.servlet.path=/app",
-                "easy.observability.web.allow-anonymous=true",
                 "easy.observability.trace.enabled=false",
                 "logging.level.io.github.lakernote.observability.metrics=OFF"
         })

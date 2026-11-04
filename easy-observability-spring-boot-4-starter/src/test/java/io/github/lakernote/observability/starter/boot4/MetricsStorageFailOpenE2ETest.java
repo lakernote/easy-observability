@@ -26,7 +26,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 @SpringBootTest(classes = MetricsStorageFailOpenE2ETest.TestApplication.class,
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {
-                "easy.observability.web.allow-anonymous=true",
                 "easy.observability.trace.enabled=false"
         })
 class MetricsStorageFailOpenE2ETest {

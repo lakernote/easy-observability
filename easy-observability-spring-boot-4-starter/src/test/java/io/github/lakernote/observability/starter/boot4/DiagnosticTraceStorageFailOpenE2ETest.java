@@ -31,7 +31,6 @@ import static org.assertj.core.api.Assertions.assertThat;
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {
                 "easy.observability.metrics.enabled=false",
-                "easy.observability.web.allow-anonymous=true",
                 "easy.observability.trace.http-slow-threshold-ms=1",
                 "easy.observability.trace.cpu-threshold-ms=0",
                 "easy.observability.trace.allocated-memory-threshold=0B"

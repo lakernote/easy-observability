@@ -13,7 +13,7 @@ class ObservabilityControllerTest {
         RecentTraceStore history = new RecentTraceStore(10);
         record(history, "trace-1", "OrdersController#create", "POST /orders", "HTTP", 201, 12, false, false, "", "", -1, -1, -1, "", "", "");
         record(history, "trace-2", "OrdersController#slow", "GET /orders", "HTTP", 200, 900, true, false, "", "", -1, -1, -1, "", "", "");
-        ObservabilityController controller = new ObservabilityController(history, null, () -> true);
+        ObservabilityController controller = new ObservabilityController(history, null, allowAll());
 
         var traces = controller.traces(100, "", "");
 
@@ -21,8 +21,8 @@ class ObservabilityControllerTest {
     }
 
     @Test
-    void rejectsRequestsWhenTheHostPolicyDeniesAccess() {
-        ObservabilityController controller = new ObservabilityController(new RecentTraceStore(10), null, () -> false);
+    void rejectsRequestsWhenThePolicyDeniesViewing() {
+        ObservabilityController controller = new ObservabilityController(new RecentTraceStore(10), null, denyView());
 
         assertThatThrownBy(() -> controller.traces(10, "", ""))
                 .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
@@ -33,7 +33,7 @@ class ObservabilityControllerTest {
     void clearsRecentTraceWindowThroughProtectedClearAction() throws Exception {
         RecentTraceStore history = new RecentTraceStore(10);
         record(history, "trace-1", "GET /orders", "GET", "HTTP", 200, 12, false, false, "tree", "", -1, -1, -1, "", "", "");
-        ObservabilityController controller = new ObservabilityController(history, null, () -> true);
+        ObservabilityController controller = new ObservabilityController(history, null, allowAll());
 
         var result = controller.clearTraceHistory();
 
@@ -42,10 +42,35 @@ class ObservabilityControllerTest {
     }
 
     @Test
-    void deniesClearActionWhenTheHostPolicyDeniesAccess() {
-        ObservabilityController controller = new ObservabilityController(new RecentTraceStore(10), null, () -> false);
+    void deniesClearActionWhenThePolicyDeniesViewing() {
+        ObservabilityController controller = new ObservabilityController(new RecentTraceStore(10), null, denyView());
 
         assertThatThrownBy(controller::clearTraceHistory)
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .hasMessageContaining("403 FORBIDDEN");
+    }
+
+    @Test
+    void deniesClearActionByDefaultEvenWhenViewIsAllowed() {
+        RecentTraceStore history = new RecentTraceStore(10);
+        record(history, "trace-1", "GET /orders", "GET", "HTTP", 200, 900, true, false, "tree", "", -1, -1, -1, "", "", "");
+        ObservabilityController controller = new ObservabilityController(history, null, () -> true);
+
+        assertThatThrownBy(controller::clearTraceHistory)
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .hasMessageContaining("403 FORBIDDEN");
+        assertThat(controller.traces(10, "", "")).extracting(RecentTraceStore.TraceRecord::traceId)
+                .containsExactly("trace-1");
+    }
+
+    @Test
+    void reportsClearPermissionToTheDashboard() {
+        assertThat(new ObservabilityController(new RecentTraceStore(10), null, allowAll())
+                .permissions().canClear()).isTrue();
+        assertThat(new ObservabilityController(new RecentTraceStore(10), null, () -> true)
+                .permissions().canClear()).isFalse();
+        assertThatThrownBy(new ObservabilityController(new RecentTraceStore(10), null, denyView())
+                ::permissions)
                 .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
                 .hasMessageContaining("403 FORBIDDEN");
     }
@@ -55,7 +80,7 @@ class ObservabilityControllerTest {
         RecentTraceStore history = new RecentTraceStore(10);
         record(history, "http-slow", "OrdersController#list", "GET /orders", "HTTP", 200, 900, true, false, "http tree", "", -1, -1, -1, "", "", "");
         record(history, "job-error", "NightlyJob#run", "nightly-job", "JOB", 500, 120, false, true, "job tree", "", 7, 2, 100, "TransactionRollback", "query failed", "");
-        ObservabilityController controller = new ObservabilityController(history, null, () -> true);
+        ObservabilityController controller = new ObservabilityController(history, null, allowAll());
 
         var slow = controller.diagnostics("slow", "", 100);
         var httpSlow = controller.diagnostics("slow", "HTTP", 100);
@@ -73,7 +98,7 @@ class ObservabilityControllerTest {
         record(history, "http-1", "GET /orders", "GET", "HTTP", 200, 40, false, false, "http tree", "", -1, -1, -1, "", "", "");
         record(history, "redis-1", "Redis get", "get", "REDIS", 200, 1, true, false, "redis tree", "", -1, -1, -1, "", "", "");
         record(history, "transaction-1", "OrderService#create", "write", "TRANSACTION", 500, 100, false, true, "transaction tree", "", -1, -1, -1, "", "", "");
-        ObservabilityController controller = new ObservabilityController(history, null, () -> true);
+        ObservabilityController controller = new ObservabilityController(history, null, allowAll());
 
         assertThat(controller.traces(100, "", "")).isEmpty();
         assertThat(controller.diagnostics("slow", "", 100)).isEmpty();
@@ -87,7 +112,7 @@ class ObservabilityControllerTest {
         RecentTraceStore history = new RecentTraceStore(10);
         record(history, "shared-trace", "/api/demo/kafka/error", "GET", "HTTP", 200, 35, false, false, "http tree", "", -1, -1, -1, "", "", "");
         record(history, "shared-trace", "receive", "", "KAFKA_CONSUMER", 200, 4, false, true, "kafka tree", "", -1, -1, -1, "", "", "");
-        ObservabilityController controller = new ObservabilityController(history, null, () -> true);
+        ObservabilityController controller = new ObservabilityController(history, null, allowAll());
 
         assertThat(controller.traces(10, "", "")).extracting(RecentTraceStore.TraceRecord::sourceType)
                 .containsExactly("KAFKA_CONSUMER");
@@ -100,7 +125,7 @@ class ObservabilityControllerTest {
         RecentTraceStore history = new RecentTraceStore(10);
         record(history, "job-trace", "nightly cleanup", "", "JOB", 200, 120, true, false, "tree", "", -1, -1, -1, "", "", "");
         record(history, "http-trace", "GET /orders", "GET", "HTTP", 200, 20, false, false, "tree", "", -1, -1, -1, "", "", "");
-        ObservabilityController controller = new ObservabilityController(history, null, () -> true);
+        ObservabilityController controller = new ObservabilityController(history, null, allowAll());
 
         var matches = controller.traces(100, "JOB", "");
 
@@ -115,7 +140,7 @@ class ObservabilityControllerTest {
         RecentTraceStore history = new RecentTraceStore(10);
         record(history, "sql-trace", "GET /orders", "GET", "HTTP", 200, 400, true, false, "`- [Database] query tag=\"select * from orders where id = ?\" 7ms", "", -1, -1, -1, "", "", "");
         record(history, "other-trace", "GET /health", "GET", "HTTP", 200, 3, false, false, "health tree", "", -1, -1, -1, "", "", "");
-        ObservabilityController controller = new ObservabilityController(history, null, () -> true);
+        ObservabilityController controller = new ObservabilityController(history, null, allowAll());
 
         var matches = controller.traces(100, "HTTP", "select * from orders");
 
@@ -126,7 +151,7 @@ class ObservabilityControllerTest {
     void searchesKafkaTraceByListenerThreadName() {
         RecentTraceStore history = new RecentTraceStore(10);
         record(history, "kafka-trace", "receive", "", "KAFKA_CONSUMER", 500, 8, false, true, "kafka tree", "demo-listener-0-C-1", 11, 1, 512, "", "", "");
-        ObservabilityController controller = new ObservabilityController(history, null, () -> true);
+        ObservabilityController controller = new ObservabilityController(history, null, allowAll());
 
         var matches = controller.traces(100, "KAFKA_CONSUMER", "demo-listener-0");
 
@@ -137,7 +162,7 @@ class ObservabilityControllerTest {
     void reportsTheMemoryTraceHistoryCapacity() {
         RecentTraceStore history = new RecentTraceStore(12);
         record(history, "trace-1", "GET /orders", "GET", "HTTP", 200, 20, false, false, "tree", "", -1, -1, -1, "", "", "");
-        ObservabilityController controller = new ObservabilityController(history, null, () -> true);
+        ObservabilityController controller = new ObservabilityController(history, null, allowAll());
 
         var status = controller.traceStorage();
 
@@ -154,5 +179,33 @@ class ObservabilityControllerTest {
         history.add(traceId, name, method, sourceType, status, durationMs, slow, error,
                 TraceNodeFixtures.named(tree), threadName, threadId, cpuTimeMs, allocatedBytes, errorType,
                 errorMessage, errorStackTrace, false, false);
+    }
+
+    private static ObservabilityAccessPolicy allowAll() {
+        return new ObservabilityAccessPolicy() {
+            @Override
+            public boolean canView() {
+                return true;
+            }
+
+            @Override
+            public boolean canClear() {
+                return true;
+            }
+        };
+    }
+
+    private static ObservabilityAccessPolicy denyView() {
+        return new ObservabilityAccessPolicy() {
+            @Override
+            public boolean canView() {
+                return false;
+            }
+
+            @Override
+            public boolean canClear() {
+                return true;
+            }
+        };
     }
 }

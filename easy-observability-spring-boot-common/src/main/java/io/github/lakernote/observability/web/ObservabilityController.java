@@ -135,9 +135,17 @@ public class ObservabilityController {
                 : diagnosticTraceStore.findByTraceId(traceId, source);
     }
 
+    /** Tells the dashboard which actions the current request may perform. */
+    @GetMapping("/permissions")
+    public Permissions permissions() {
+        requireAccess();
+        return new Permissions(accessPolicy.canClear());
+    }
+
     @PostMapping("/storage/clear")
     public ClearStorageResult clearTraceHistory() throws IOException {
         requireAccess();
+        if (!accessPolicy.canClear()) throw new ResponseStatusException(HttpStatus.FORBIDDEN);
         int clearedDiagnosticTraces = diagnosticTraceStore == null ? 0 : diagnosticTraceStore.clearHistory();
         int clearedRecentTraces = recentTraceStore.clear();
         return new ClearStorageResult(clearedDiagnosticTraces, clearedRecentTraces);
@@ -157,6 +165,8 @@ public class ObservabilityController {
                     diagnosticFileBytes, diagnosticFileMaxBytes, true);
         }
     }
+
+    public record Permissions(boolean canClear) { }
 
     public record ClearStorageResult(int clearedDiagnosticTraceCount, int clearedRecentTraceCount) { }
 

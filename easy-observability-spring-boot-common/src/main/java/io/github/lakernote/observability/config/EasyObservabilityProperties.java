@@ -56,7 +56,6 @@ public class EasyObservabilityProperties {
 
     public static class Web {
         private boolean enabled = true;
-        private boolean allowAnonymous;
         private int traceLimit = 500;
 
         public boolean isEnabled() {
@@ -65,14 +64,6 @@ public class EasyObservabilityProperties {
 
         public void setEnabled(boolean enabled) {
             this.enabled = enabled;
-        }
-
-        public boolean isAllowAnonymous() {
-            return allowAnonymous;
-        }
-
-        public void setAllowAnonymous(boolean allowAnonymous) {
-            this.allowAnonymous = allowAnonymous;
         }
 
         public int getTraceLimit() {

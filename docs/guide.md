@@ -41,7 +41,6 @@ JDBC 采集会使用保留原数据源具体类型的代理，因此按 `HikariD
 | `easy.observability.metrics.retention-days` | `30` | 历史保留天数，范围 7 至 365 天 |
 | `easy.observability.metrics.max-storage-bytes` | `64MB` | RRD 历史存储上限 |
 | `easy.observability.web.enabled` | `true` | 页面和查询 API 开关 |
-| `easy.observability.web.allow-anonymous` | `false` | 默认 API 访问策略是否允许匿名请求 |
 | `easy.observability.web.trace-limit` | `500` | 最近 Trace 的内存窗口容量 |
 
 示例：
@@ -69,9 +68,50 @@ RRD 历史使用独立的 Micrometer `StepMeterRegistry`。采样周期或保留
 
 ## 页面和 API 访问
 
-页面路径为 `/easy-observability/`，Metrics 页面为 `/easy-observability/metrics/`，查询 API 位于 `/api/easy-observability/`。`easy.observability.web.allow-anonymous` 不是认证开关：组件不提供用户名、密码或登录系统。默认值 `false` 会让内置 API 访问策略拒绝匿名请求；设为 `true` 会允许匿名访问 API，但仍受应用已有的 Spring Security、网关和网络策略约束。
+页面路径为 `/easy-observability/`，Metrics 页面为 `/easy-observability/metrics/`，查询 API 位于 `/api/easy-observability/`。组件不提供用户名、密码或登录系统，认证由应用现有的 Spring Security、Servlet 容器或网关负责。
 
-生产环境建议用应用现有的身份认证保护 `/easy-observability/**` 和 `/api/easy-observability/**`。若应用已使用 Spring Security，可定义 `ObservabilityAccessPolicy` Bean，根据当前认证用户和角色授权 API；页面静态资源需要由应用自己的 Security Filter Chain 或网关一并保护。
+API 授权由 `ObservabilityAccessPolicy` 决定，应用定义该类型的 Bean 即可替换默认实现：
+
+| 方法 | 控制范围 | 默认 |
+| --- | --- | --- |
+| `canView()` | 查询 Trace、Metrics、存储状态和当前权限 | `true`，允许所有请求 |
+| `canClear()` | 清空 Trace 历史（`POST /api/easy-observability/storage/clear`），并且需要同时通过 `canView()` | `false`，拒绝所有请求；页面隐藏“清空历史”按钮 |
+
+`canClear()` 是默认方法，只需要限制查看时可以直接用 lambda，清空历史仍保持关闭：
+
+```java
+@Bean
+ObservabilityAccessPolicy observabilityAccessPolicy() {
+    return () -> hasAnyRole("ROLE_DEVELOPER", "ROLE_OPS");
+}
+```
+
+**默认情况下任何能访问应用端口的人都可以查看 Trace 和 Metrics。** 生产环境务必由应用的 Security Filter Chain 或网关保护 `/easy-observability/**` 和 `/api/easy-observability/**`，或自定义 `canView()`。两个方法都在请求线程上调用，可以读取 Spring Security 上下文或当前请求。例如只允许开发和运维角色查看、只允许运维角色清空：
+
+```java
+@Bean
+ObservabilityAccessPolicy observabilityAccessPolicy() {
+    return new ObservabilityAccessPolicy() {
+        @Override
+        public boolean canView() {
+            return hasAnyRole("ROLE_DEVELOPER", "ROLE_OPS");
+        }
+
+        @Override
+        public boolean canClear() {
+            return hasAnyRole("ROLE_OPS");
+        }
+    };
+}
+
+private static boolean hasAnyRole(String... roles) {
+    Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+    return auth != null && auth.getAuthorities().stream()
+            .anyMatch(authority -> List.of(roles).contains(authority.getAuthority()));
+}
+```
+
+如果应用启用了 Spring Security 的 CSRF 防护，清空历史的 POST 请求需要 CSRF 令牌：使用 `CookieCsrfTokenRepository` 时页面会自动读取 `XSRF-TOKEN` Cookie 并回传 `X-XSRF-TOKEN` 请求头，否则需要对该路径单独配置 CSRF 策略。
 
 ## Kafka 与线程池
 

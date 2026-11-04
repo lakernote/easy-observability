@@ -25,7 +25,7 @@ java -jar examples/easy-observability-example-spring-boot-4/target/easy-observab
 
 打开应用主页，Trace 页面为 `/easy-observability/`，指标趋势页为 `/easy-observability/metrics/`。Boot 3 示例可用 `http://localhost:8083/`，Boot 4 示例可用 `http://localhost:8084/`。
 
-两个本地示例都设置了 `easy.observability.web.allow-anonymous: true`，因此页面可以匿名读取 Trace API，也可以匿名清空示例历史；仅用于本机体验，不要将示例直接暴露到不可信网络。生产应用应复用自己的登录和授权，详见[接入与配置指南](../docs/guide.md#页面和-api-访问)。
+页面和查询 API 默认允许访问；两个示例额外通过 `DemoAccessConfiguration` 定义了允许所有人清空历史的 `ObservabilityAccessPolicy`。仅用于本机体验，不要将示例直接暴露到不可信网络。生产应用应复用自己的登录和授权，详见[接入与配置指南](../docs/guide.md#页面和-api-访问)。
 
 ## 依赖调用场景
 
