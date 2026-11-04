@@ -19,10 +19,23 @@ public final class BoundedThrowableFormatter {
     /** Captures bounded failure details once for the trace tree and operation records. */
     public static FailureEvidence capture(Throwable failure) {
         if (failure == null) return FailureEvidence.EMPTY;
-        return new FailureEvidence(failure.getClass().getName(), message(failure), format(failure));
+        return new FailureEvidence(failure.getClass().getName(), message(failure), format(failure, true));
+    }
+
+    /**
+     * Captures diagnostic structure without copying exception messages. Callers must provide a constant safe message;
+     * this is intended for database drivers and other dependencies whose errors may echo credentials or payloads.
+     */
+    public static FailureEvidence captureWithoutMessages(Throwable failure, String safeMessage) {
+        if (failure == null) return FailureEvidence.EMPTY;
+        return new FailureEvidence(failure.getClass().getName(), bound(safeMessage), format(failure, false));
     }
 
     public static String format(Throwable failure) {
+        return format(failure, true);
+    }
+
+    private static String format(Throwable failure, boolean includeMessages) {
         if (failure == null) return "";
         BoundedBuilder result = new BoundedBuilder(MAX_CHARS);
         Set<Throwable> visited = Collections.newSetFromMap(new IdentityHashMap<>());
@@ -36,17 +49,23 @@ public final class BoundedThrowableFormatter {
             }
             if (causeDepth > 0) result.append(System.lineSeparator() + "Caused by: ");
             result.append(current.getClass().getName());
-            String message = current.getMessage();
-            if (message != null && !message.isBlank()) {
-                result.append(": ");
-                result.append(message);
+            if (includeMessages) {
+                String message = current.getMessage();
+                if (message != null && !message.isBlank()) {
+                    result.append(": ");
+                    result.append(message);
+                }
             }
 
             StackTraceElement[] frames = current.getStackTrace();
             int included = Math.min(frames.length, remainingFrames);
             for (int index = 0; index < included && !result.truncated(); index++) {
                 result.append(System.lineSeparator() + "\tat ");
-                result.append(frames[index].toString());
+                if (includeMessages) {
+                    result.append(frames[index].toString());
+                } else {
+                    appendSafeFrame(result, frames[index]);
+                }
             }
             remainingFrames -= included;
             if (included < frames.length && !result.truncated()) {
@@ -64,9 +83,41 @@ public final class BoundedThrowableFormatter {
         return result.value();
     }
 
+    private static void appendSafeFrame(BoundedBuilder result, StackTraceElement frame) {
+        result.append(safeSymbol(frame.getClassName()));
+        result.append(".");
+        result.append(safeSymbol(frame.getMethodName()));
+        if (frame.isNativeMethod()) {
+            result.append("(Native Method)");
+        } else if (frame.getLineNumber() >= 0) {
+            result.append("(line " + frame.getLineNumber() + ")");
+        } else {
+            result.append("(Unknown Source)");
+        }
+    }
+
+    private static String safeSymbol(String value) {
+        if (value == null || value.isEmpty()) return "unknown";
+        StringBuilder result = new StringBuilder(Math.min(value.length(), 256));
+        for (int index = 0; index < value.length() && result.length() < 256; index++) {
+            char current = value.charAt(index);
+            if (Character.isLetterOrDigit(current) || current == '.' || current == '_' || current == '$'
+                    || current == '<' || current == '>' || current == '/') {
+                result.append(current);
+            } else {
+                result.append('_');
+            }
+        }
+        return result.toString();
+    }
+
     public static String message(Throwable failure) {
         if (failure == null || failure.getMessage() == null) return "";
-        String message = failure.getMessage();
+        return bound(failure.getMessage());
+    }
+
+    private static String bound(String message) {
+        if (message == null) return "";
         if (message.length() <= MAX_CHARS) return message;
         int contentLength = Math.max(0, MAX_CHARS - TRUNCATED_MARKER.length());
         return message.substring(0, contentLength) + TRUNCATED_MARKER;

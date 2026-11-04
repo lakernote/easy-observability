@@ -73,6 +73,64 @@ class JdbcConcreteTypeCompatibilityE2ETest {
         assertThat(trace.get().tree()).contains("SQL SELECT");
     }
 
+    @Test
+    void redactsStatementParametersAndDriverErrorsFromRealSqlTraces() {
+        JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
+        String literalSecret = "literal-secret-8f3c--tail";
+        AtomicReference<TraceContext.DeferredCompletion> statementTrace = new AtomicReference<>();
+
+        TraceContext.startRoot("jdbc-redaction-statement", SpanKind.HTTP);
+        try {
+            assertThat(jdbcTemplate.queryForObject("SELECT '" + literalSecret + "'", String.class))
+                    .isEqualTo(literalSecret);
+        } finally {
+            TraceContext.stopRootDeferred(null, statementTrace::set);
+        }
+        assertThat(statementTrace.get().tree())
+                .contains("SQL SELECT", "SELECT ?")
+                .doesNotContain(literalSecret, "secret");
+
+        String boundSecret = "bind-secret-4d2e";
+        AtomicReference<TraceContext.DeferredCompletion> preparedTrace = new AtomicReference<>();
+        TraceContext.startRoot("jdbc-redaction-prepared", SpanKind.HTTP);
+        try {
+            assertThat(jdbcTemplate.queryForObject(
+                    "SELECT CAST(? AS VARCHAR)", String.class, boundSecret)).isEqualTo(boundSecret);
+        } finally {
+            TraceContext.stopRootDeferred(null, preparedTrace::set);
+        }
+        assertThat(preparedTrace.get().tree())
+                .contains("SQL SELECT", "SELECT CAST(? AS VARCHAR)")
+                .doesNotContain(boundSecret, "secret");
+
+        String driverSecret = "driver-secret-c91e";
+        AtomicReference<TraceContext.DeferredCompletion> failedTrace = new AtomicReference<>();
+        Throwable failure = null;
+        TraceContext.startRoot("jdbc-redaction-error", SpanKind.HTTP);
+        try {
+            jdbcTemplate.queryForObject(
+                    "SELECT '" + driverSecret + "' FROM missing_redaction_table", String.class);
+        } catch (Throwable thrown) {
+            failure = thrown;
+        } finally {
+            TraceContext.stopRootDeferred(failure, failedTrace::set);
+        }
+
+        assertThat(failure).isNotNull();
+        assertThat(rootCause(failure).getMessage()).contains(driverSecret);
+        assertThat(failedTrace.get().error()).isTrue();
+        assertThat(failedTrace.get().reasons()).contains("SQL_ERROR");
+        assertThat(failedTrace.get().errorMessage()).isEqualTo("JDBC query failed");
+        assertThat(failedTrace.get().tree()).contains("SQL SELECT").doesNotContain(driverSecret, "secret");
+        assertThat(failedTrace.get().stackTrace()).doesNotContain(driverSecret, "secret");
+    }
+
+    private static Throwable rootCause(Throwable failure) {
+        Throwable current = failure;
+        while (current.getCause() != null && current.getCause() != current) current = current.getCause();
+        return current;
+    }
+
     @SpringBootConfiguration(proxyBeanMethods = false)
     @EnableAutoConfiguration
     @Import(JdbcProbeController.class)

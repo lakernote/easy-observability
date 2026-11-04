@@ -43,6 +43,24 @@ class BoundedThrowableFormatterTest {
         assertThat(cycleResult).contains("cycle detected");
     }
 
+    @Test
+    void shouldCaptureStructureWithoutCopyingThrowableMessages() {
+        IllegalStateException cause = new IllegalStateException("cause-secret");
+        RuntimeException failure = new RuntimeException("driver-secret", cause);
+        failure.setStackTrace(new StackTraceElement[]{
+                new StackTraceElement("Example", "call", "driver-secret.java", 42)
+        });
+
+        BoundedThrowableFormatter.FailureEvidence evidence =
+                BoundedThrowableFormatter.captureWithoutMessages(failure, "Dependency call failed");
+
+        assertThat(evidence.type()).isEqualTo(RuntimeException.class.getName());
+        assertThat(evidence.message()).isEqualTo("Dependency call failed");
+        assertThat(evidence.stackTrace())
+                .contains(RuntimeException.class.getName(), IllegalStateException.class.getName(), "\tat Example.call(line 42)")
+                .doesNotContain("driver-secret", "cause-secret", ".java");
+    }
+
     private static int occurrences(String text, String pattern) {
         return text.split(java.util.regex.Pattern.quote(pattern), -1).length - 1;
     }

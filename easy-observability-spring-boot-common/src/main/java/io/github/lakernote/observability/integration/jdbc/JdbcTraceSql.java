@@ -3,36 +3,302 @@ package io.github.lakernote.observability.integration.jdbc;
 import net.ttddyy.dsproxy.QueryInfo;
 
 import java.util.List;
-import java.util.regex.Pattern;
+import java.util.Locale;
+import java.util.Set;
 
 /** 生成有长度上限的 SQL 标签，不保留字面量或绑定参数。 */
 final class JdbcTraceSql {
-    private static final int MAX_SQL_LENGTH = 512;
-    private static final Pattern COMMENTS = Pattern.compile("(?s)/\\*.*?\\*/|--[^\\r\\n]*");
-    private static final Pattern LITERALS = Pattern.compile("'(?:''|[^'])*'|\\b[0-9]+(?:\\.[0-9]+)?\\b");
+    static final int MAX_SQL_LENGTH = 512;
+    static final int MAX_SCAN_LENGTH = 8_192;
+    private static final int INCOMPLETE_DOLLAR_DELIMITER = -2;
+    private static final Set<String> COMMANDS = Set.of(
+            "ALTER", "CALL", "COMMIT", "CREATE", "DELETE", "DROP", "EXEC", "EXECUTE", "EXPLAIN",
+            "GRANT", "INSERT", "MERGE", "PRAGMA", "REPLACE", "REVOKE", "ROLLBACK", "SAVEPOINT",
+            "SELECT", "SET", "SHOW", "TRUNCATE", "UPDATE", "UPSERT", "USE", "WITH");
 
     private JdbcTraceSql() { }
 
     static String describe(List<QueryInfo> queries) {
-        if (queries == null || queries.isEmpty()) return "statement";
+        if (queries == null || queries.isEmpty() || queries.get(0) == null) return "statement";
         String sql = normalize(queries.get(0).getQuery());
         if (sql.isBlank()) sql = "statement";
-        if (queries.size() > 1) sql += " (" + (queries.size() - 1) + " more statements)";
-        return sql.length() > MAX_SQL_LENGTH ? sql.substring(0, MAX_SQL_LENGTH) : sql;
+        if (queries.size() > 1) sql = bound(sql + " (" + (queries.size() - 1) + " more statements)");
+        return sql;
     }
 
     static String command(List<QueryInfo> queries) {
         String sql = describe(queries);
-        int separator = sql.indexOf(' ');
-        String command = separator < 0 ? sql : sql.substring(0, separator);
-        if (command.isBlank() || "statement".equals(command)) return "STATEMENT";
-        return command.toUpperCase(java.util.Locale.ROOT);
+        int end = 0;
+        while (end < sql.length() && isAsciiLetter(sql.charAt(end))) end++;
+        if (end == 0 || (end < sql.length() && sql.charAt(end) != ' ')) return "STATEMENT";
+        String command = sql.substring(0, end).toUpperCase(Locale.ROOT);
+        return COMMANDS.contains(command) ? command : "STATEMENT";
     }
 
-    private static String normalize(String sql) {
-        if (sql == null || sql.isBlank()) return "";
-        String withoutComments = COMMENTS.matcher(sql).replaceAll(" ");
-        String withoutLiterals = LITERALS.matcher(withoutComments).replaceAll("?");
-        return withoutLiterals.replaceAll("\\s+", " ").trim();
+    /**
+     * A bounded, fail-closed lexer is used instead of regular expressions because comment markers may occur inside
+     * literals and malformed SQL must not expose the remainder of an unterminated literal.
+     */
+    static String normalize(String sql) {
+        if (sql == null || sql.isEmpty()) return "";
+        int limit = Math.min(sql.length(), MAX_SCAN_LENGTH);
+        NormalizedSql result = new NormalizedSql();
+        int index = 0;
+        while (index < limit && !result.full()) {
+            char current = sql.charAt(index);
+
+            if (Character.isWhitespace(current)) {
+                result.separate();
+                index++;
+                continue;
+            }
+            if (current == '-' && hasNext(sql, index, limit, '-')) {
+                result.separate();
+                index = skipLineComment(sql, index + 2, limit);
+                continue;
+            }
+            if (current == '#' && !hasNext(sql, index, limit, '>')) {
+                result.separate();
+                index = skipLineComment(sql, index + 1, limit);
+                continue;
+            }
+            if (current == '/' && hasNext(sql, index, limit, '*')) {
+                result.separate();
+                index = skipBlockComment(sql, index + 2, limit);
+                continue;
+            }
+            if (isOracleQuotedLiteralStart(sql, index, limit)) {
+                result.placeholder();
+                index = skipOracleQuotedLiteral(sql, index, limit);
+                continue;
+            }
+            if (current == '$' && (index == 0 || !isIdentifierPart(sql.charAt(index - 1)))) {
+                int delimiterEnd = dollarDelimiterEnd(sql, index, limit);
+                if (delimiterEnd == INCOMPLETE_DOLLAR_DELIMITER) {
+                    result.placeholder();
+                    break;
+                }
+                if (delimiterEnd > 0) {
+                    result.placeholder();
+                    index = skipDollarQuotedLiteral(sql, index, delimiterEnd, limit);
+                    continue;
+                }
+            }
+            if (current == '\'' || current == '"') {
+                result.placeholder();
+                index = skipQuoted(sql, index + 1, limit, current);
+                continue;
+            }
+            if (current == '`' || current == '[') {
+                char closing = current == '`' ? '`' : ']';
+                int quotedEnd = quotedIdentifierEnd(sql, index + 1, limit, closing);
+                if (quotedEnd < 0) {
+                    result.placeholder();
+                    break;
+                }
+                result.appendRange(sql, index, quotedEnd);
+                index = quotedEnd;
+                continue;
+            }
+            if (isNumericStart(sql, index, limit)) {
+                result.placeholder();
+                index = skipNumericToken(sql, index + 1, limit);
+                continue;
+            }
+
+            result.append(current);
+            index++;
+        }
+        return result.value();
+    }
+
+    private static boolean hasNext(String sql, int index, int limit, char expected) {
+        return index + 1 < limit && sql.charAt(index + 1) == expected;
+    }
+
+    private static int skipLineComment(String sql, int index, int limit) {
+        while (index < limit) {
+            char current = sql.charAt(index);
+            if (current == '\r' || current == '\n') return index + 1;
+            index++;
+        }
+        return limit;
+    }
+
+    private static int skipBlockComment(String sql, int index, int limit) {
+        int depth = 1;
+        while (index < limit) {
+            if (index + 1 < limit && sql.charAt(index) == '/' && sql.charAt(index + 1) == '*') {
+                depth++;
+                index += 2;
+            } else if (index + 1 < limit && sql.charAt(index) == '*' && sql.charAt(index + 1) == '/') {
+                depth--;
+                index += 2;
+                if (depth == 0) return index;
+            } else {
+                index++;
+            }
+        }
+        return limit;
+    }
+
+    private static boolean isOracleQuotedLiteralStart(String sql, int index, int limit) {
+        if (index + 2 >= limit || (sql.charAt(index) != 'q' && sql.charAt(index) != 'Q')) return false;
+        return sql.charAt(index + 1) == '\'' && !Character.isWhitespace(sql.charAt(index + 2));
+    }
+
+    private static int skipOracleQuotedLiteral(String sql, int index, int limit) {
+        char opening = sql.charAt(index + 2);
+        char closing = switch (opening) {
+            case '[' -> ']';
+            case '{' -> '}';
+            case '(' -> ')';
+            case '<' -> '>';
+            default -> opening;
+        };
+        int cursor = index + 3;
+        while (cursor + 1 < limit) {
+            if (sql.charAt(cursor) == closing && sql.charAt(cursor + 1) == '\'') return cursor + 2;
+            cursor++;
+        }
+        return limit;
+    }
+
+    private static int dollarDelimiterEnd(String sql, int index, int limit) {
+        int cursor = index + 1;
+        if (cursor >= limit) return -1;
+        if (sql.charAt(cursor) == '$') return cursor + 1;
+        if (!isDollarTagStart(sql.charAt(cursor))) return -1;
+        while (cursor < limit && isDollarTagPart(sql.charAt(cursor))) {
+            cursor++;
+        }
+        return cursor < limit && sql.charAt(cursor) == '$' ? cursor + 1 : INCOMPLETE_DOLLAR_DELIMITER;
+    }
+
+    private static int skipDollarQuotedLiteral(String sql, int delimiterStart, int delimiterEnd, int limit) {
+        int delimiterLength = delimiterEnd - delimiterStart;
+        int cursor = delimiterEnd;
+        while (cursor + delimiterLength <= limit) {
+            if (sql.regionMatches(cursor, sql, delimiterStart, delimiterLength)) return cursor + delimiterLength;
+            cursor++;
+        }
+        return limit;
+    }
+
+    private static int skipQuoted(String sql, int index, int limit, char closing) {
+        while (index < limit) {
+            char current = sql.charAt(index);
+            if (current == '\\' && index + 1 < limit) {
+                index += 2;
+            } else if (current == closing) {
+                if (index + 1 < limit && sql.charAt(index + 1) == closing) {
+                    index += 2;
+                } else {
+                    return index + 1;
+                }
+            } else {
+                index++;
+            }
+        }
+        return limit;
+    }
+
+    private static int quotedIdentifierEnd(String sql, int index, int limit, char closing) {
+        while (index < limit) {
+            char current = sql.charAt(index);
+            if (current == closing) {
+                if (index + 1 < limit && sql.charAt(index + 1) == closing) {
+                    index += 2;
+                } else {
+                    return index + 1;
+                }
+            } else {
+                index++;
+            }
+        }
+        return -1;
+    }
+
+    private static boolean isNumericStart(String sql, int index, int limit) {
+        char current = sql.charAt(index);
+        if (current == '.' && index + 1 < limit && Character.isDigit(sql.charAt(index + 1))) return true;
+        if (!Character.isDigit(current)) return false;
+        if (index > 0 && sql.charAt(index - 1) == '$') {
+            return index == 1 || !isIdentifierPart(sql.charAt(index - 2));
+        }
+        return index == 0 || !isIdentifierPart(sql.charAt(index - 1));
+    }
+
+    private static int skipNumericToken(String sql, int index, int limit) {
+        while (index < limit) {
+            char current = sql.charAt(index);
+            if (isIdentifierPart(current) || current == '.') {
+                index++;
+            } else if (current == '-' && index + 1 < limit && sql.charAt(index + 1) != '-'
+                    && isIdentifierPart(sql.charAt(index + 1))) {
+                index++;
+            } else if (current == '+' && index > 0
+                    && (sql.charAt(index - 1) == 'e' || sql.charAt(index - 1) == 'E')) {
+                index++;
+            } else {
+                break;
+            }
+        }
+        return index;
+    }
+
+    private static boolean isIdentifierPart(char value) {
+        return Character.isLetterOrDigit(value) || value == '_' || value == '$';
+    }
+
+    private static boolean isDollarTagStart(char value) {
+        return Character.isLetter(value) || value == '_';
+    }
+
+    private static boolean isDollarTagPart(char value) {
+        return Character.isLetterOrDigit(value) || value == '_';
+    }
+
+    private static boolean isAsciiLetter(char value) {
+        return (value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z');
+    }
+
+    private static String bound(String value) {
+        return value.length() <= MAX_SQL_LENGTH ? value : value.substring(0, MAX_SQL_LENGTH);
+    }
+
+    private static final class NormalizedSql {
+        private final StringBuilder value = new StringBuilder(128);
+        private boolean pendingSeparator;
+
+        private void append(char character) {
+            if (full()) return;
+            if (pendingSeparator && !value.isEmpty()) {
+                value.append(' ');
+                pendingSeparator = false;
+                if (full()) return;
+            }
+            value.append(character);
+        }
+
+        private void placeholder() {
+            append('?');
+        }
+
+        private void appendRange(String source, int start, int end) {
+            for (int index = start; index < end && !full(); index++) append(source.charAt(index));
+        }
+
+        private void separate() {
+            if (!value.isEmpty()) pendingSeparator = true;
+        }
+
+        private boolean full() {
+            return value.length() >= MAX_SQL_LENGTH;
+        }
+
+        private String value() {
+            return value.toString();
+        }
     }
 }
