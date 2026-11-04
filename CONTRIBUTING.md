@@ -10,6 +10,8 @@
 mvn verify
 ```
 
+Pull Request 和 `main` 分支的推送会触发 CI，在 JDK 17、21、25 上运行同一套验证（每次都覆盖 Boot 3 和 Boot 4 模块），并用 `central-release` profile 检查 sources 和 Javadoc 打包。
+
 ## Maven Central 发布
 
 发布的 Maven 坐标由根 POM、`easy-observability-spring-boot-common`、两个 `*-autoconfigure` 模块和两个 `*-starter` 模块组成。三个实现模块和两个依赖汇总 starter 都发布 JAR、sources JAR 和 Javadoc JAR；starter JAR 不包含运行时代码，保留标准 JAR 坐标以便应用像其他 Spring Boot starter 一样直接依赖。`examples` 仅用于演示并配置为跳过发布。
