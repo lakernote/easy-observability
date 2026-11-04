@@ -1,10 +1,10 @@
 package io.github.lakernote.observability.autoconfigure;
 
 import io.github.lakernote.observability.web.ObservabilityAccessPolicy;
-import io.github.lakernote.observability.web.ObservabilityController;
-import io.github.lakernote.observability.web.ObservabilityDashboardController;
-import io.github.lakernote.observability.web.MetricsHistoryController;
-import io.github.lakernote.observability.web.MetricsDashboardController;
+import io.github.lakernote.observability.web.internal.ObservabilityController;
+import io.github.lakernote.observability.web.internal.ObservabilityDashboardController;
+import io.github.lakernote.observability.web.internal.MetricsHistoryController;
+import io.github.lakernote.observability.web.internal.MetricsDashboardController;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;

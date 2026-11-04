@@ -1,9 +1,9 @@
 package io.github.lakernote.observability.autoconfigure;
 
+import io.github.lakernote.observability.trace.internal.TraceIds;
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
 import io.github.lakernote.observability.integration.kafka.TraceIdRecordInterceptor;
 import io.github.lakernote.observability.integration.observation.ObservationTraceIdResolver;
-import io.github.lakernote.observability.trace.TraceIdContext;
 import org.apache.kafka.common.header.Header;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
@@ -19,7 +19,7 @@ import java.nio.charset.StandardCharsets;
  * 注册 Kafka 消费端 Trace 集成。
  *
  * <p>Observation 启动时，解析器从 Kafka 消息头读取 Trace ID，供通用的
- * {@link io.github.lakernote.observability.integration.observation.ObservationTraceHandler}
+ * {@link io.github.lakernote.observability.integration.observation.internal.ObservationTraceHandler}
  * 关联消费 Trace。RecordInterceptor 则在 Listener 执行业务代码期间恢复 Trace/MDC，执行后清理线程上下文。
  * Producer 消息头写入由对应 Boot 版本的 {@code KafkaProducerTraceAutoConfiguration} 负责。</p>
  */
@@ -30,7 +30,6 @@ public class KafkaTraceAutoConfiguration {
     @Bean
     @ConditionalOnProperty(prefix = "easy.observability.trace", name = "enabled",
             havingValue = "true", matchIfMissing = true)
-    @ConditionalOnMissingBean(name = "kafkaObservationTraceIdResolver")
     ObservationTraceIdResolver kafkaObservationTraceIdResolver(EasyObservabilityProperties properties) {
         String headerName = properties.getTrace().getHeaderName();
         return context -> {
@@ -38,7 +37,7 @@ public class KafkaTraceAutoConfiguration {
             Header header = receiver.getRecord().headers().lastHeader(headerName);
             if (header == null || header.value() == null) return null;
             String traceId = new String(header.value(), StandardCharsets.UTF_8);
-            return TraceIdContext.isValidTraceId(traceId) ? traceId : null;
+            return TraceIds.isValidTraceId(traceId) ? traceId : null;
         };
     }
 

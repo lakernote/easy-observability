@@ -130,3 +130,22 @@ ThreadPoolTaskExecutor billingExecutor(TraceContextTaskDecorator decorator) {
 ```
 
 装饰器在线程池执行任务时传播活动 Trace 上下文并记录任务边界；无父 Trace 时不会创建 Trace。若 HTTP 请求先结束，Trace 时间线会在入口结束处停止，仍在运行的子任务标记为未完成，之后发生的调用不再补写到该 Trace。
+
+## 公共 API
+
+以下类型是公开 API，正式发布后保持兼容：
+
+| 类型 | 用途 |
+|---|---|
+| `trace.TraceSpan`、`trace.TraceDisabled` | 声明或排除方法级 Span |
+| `trace.TraceBlock`、`trace.SpanKind` | 在代码中包裹自定义 Span |
+| `trace.TraceIdContext` | 读取当前 Trace ID（`currentTraceId()`、`MDC_KEY`） |
+| `trace.TraceContextTaskDecorator` | 线程池传播 Trace 上下文 |
+| `web.ObservabilityAccessPolicy` | 页面和 API 授权扩展点 |
+| `integration.observation.ObservationTraceIdResolver` | 从其他框架的 Observation 上下文提取已传播的 Trace ID，定义该类型的 Bean 即可生效 |
+| `integration.feign.TraceIdRequestInterceptor`、`integration.kafka.TraceIdRecordInterceptor` | 手动组装 Feign 客户端或 Kafka Listener 时注册 |
+| `config.EasyObservabilityProperties` | `easy.observability.*` 配置项 |
+
+包名均以 `io.github.lakernote.observability` 开头。自动配置类（`autoconfigure` 包）只用于按名称排除。
+
+包路径中含 `internal` 的类型是内部实现，例如 Trace 存储、指标存储、Controller 和 Filter。它们即使是 `public`，也可能在任何版本中调整，请不要直接依赖。这些内部组件对应的 Bean 也不支持用同类型 Bean 替换；需要定制时请使用上表中的扩展点或配置项。

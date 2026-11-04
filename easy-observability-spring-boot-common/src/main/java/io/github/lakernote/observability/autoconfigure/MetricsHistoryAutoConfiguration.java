@@ -1,8 +1,8 @@
 package io.github.lakernote.observability.autoconfigure;
 
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
-import io.github.lakernote.observability.metrics.Rrd4jMetricsStore;
-import io.github.lakernote.observability.metrics.Rrd4jStepMeterRegistry;
+import io.github.lakernote.observability.metrics.internal.Rrd4jMetricsStore;
+import io.github.lakernote.observability.metrics.internal.Rrd4jStepMeterRegistry;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.rrd4j.core.RrdDb;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -26,13 +26,11 @@ import org.springframework.context.annotation.Bean;
 @ConditionalOnProperty(prefix = "easy.observability.metrics", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class MetricsHistoryAutoConfiguration {
     @Bean
-    @ConditionalOnMissingBean
     Rrd4jMetricsStore rrd4jMetricsStore(EasyObservabilityProperties properties) {
         return new Rrd4jMetricsStore(properties.getMetrics());
     }
 
     @Bean(initMethod = "start", destroyMethod = "close")
-    @ConditionalOnMissingBean
     Rrd4jStepMeterRegistry rrd4jStepMeterRegistry(EasyObservabilityProperties properties,
                                                   Rrd4jMetricsStore store) {
         return new Rrd4jStepMeterRegistry(properties.getMetrics(), store);

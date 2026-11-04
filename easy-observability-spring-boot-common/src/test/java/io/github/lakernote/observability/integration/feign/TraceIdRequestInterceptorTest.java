@@ -1,8 +1,8 @@
 package io.github.lakernote.observability.integration.feign;
 
+import io.github.lakernote.observability.trace.internal.TraceIds;
 import feign.RequestTemplate;
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
-import io.github.lakernote.observability.trace.TraceIdContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -11,7 +11,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class TraceIdRequestInterceptorTest {
     @AfterEach
     void clearTraceId() {
-        TraceIdContext.clear();
+        TraceIds.clear();
     }
 
     @Test
@@ -23,7 +23,7 @@ class TraceIdRequestInterceptorTest {
 
         assertThat(template.headers()).doesNotContainKey("X-Trace-Id");
 
-        TraceIdContext.putTraceId("trace-123");
+        TraceIds.putTraceId("trace-123");
         interceptor.apply(template);
 
         assertThat(template.headers().get("X-Trace-Id")).containsExactly("trace-123");

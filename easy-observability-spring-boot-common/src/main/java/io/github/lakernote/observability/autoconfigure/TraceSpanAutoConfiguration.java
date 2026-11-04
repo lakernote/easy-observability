@@ -1,7 +1,7 @@
 package io.github.lakernote.observability.autoconfigure;
 
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
-import io.github.lakernote.observability.trace.TraceSpanAspect;
+import io.github.lakernote.observability.trace.internal.TraceSpanAspect;
 import org.aspectj.lang.annotation.Aspect;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
@@ -23,7 +23,6 @@ public class TraceSpanAutoConfiguration {
             havingValue = "true", matchIfMissing = true)
     static class AspectConfiguration {
         @Bean
-        @ConditionalOnMissingBean
         TraceSpanAspect traceSpanAspect(EasyObservabilityProperties properties) {
             return new TraceSpanAspect(properties);
         }

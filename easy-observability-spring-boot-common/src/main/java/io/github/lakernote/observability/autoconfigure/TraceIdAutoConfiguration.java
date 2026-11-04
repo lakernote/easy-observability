@@ -1,7 +1,7 @@
 package io.github.lakernote.observability.autoconfigure;
 
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
-import io.github.lakernote.observability.web.TraceIdFilter;
+import io.github.lakernote.observability.web.internal.TraceIdFilter;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -25,7 +25,6 @@ public class TraceIdAutoConfiguration {
     @ConditionalOnClass(DispatcherServlet.class)
     static class ServletConfiguration {
         @Bean
-        @ConditionalOnMissingBean(TraceIdFilter.class)
         FilterRegistrationBean<TraceIdFilter>
         observabilityTraceIdFilter(EasyObservabilityProperties properties) {
             FilterRegistrationBean<TraceIdFilter> registration = new FilterRegistrationBean<>();

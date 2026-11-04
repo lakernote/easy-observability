@@ -1,5 +1,6 @@
 package io.github.lakernote.observability.autoconfigure.boot4;
 
+import io.github.lakernote.observability.trace.internal.TraceIds;
 import io.github.lakernote.observability.autoconfigure.ObservabilityAutoConfiguration;
 
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
@@ -22,7 +23,7 @@ public class RestClientTraceAutoConfiguration {
     RestClientCustomizer easyObservabilityTraceIdRestClientCustomizer(EasyObservabilityProperties properties) {
         return builder -> builder.requestInterceptor((request, body, execution) -> {
             String traceId = TraceIdContext.currentTraceId();
-            if (TraceIdContext.isValidTraceId(traceId)) {
+            if (TraceIds.isValidTraceId(traceId)) {
                 request.getHeaders().set(properties.getTrace().getHeaderName(), traceId);
             }
             return execution.execute(request, body);

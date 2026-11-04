@@ -1,13 +1,15 @@
 package io.github.lakernote.observability.starter.boot4;
 
-import io.github.lakernote.observability.trace.BoundedHistoryWriter;
-import io.github.lakernote.observability.trace.store.DiagnosticTraceStore;
-import io.github.lakernote.observability.trace.store.DiagnosticTraceStoreTestSupport;
-import io.github.lakernote.observability.trace.store.RecentTraceStore;
+import io.github.lakernote.observability.trace.internal.BoundedHistoryWriter;
+import io.github.lakernote.observability.trace.internal.store.DiagnosticTraceStore;
+import io.github.lakernote.observability.trace.internal.store.DiagnosticTraceStoreTestSupport;
+import io.github.lakernote.observability.trace.internal.store.RecentTraceStore;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -133,10 +135,18 @@ class DiagnosticTraceConcurrentRecordE2ETest {
     @EnableAutoConfiguration
     @Import(ProbeController.class)
     static class TestApplication {
+        /** Internal stores are not replaceable beans, so the test swaps in a hooked instance after creation. */
         @Bean
-        DiagnosticTraceStore diagnosticTraceStore(BoundedHistoryWriter writer) {
-            return DiagnosticTraceStoreTestSupport.storeWithWriteHook(HISTORY_FILE.toString(), 1000,
-                    4 * 1024 * 1024, writer, DiagnosticTraceConcurrentRecordE2ETest::blockFirstSerialization);
+        static BeanPostProcessor blockingDiagnosticTraceStore(ObjectProvider<BoundedHistoryWriter> writer) {
+            return new BeanPostProcessor() {
+                @Override
+                public Object postProcessAfterInitialization(Object bean, String beanName) {
+                    if (!(bean instanceof DiagnosticTraceStore)) return bean;
+                    return DiagnosticTraceStoreTestSupport.storeWithWriteHook(HISTORY_FILE.toString(), 1000,
+                            4 * 1024 * 1024, writer.getObject(),
+                            DiagnosticTraceConcurrentRecordE2ETest::blockFirstSerialization);
+                }
+            };
         }
     }
 

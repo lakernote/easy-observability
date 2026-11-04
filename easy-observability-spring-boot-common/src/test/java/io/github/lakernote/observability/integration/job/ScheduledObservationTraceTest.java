@@ -1,9 +1,9 @@
 package io.github.lakernote.observability.integration.job;
 
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
-import io.github.lakernote.observability.integration.observation.ObservationTraceHandler;
-import io.github.lakernote.observability.trace.store.RecentTraceStore;
-import io.github.lakernote.observability.trace.TraceNodeFixtures;
+import io.github.lakernote.observability.integration.observation.internal.ObservationTraceHandler;
+import io.github.lakernote.observability.trace.internal.store.RecentTraceStore;
+import io.github.lakernote.observability.trace.internal.TraceNodeFixtures;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
 import org.junit.jupiter.api.Test;

@@ -1,12 +1,12 @@
 package io.github.lakernote.observability.autoconfigure;
 
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
-import io.github.lakernote.observability.integration.observation.ObservationTraceHandler;
+import io.github.lakernote.observability.integration.observation.internal.ObservationTraceHandler;
 import io.github.lakernote.observability.integration.observation.ObservationTraceIdResolver;
-import io.github.lakernote.observability.trace.BoundedHistoryWriter;
+import io.github.lakernote.observability.trace.internal.BoundedHistoryWriter;
 import io.github.lakernote.observability.trace.TraceContextTaskDecorator;
-import io.github.lakernote.observability.trace.store.DiagnosticTraceStore;
-import io.github.lakernote.observability.trace.store.RecentTraceStore;
+import io.github.lakernote.observability.trace.internal.store.DiagnosticTraceStore;
+import io.github.lakernote.observability.trace.internal.store.RecentTraceStore;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -16,7 +16,7 @@ import org.springframework.context.annotation.Bean;
 
 /**
  * 注册监控共用组件。
- * <p>各 Bean 都允许宿主应用通过同类型 Bean 替换；框架专属接入由独立自动配置按需启用。</p>
+ * <p>这里的 Bean 都是内部实现，不支持宿主应用替换；扩展点见公共 API。框架专属接入由独立自动配置按需启用。</p>
  */
 @AutoConfiguration(afterName = {
         "org.springframework.boot.actuate.autoconfigure.observation.ObservationAutoConfiguration",
@@ -30,7 +30,6 @@ public class ObservabilityAutoConfiguration {
      * 为 Trace 诊断归档提供有容量上限的写入器。
      */
     @Bean
-    @ConditionalOnMissingBean
     BoundedHistoryWriter boundedHistoryWriter() {
         return new BoundedHistoryWriter();
     }
@@ -39,7 +38,6 @@ public class ObservabilityAutoConfiguration {
      * 保存供监控页面查询的近期 Trace 树。
      */
     @Bean
-    @ConditionalOnMissingBean
     RecentTraceStore recentTraceStore(EasyObservabilityProperties properties) {
         return new RecentTraceStore(properties.getWeb().getTraceLimit());
     }
@@ -48,7 +46,6 @@ public class ObservabilityAutoConfiguration {
      * 持久化慢操作和错误 Trace，并按配置限制历史数量与文件容量。
      */
     @Bean
-    @ConditionalOnMissingBean
     DiagnosticTraceStore diagnosticTraceStore(EasyObservabilityProperties properties, BoundedHistoryWriter writer) {
         EasyObservabilityProperties.Trace trace = properties.getTrace();
         return new DiagnosticTraceStore(trace.getDiagnosticTraceFile(), trace.getDiagnosticHistoryLimit(),
@@ -72,7 +69,6 @@ public class ObservabilityAutoConfiguration {
     @Bean
     @ConditionalOnProperty(prefix = "easy.observability.trace", name = "enabled",
             havingValue = "true", matchIfMissing = true)
-    @ConditionalOnMissingBean
     ObservationTraceHandler observationTraceHandler(RecentTraceStore recentTraceStore,
                                                     DiagnosticTraceStore diagnosticTraceStore,
                                                     EasyObservabilityProperties properties,

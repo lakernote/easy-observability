@@ -1,5 +1,9 @@
 package io.github.lakernote.observability.trace;
 
+import io.github.lakernote.observability.trace.internal.TraceIds;
+import io.github.lakernote.observability.trace.internal.BoundedThrowableFormatter;
+import io.github.lakernote.observability.trace.internal.MdcContext;
+import io.github.lakernote.observability.trace.internal.TraceContext;
 import org.springframework.core.task.TaskDecorator;
 
 import java.util.Map;
@@ -27,8 +31,8 @@ public final class TraceContextTaskDecorator implements TaskDecorator {
             try (MdcContext.Scope ignored = MdcContext.withContext(context);
                  TraceContext.Scope traceScope = TraceContext.makeCurrent(traceSnapshot)) {
                 // 无父 Trace 的独立任务仍生成 Trace ID，便于日志和下游调用关联。
-                if (!TraceIdContext.isValidTraceId(TraceIdContext.currentTraceId())) {
-                    TraceIdContext.getOrCreateTraceId();
+                if (!TraceIds.isValidTraceId(TraceIdContext.currentTraceId())) {
+                    TraceIds.getOrCreateTraceId();
                 }
                 runTask(task);
             }

@@ -1,5 +1,7 @@
 package io.github.lakernote.observability.trace;
 
+import io.github.lakernote.observability.trace.internal.TraceContext;
+import io.github.lakernote.observability.trace.internal.TraceNode;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 

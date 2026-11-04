@@ -1,5 +1,6 @@
 package io.github.lakernote.observability.trace;
 
+import io.github.lakernote.observability.trace.internal.TraceContext;
 import java.util.function.Supplier;
 
 /** Adds a span around one explicitly selected code block. */

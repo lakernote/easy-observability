@@ -1,8 +1,8 @@
 package io.github.lakernote.observability.starter.boot3;
 
-import io.github.lakernote.observability.trace.store.DiagnosticTraceStore;
-import io.github.lakernote.observability.trace.store.DiagnosticTraceStoreTestSupport;
-import io.github.lakernote.observability.trace.store.RecentTraceStore;
+import io.github.lakernote.observability.trace.internal.store.DiagnosticTraceStore;
+import io.github.lakernote.observability.trace.internal.store.DiagnosticTraceStoreTestSupport;
+import io.github.lakernote.observability.trace.internal.store.RecentTraceStore;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

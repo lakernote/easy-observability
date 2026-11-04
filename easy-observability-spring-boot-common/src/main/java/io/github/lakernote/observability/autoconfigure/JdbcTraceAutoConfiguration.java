@@ -1,7 +1,7 @@
 package io.github.lakernote.observability.autoconfigure;
 
-import io.github.lakernote.observability.integration.jdbc.JdbcTraceQueryExecutionListener;
-import io.github.lakernote.observability.integration.jdbc.SpringAwareJdbcProxyFactory;
+import io.github.lakernote.observability.integration.jdbc.internal.JdbcTraceQueryExecutionListener;
+import io.github.lakernote.observability.integration.jdbc.internal.SpringAwareJdbcProxyFactory;
 import net.ttddyy.dsproxy.proxy.ProxyJdbcObject;
 import net.ttddyy.dsproxy.support.ProxyDataSource;
 import net.ttddyy.dsproxy.support.ProxyDataSourceBuilder;
@@ -26,7 +26,6 @@ import javax.sql.DataSource;
 @ConditionalOnProperty(prefix = "jdbc.datasource-proxy", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class JdbcTraceAutoConfiguration {
     @Bean
-    @ConditionalOnMissingBean
     JdbcTraceQueryExecutionListener jdbcTraceQueryExecutionListener() {
         return new JdbcTraceQueryExecutionListener();
     }

@@ -1,5 +1,6 @@
 package io.github.lakernote.observability.autoconfigure;
 
+import io.github.lakernote.observability.trace.internal.TraceIds;
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
 import io.github.lakernote.observability.trace.TraceIdContext;
 import io.micrometer.core.instrument.binder.okhttp3.OkHttpObservationInterceptor;
@@ -73,7 +74,7 @@ public class OkHttpObservationAutoConfiguration {
             Request request = chain.request();
             String headerName = properties.getTrace().getHeaderName();
             String traceId = TraceIdContext.currentTraceId();
-            if (TraceIdContext.isValidTraceId(traceId) && request.header(headerName) == null) {
+            if (TraceIds.isValidTraceId(traceId) && request.header(headerName) == null) {
                 request = request.newBuilder().header(headerName, traceId).build();
             }
             return chain.proceed(request);

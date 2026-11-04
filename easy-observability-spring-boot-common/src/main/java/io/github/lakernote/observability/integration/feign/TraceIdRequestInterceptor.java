@@ -1,5 +1,6 @@
 package io.github.lakernote.observability.integration.feign;
 
+import io.github.lakernote.observability.trace.internal.TraceIds;
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
 import io.github.lakernote.observability.trace.TraceIdContext;
 import feign.RequestInterceptor;
@@ -15,7 +16,7 @@ public final class TraceIdRequestInterceptor implements RequestInterceptor {
     @Override
     public void apply(feign.RequestTemplate template) {
         String traceId = TraceIdContext.currentTraceId();
-        if (TraceIdContext.isValidTraceId(traceId)) {
+        if (TraceIds.isValidTraceId(traceId)) {
             template.removeHeader(headerName);
             template.header(headerName, traceId);
         }

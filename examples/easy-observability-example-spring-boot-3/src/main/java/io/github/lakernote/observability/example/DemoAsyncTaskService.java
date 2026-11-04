@@ -1,6 +1,5 @@
 package io.github.lakernote.observability.example;
 
-import io.github.lakernote.observability.trace.TraceContext;
 import io.github.lakernote.observability.trace.SpanKind;
 import io.github.lakernote.observability.trace.TraceBlock;
 import io.github.lakernote.observability.trace.TraceIdContext;
@@ -68,11 +67,12 @@ public class DemoAsyncTaskService {
         if (state == null) return;
         state.put("status", "running");
         state.put("workerThread", Thread.currentThread().getName());
-        state.put("traceContextPresent", Boolean.toString(TraceContext.active()));
         String observedTraceId = TraceIdContext.currentTraceId();
+        boolean traceContextPresent = observedTraceId != null && !observedTraceId.isBlank();
+        state.put("traceContextPresent", Boolean.toString(traceContextPresent));
         state.put("observedTraceId", observedTraceId == null || observedTraceId.isBlank() ? "未传播" : observedTraceId);
         state.put("traceIdMatchesParent", Boolean.toString(state.get("parentTraceId").equals(observedTraceId)));
-        state.put("taskTraceRecorded", Boolean.toString(TraceContext.active()));
+        state.put("taskTraceRecorded", Boolean.toString(traceContextPresent));
         try {
             if ("slow".equals(mode)) pause(700);
             if ("error".equals(mode)) throw new IllegalStateException("Example executor task failure");

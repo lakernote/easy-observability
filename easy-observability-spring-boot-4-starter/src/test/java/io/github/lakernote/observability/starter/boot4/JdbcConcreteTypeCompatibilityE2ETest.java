@@ -3,7 +3,7 @@ package io.github.lakernote.observability.starter.boot4;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import io.github.lakernote.observability.trace.SpanKind;
-import io.github.lakernote.observability.trace.TraceContext;
+import io.github.lakernote.observability.trace.internal.TraceContext;
 import net.ttddyy.dsproxy.proxy.ProxyJdbcObject;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

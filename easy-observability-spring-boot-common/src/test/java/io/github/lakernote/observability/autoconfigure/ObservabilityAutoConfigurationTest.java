@@ -1,8 +1,8 @@
 package io.github.lakernote.observability.autoconfigure;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.github.lakernote.observability.trace.TraceSpanAspect;
-import io.github.lakernote.observability.trace.store.DiagnosticTraceStore;
+import io.github.lakernote.observability.trace.internal.TraceSpanAspect;
+import io.github.lakernote.observability.trace.internal.store.DiagnosticTraceStore;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.micrometer.observation.Observation;
@@ -49,7 +49,7 @@ class ObservabilityAutoConfigurationTest {
                 .run(context -> {
                     assertThat(context).hasNotFailed();
                     assertThat(context).hasSingleBean(io.github.lakernote.observability.config.EasyObservabilityProperties.class);
-                    assertThat(context).hasSingleBean(io.github.lakernote.observability.trace.store.RecentTraceStore.class);
+                    assertThat(context).hasSingleBean(io.github.lakernote.observability.trace.internal.store.RecentTraceStore.class);
                     assertThat(context).doesNotHaveBean("traceOperationRecorder");
                     assertThat(context).doesNotHaveBean(MeterRegistry.class);
                 });
@@ -68,7 +68,7 @@ class ObservabilityAutoConfigurationTest {
         ObservationRegistry registry = ObservationRegistry.create();
         contextRunner.withBean(ObservationRegistry.class, () -> registry).run(context -> {
             registry.observationConfig().observationHandler(context.getBean(
-                    io.github.lakernote.observability.integration.observation.ObservationTraceHandler.class));
+                    io.github.lakernote.observability.integration.observation.internal.ObservationTraceHandler.class));
             Observation.createNotStarted("spring.data.redis", registry)
                     .contextualName("GET")
                     .lowCardinalityKeyValue("db.operation", "GET")

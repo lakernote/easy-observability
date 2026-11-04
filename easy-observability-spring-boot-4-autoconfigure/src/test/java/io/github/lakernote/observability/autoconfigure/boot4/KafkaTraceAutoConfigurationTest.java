@@ -1,11 +1,12 @@
 package io.github.lakernote.observability.autoconfigure.boot4;
 
+import io.github.lakernote.observability.trace.internal.TraceIds;
 import io.github.lakernote.observability.autoconfigure.KafkaTraceAutoConfiguration;
 
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
-import io.github.lakernote.observability.integration.kafka.TraceIdProducerInterceptor;
-import io.github.lakernote.observability.integration.observation.ObservationTraceHandler;
-import io.github.lakernote.observability.trace.store.RecentTraceStore;
+import io.github.lakernote.observability.integration.kafka.internal.TraceIdProducerInterceptor;
+import io.github.lakernote.observability.integration.observation.internal.ObservationTraceHandler;
+import io.github.lakernote.observability.trace.internal.store.RecentTraceStore;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.header.internals.RecordHeader;
 import org.springframework.kafka.support.micrometer.KafkaRecordReceiverContext;
@@ -68,13 +69,13 @@ class KafkaTraceAutoConfigurationTest {
         var record = new org.apache.kafka.clients.producer.ProducerRecord<>("events", "key", "value");
         assertThat(interceptor.onSend(record).headers().lastHeader("x-correlation-id")).isNull();
 
-        io.github.lakernote.observability.trace.TraceIdContext.putTraceId("0123456789abcdef0123456789abcdef");
+        TraceIds.putTraceId("0123456789abcdef0123456789abcdef");
         try {
             assertThat(interceptor.onSend(record).headers().lastHeader("x-correlation-id").value())
                     .containsExactly("0123456789abcdef0123456789abcdef".getBytes(StandardCharsets.UTF_8));
             assertThat(record.headers().lastHeader("X-Trace-Id")).isNull();
         } finally {
-            io.github.lakernote.observability.trace.TraceIdContext.clear();
+            TraceIds.clear();
         }
     }
 

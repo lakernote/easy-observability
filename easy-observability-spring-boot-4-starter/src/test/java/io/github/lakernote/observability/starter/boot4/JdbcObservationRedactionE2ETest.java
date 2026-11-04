@@ -1,8 +1,8 @@
 package io.github.lakernote.observability.starter.boot4;
 
+import io.github.lakernote.observability.trace.internal.TraceIds;
 import io.github.lakernote.observability.trace.SpanKind;
-import io.github.lakernote.observability.trace.TraceContext;
-import io.github.lakernote.observability.trace.TraceIdContext;
+import io.github.lakernote.observability.trace.internal.TraceContext;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
 import org.junit.jupiter.api.AfterEach;
@@ -30,7 +30,7 @@ class JdbcObservationRedactionE2ETest {
     @AfterEach
     void clearContexts() {
         TraceContext.clear();
-        TraceIdContext.clear();
+        TraceIds.clear();
     }
 
     @Test

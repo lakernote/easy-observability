@@ -2,8 +2,8 @@ package io.github.lakernote.observability.starter.boot4;
 
 import io.github.lakernote.observability.trace.SpanKind;
 import io.github.lakernote.observability.trace.TraceBlock;
-import io.github.lakernote.observability.trace.TraceContext;
-import io.github.lakernote.observability.trace.TraceNode;
+import io.github.lakernote.observability.trace.internal.TraceContext;
+import io.github.lakernote.observability.trace.internal.TraceNode;
 import io.github.lakernote.observability.trace.TraceSpan;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;

@@ -1,8 +1,8 @@
 package io.github.lakernote.observability.integration.kafka;
 
+import io.github.lakernote.observability.trace.internal.TraceIds;
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
-import io.github.lakernote.observability.trace.MdcContext;
-import io.github.lakernote.observability.trace.TraceIdContext;
+import io.github.lakernote.observability.trace.internal.MdcContext;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.header.Header;
@@ -30,8 +30,8 @@ public final class TraceIdRecordInterceptor<K, V> implements RecordInterceptor<K
         MdcContext.Scope scope = MdcContext.scope();
         scopes.get().push(scope);
         String traceId = headerValue(record, headerName);
-        if (TraceIdContext.isValidTraceId(traceId)) TraceIdContext.putTraceId(traceId);
-        else TraceIdContext.getOrCreateTraceId();
+        if (TraceIds.isValidTraceId(traceId)) TraceIds.putTraceId(traceId);
+        else TraceIds.getOrCreateTraceId();
         return record;
     }
 

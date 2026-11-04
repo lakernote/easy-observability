@@ -2,8 +2,8 @@ package io.github.lakernote.observability.autoconfigure.boot4;
 
 import io.github.lakernote.observability.autoconfigure.ObservabilityAutoConfiguration;
 
-import io.github.lakernote.observability.metrics.Rrd4jStepMeterRegistry;
-import io.github.lakernote.observability.integration.redis.RedissonTraceConnectionFactoryPostProcessor;
+import io.github.lakernote.observability.metrics.internal.Rrd4jStepMeterRegistry;
+import io.github.lakernote.observability.integration.redis.internal.RedissonTraceConnectionFactoryPostProcessor;
 import io.lettuce.core.tracing.MicrometerTracing;
 import io.micrometer.observation.ObservationRegistry;
 import org.springframework.beans.factory.ObjectProvider;
