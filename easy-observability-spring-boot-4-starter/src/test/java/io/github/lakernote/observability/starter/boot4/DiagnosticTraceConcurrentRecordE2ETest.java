@@ -1,12 +1,8 @@
 package io.github.lakernote.observability.starter.boot4;
 
-import com.fasterxml.jackson.core.JsonGenerator;
-import com.fasterxml.jackson.databind.JsonSerializer;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializerProvider;
-import com.fasterxml.jackson.databind.module.SimpleModule;
 import io.github.lakernote.observability.trace.BoundedHistoryWriter;
 import io.github.lakernote.observability.trace.store.DiagnosticTraceStore;
+import io.github.lakernote.observability.trace.store.DiagnosticTraceStoreTestSupport;
 import io.github.lakernote.observability.trace.store.RecentTraceStore;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
@@ -138,10 +134,9 @@ class DiagnosticTraceConcurrentRecordE2ETest {
     @Import(ProbeController.class)
     static class TestApplication {
         @Bean
-        ObjectMapper objectMapper() {
-            SimpleModule module = new SimpleModule();
-            module.addSerializer(RecentTraceStore.TraceRecord.class, new BlockingTraceRecordSerializer());
-            return new ObjectMapper().findAndRegisterModules().registerModule(module);
+        DiagnosticTraceStore diagnosticTraceStore(BoundedHistoryWriter writer) {
+            return DiagnosticTraceStoreTestSupport.storeWithWriteHook(HISTORY_FILE.toString(), 1000,
+                    4 * 1024 * 1024, writer, DiagnosticTraceConcurrentRecordE2ETest::blockFirstSerialization);
         }
     }
 
@@ -168,32 +163,22 @@ class DiagnosticTraceConcurrentRecordE2ETest {
         }
     }
 
-    static final class BlockingTraceRecordSerializer extends JsonSerializer<RecentTraceStore.TraceRecord> {
-        @Override
-        public void serialize(RecentTraceStore.TraceRecord value, JsonGenerator generator,
-                              SerializerProvider serializers) throws IOException {
-            boolean firstSerialization = BLOCK_FIRST_SERIALIZATION.compareAndSet(true, false);
-            try {
-                if (firstSerialization) {
-                    SERIALIZATION_STARTED.countDown();
-                    try {
-                        if (!RELEASE_SERIALIZATION.await(30, TimeUnit.SECONDS)) {
-                            throw new IOException("Timed out waiting to release trace serialization");
-                        }
-                    } catch (InterruptedException interrupted) {
-                        Thread.currentThread().interrupt();
-                        throw new IOException("Trace serialization was interrupted", interrupted);
+    private static void blockFirstSerialization(RecentTraceStore.TraceRecord trace) throws IOException {
+        boolean firstSerialization = BLOCK_FIRST_SERIALIZATION.compareAndSet(true, false);
+        try {
+            if (firstSerialization) {
+                SERIALIZATION_STARTED.countDown();
+                try {
+                    if (!RELEASE_SERIALIZATION.await(30, TimeUnit.SECONDS)) {
+                        throw new IOException("Timed out waiting to release trace serialization");
                     }
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new IOException("Trace serialization was interrupted", interrupted);
                 }
-                generator.writeStartObject();
-                generator.writeNumberField("id", value.id());
-                generator.writeStringField("traceId", value.traceId());
-                generator.writeStringField("sourceType", value.sourceType());
-                generator.writeBooleanField("slow", value.slow());
-                generator.writeEndObject();
-            } finally {
-                if (firstSerialization) SERIALIZATION_FINISHED.countDown();
             }
+        } finally {
+            if (firstSerialization) SERIALIZATION_FINISHED.countDown();
         }
     }
 }

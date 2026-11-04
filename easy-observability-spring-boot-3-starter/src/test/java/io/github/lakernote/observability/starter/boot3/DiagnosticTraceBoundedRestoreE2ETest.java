@@ -1,7 +1,7 @@
 package io.github.lakernote.observability.starter.boot3;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.lakernote.observability.trace.store.DiagnosticTraceStore;
+import io.github.lakernote.observability.trace.store.DiagnosticTraceStoreTestSupport;
 import io.github.lakernote.observability.trace.store.RecentTraceStore;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
@@ -107,12 +107,12 @@ class DiagnosticTraceBoundedRestoreE2ETest {
         try {
             Path directory = Files.createTempDirectory("easy-observability-bounded-restore");
             Path file = directory.resolve("traces.jsonl");
-            ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
             String detail = "d".repeat(10 * 1024);
             Instant startedAt = Instant.parse("2026-10-21T10:00:00Z");
             try (BufferedWriter writer = Files.newBufferedWriter(file, StandardCharsets.UTF_8)) {
                 for (int index = 0; index < RECORD_COUNT; index++) {
-                    writer.write(mapper.writeValueAsString(trace(index, detail, startedAt.plusSeconds(index))));
+                    writer.write(DiagnosticTraceStoreTestSupport.json(
+                            trace(index, detail, startedAt.plusSeconds(index))));
                     writer.newLine();
                 }
             }

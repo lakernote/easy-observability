@@ -1,6 +1,5 @@
 package io.github.lakernote.observability.trace.store;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.lakernote.observability.trace.BoundedHistoryWriter;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
@@ -33,7 +32,7 @@ public final class DiagnosticTraceStore {
     // A corrupt record must not turn a generously configured archive limit into one giant heap allocation.
     private static final long MAX_HISTORY_RECORD_BYTES = 16L * 1024 * 1024;
     private static final long MAX_TRIM_SCAN_BYTES = 64L * 1024 * 1024;
-    private final ObjectMapper objectMapper;
+    private final TraceRecordJsonCodec codec;
     private final Path historyFile;
     private final int maxHistorySize;
     private final long maxHistoryFileBytes;
@@ -48,18 +47,23 @@ public final class DiagnosticTraceStore {
     private boolean storageWarningLogged;
     private boolean oversizedRecordWarningLogged;
 
-    public DiagnosticTraceStore(ObjectMapper mapper, String historyFile, int maxHistorySize, long maxHistoryFileBytes) {
-        this(mapper, historyFile, maxHistorySize, maxHistoryFileBytes, Runnable::run);
+    public DiagnosticTraceStore(String historyFile, int maxHistorySize, long maxHistoryFileBytes) {
+        this(TraceRecordJsonCodec.INSTANCE, historyFile, maxHistorySize, maxHistoryFileBytes, Runnable::run);
     }
 
-    public DiagnosticTraceStore(ObjectMapper mapper, String historyFile, int maxHistorySize, long maxHistoryFileBytes,
-                        BoundedHistoryWriter writer) {
-        this(mapper, historyFile, maxHistorySize, maxHistoryFileBytes, writer::execute);
+    public DiagnosticTraceStore(String historyFile, int maxHistorySize, long maxHistoryFileBytes,
+                                BoundedHistoryWriter writer) {
+        this(TraceRecordJsonCodec.INSTANCE, historyFile, maxHistorySize, maxHistoryFileBytes, writer::execute);
     }
 
-    private DiagnosticTraceStore(ObjectMapper mapper, String historyFile, int maxHistorySize, long maxHistoryFileBytes,
-                         Consumer<Runnable> historyWriteExecutor) {
-        this.objectMapper = mapper.copy();
+    DiagnosticTraceStore(TraceRecordJsonCodec codec, String historyFile, int maxHistorySize,
+                         long maxHistoryFileBytes, BoundedHistoryWriter writer) {
+        this(codec, historyFile, maxHistorySize, maxHistoryFileBytes, writer::execute);
+    }
+
+    private DiagnosticTraceStore(TraceRecordJsonCodec codec, String historyFile, int maxHistorySize,
+                                 long maxHistoryFileBytes, Consumer<Runnable> historyWriteExecutor) {
+        this.codec = codec;
         this.historyFile = Path.of(historyFile).toAbsolutePath().normalize();
         this.maxHistorySize = Math.max(100, maxHistorySize);
         this.maxHistoryFileBytes = Math.max(1024 * 1024, maxHistoryFileBytes);
@@ -110,7 +114,7 @@ public final class DiagnosticTraceStore {
                 int maxRecordBytes = (int) maxHistoryRecordBytes();
                 BoundedHistoryRecordBuffer record = new BoundedHistoryRecordBuffer(maxRecordBytes);
                 try {
-                    objectMapper.writeValue(record, trace);
+                    codec.write(record, trace);
                     record.write('\n');
                 } catch (Exception failure) {
                     if (causedByOversizedRecord(failure)) {
@@ -295,8 +299,7 @@ public final class DiagnosticTraceStore {
 
     private void restoreHistoryLine(ByteArrayOutputStream line) {
         try {
-            RecentTraceStore.TraceRecord trace = objectMapper.readValue(
-                    line.toByteArray(), RecentTraceStore.TraceRecord.class);
+            RecentTraceStore.TraceRecord trace = codec.read(line.toByteArray());
             if (RecentTraceStore.isEntrySource(trace.sourceType()) && isDiagnosticTrace(trace)) addToIndex(trace);
         } catch (Exception invalid) {
             log.debug("Skipping malformed Easy Observability trace record", invalid);

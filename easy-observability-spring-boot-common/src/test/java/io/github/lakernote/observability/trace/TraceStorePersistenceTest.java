@@ -4,14 +4,10 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
-import io.github.lakernote.observability.trace.store.RecentTraceStore;
 import io.github.lakernote.observability.trace.store.DiagnosticTraceStore;
+import io.github.lakernote.observability.trace.store.DiagnosticTraceStoreTestSupport;
+import io.github.lakernote.observability.trace.store.RecentTraceStore;
 
-import com.fasterxml.jackson.core.JsonGenerator;
-import com.fasterxml.jackson.databind.JsonSerializer;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializerProvider;
-import com.fasterxml.jackson.databind.module.SimpleModule;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.slf4j.LoggerFactory;
@@ -39,7 +35,6 @@ class TraceStorePersistenceTest {
 
     @Test
     void persistsDiagnosticTraceTreeAndEntryResourcesAcrossRestart() {
-        ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
         Path tracesFile = directory.resolve("traces.jsonl");
         BoundedHistoryWriter writer = new BoundedHistoryWriter();
         RecentTraceStore.TraceRecord trace = new RecentTraceStore.TraceRecord(1, "trace-123", "GET /orders/{id}",
@@ -47,13 +42,13 @@ class TraceStorePersistenceTest {
                 List.of(new TraceNode("Http", "HTTP GET", "", 845, 0L, true, true, false, "HTTP_5XX", "", 77,
                         List.of(new TraceNode("Database", "SQL select", "", 2, 1L, false, false, false, "", "", 77, List.of())))),
                 Instant.parse("2026-10-15T10:00:00Z"), 77, 51, 2048, "HTTP", "HTTP_5XX", "500", "", "", false, false);
-        DiagnosticTraceStore diagnosticStore = new DiagnosticTraceStore(mapper, tracesFile.toString(), 1000,
+        DiagnosticTraceStore diagnosticStore = new DiagnosticTraceStore(tracesFile.toString(), 1000,
                 4 * 1024 * 1024, writer);
         diagnosticStore.restoreHistory();
         diagnosticStore.recordDiagnosticTrace(trace);
         writer.close();
 
-        DiagnosticTraceStore restoredDiagnosticStore = new DiagnosticTraceStore(mapper, tracesFile.toString(), 1000, 4 * 1024 * 1024);
+        DiagnosticTraceStore restoredDiagnosticStore = new DiagnosticTraceStore(tracesFile.toString(), 1000, 4 * 1024 * 1024);
         restoredDiagnosticStore.restoreHistory();
 
         assertThat(restoredDiagnosticStore.findByTraceId("trace-123")).satisfies(saved -> {
@@ -70,10 +65,9 @@ class TraceStorePersistenceTest {
 
     @Test
     void keepsDifferentEntrySourcesWithTheSamePropagatedTraceId() {
-        ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
         Path tracesFile = directory.resolve("shared-trace.jsonl");
         BoundedHistoryWriter writer = new BoundedHistoryWriter();
-        DiagnosticTraceStore diagnosticStore = new DiagnosticTraceStore(mapper, tracesFile.toString(), 1000,
+        DiagnosticTraceStore diagnosticStore = new DiagnosticTraceStore(tracesFile.toString(), 1000,
                 4 * 1024 * 1024, writer);
         diagnosticStore.restoreHistory();
         Instant httpFinished = Instant.parse("2026-10-21T10:00:01Z");
@@ -82,7 +76,7 @@ class TraceStorePersistenceTest {
         diagnosticStore.recordDiagnosticTrace(trace("shared", "KAFKA_CONSUMER", kafkaFinished));
         writer.close();
 
-        DiagnosticTraceStore restored = new DiagnosticTraceStore(mapper, tracesFile.toString(), 1000, 4 * 1024 * 1024);
+        DiagnosticTraceStore restored = new DiagnosticTraceStore(tracesFile.toString(), 1000, 4 * 1024 * 1024);
         restored.restoreHistory();
 
         assertThat(restored.findRecent(10)).extracting(RecentTraceStore.TraceRecord::sourceType)
@@ -103,8 +97,7 @@ class TraceStorePersistenceTest {
             Path blockedParent = directory.resolve("blocked-history");
             Files.writeString(blockedParent, "not a directory");
             Path tracesFile = blockedParent.resolve("traces.jsonl");
-            DiagnosticTraceStore store = new DiagnosticTraceStore(
-                    new ObjectMapper().findAndRegisterModules(), tracesFile.toString(), 1000, 4 * 1024 * 1024);
+            DiagnosticTraceStore store = new DiagnosticTraceStore(tracesFile.toString(), 1000, 4 * 1024 * 1024);
 
             store.recordDiagnosticTrace(trace("first-failure", "HTTP", Instant.parse("2026-10-21T10:00:01Z")));
             store.recordDiagnosticTrace(trace("still-blocked", "HTTP", Instant.parse("2026-10-21T10:00:02Z")));
@@ -131,8 +124,7 @@ class TraceStorePersistenceTest {
         Path blockedParent = directory.resolve("concurrent-blocked-history");
         Files.writeString(blockedParent, "not a directory");
         Path tracesFile = blockedParent.resolve("traces.jsonl");
-        DiagnosticTraceStore store = new DiagnosticTraceStore(
-                new ObjectMapper().findAndRegisterModules(), tracesFile.toString(), 1000, 4 * 1024 * 1024);
+        DiagnosticTraceStore store = new DiagnosticTraceStore(tracesFile.toString(), 1000, 4 * 1024 * 1024);
         store.recordDiagnosticTrace(trace("initial-failure", "HTTP", Instant.parse("2026-10-21T10:00:00Z")));
         Files.delete(blockedParent);
         Files.createDirectory(blockedParent);
@@ -159,29 +151,21 @@ class TraceStorePersistenceTest {
         CountDownLatch serializationStarted = new CountDownLatch(1);
         CountDownLatch releaseSerialization = new CountDownLatch(1);
         AtomicBoolean blockFirstSerialization = new AtomicBoolean(true);
-        SimpleModule module = new SimpleModule();
-        module.addSerializer(RecentTraceStore.TraceRecord.class,
-                new JsonSerializer<RecentTraceStore.TraceRecord>() {
-                    @Override
-                    public void serialize(RecentTraceStore.TraceRecord value, JsonGenerator generator,
-                                          SerializerProvider serializers) throws IOException {
-                        if (blockFirstSerialization.compareAndSet(true, false)) {
-                            serializationStarted.countDown();
-                            try {
-                                releaseSerialization.await();
-                            } catch (InterruptedException interrupted) {
-                                Thread.currentThread().interrupt();
-                                throw new IOException("Interrupted while simulating blocked trace serialization",
-                                        interrupted);
-                            }
+        BoundedHistoryWriter writer = new BoundedHistoryWriter();
+        DiagnosticTraceStore store = DiagnosticTraceStoreTestSupport.storeWithWriteHook(
+                directory.resolve("non-blocking-history.jsonl").toString(), 1000, 4 * 1024 * 1024, writer,
+                trace -> {
+                    if (blockFirstSerialization.compareAndSet(true, false)) {
+                        serializationStarted.countDown();
+                        try {
+                            releaseSerialization.await();
+                        } catch (InterruptedException interrupted) {
+                            Thread.currentThread().interrupt();
+                            throw new IOException("Interrupted while simulating blocked trace serialization",
+                                    interrupted);
                         }
-                        generator.writeString(value.traceId());
                     }
                 });
-        ObjectMapper mapper = new ObjectMapper().findAndRegisterModules().registerModule(module);
-        BoundedHistoryWriter writer = new BoundedHistoryWriter();
-        DiagnosticTraceStore store = new DiagnosticTraceStore(mapper,
-                directory.resolve("non-blocking-history.jsonl").toString(), 1000, 4 * 1024 * 1024, writer);
         ExecutorService businessExecutor = Executors.newSingleThreadExecutor();
         try {
             store.recordDiagnosticTrace(trace(
@@ -207,9 +191,7 @@ class TraceStorePersistenceTest {
         Path blockedParent = directory.resolve("restart-recovers-history");
         Files.writeString(blockedParent, "not a directory");
         Path tracesFile = blockedParent.resolve("traces.jsonl");
-        ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
-        DiagnosticTraceStore disabledStore = new DiagnosticTraceStore(
-                mapper, tracesFile.toString(), 1000, 4 * 1024 * 1024);
+        DiagnosticTraceStore disabledStore = new DiagnosticTraceStore(tracesFile.toString(), 1000, 4 * 1024 * 1024);
         disabledStore.recordDiagnosticTrace(trace(
                 "before-repair", "HTTP", Instant.parse("2026-10-21T10:00:00Z")));
 
@@ -217,14 +199,12 @@ class TraceStorePersistenceTest {
         Files.createDirectory(blockedParent);
         disabledStore.recordDiagnosticTrace(trace(
                 "old-instance-after-repair", "HTTP", Instant.parse("2026-10-21T10:00:01Z")));
-        DiagnosticTraceStore replacementStore = new DiagnosticTraceStore(
-                mapper, tracesFile.toString(), 1000, 4 * 1024 * 1024);
+        DiagnosticTraceStore replacementStore = new DiagnosticTraceStore(tracesFile.toString(), 1000, 4 * 1024 * 1024);
         replacementStore.restoreHistory();
         replacementStore.recordDiagnosticTrace(trace(
                 "new-instance-after-repair", "HTTP", Instant.parse("2026-10-21T10:00:02Z")));
 
-        DiagnosticTraceStore restoredStore = new DiagnosticTraceStore(
-                mapper, tracesFile.toString(), 1000, 4 * 1024 * 1024);
+        DiagnosticTraceStore restoredStore = new DiagnosticTraceStore(tracesFile.toString(), 1000, 4 * 1024 * 1024);
         restoredStore.restoreHistory();
         assertThat(restoredStore.findRecent(10)).extracting(RecentTraceStore.TraceRecord::traceId)
                 .containsExactly("new-instance-after-repair");
@@ -236,17 +216,15 @@ class TraceStorePersistenceTest {
 
     @Test
     void oversizedTrailingLineDoesNotHideEarlierValidTraceDuringTrimming() throws Exception {
-        ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
         Path tracesFile = directory.resolve("oversized-line.jsonl");
         RecentTraceStore.TraceRecord valid = trace(
                 "valid-before-oversized-line", "HTTP", Instant.parse("2026-10-21T10:00:00Z"));
-        String validJson = mapper.writeValueAsString(valid);
+        String validJson = DiagnosticTraceStoreTestSupport.json(valid);
         String oversizedMalformedLine = "x".repeat((int) MIN_HISTORY_FILE_BYTES + 128 * 1024);
         Files.writeString(tracesFile, validJson + "\n" + oversizedMalformedLine + "\n",
                 StandardCharsets.UTF_8);
 
-        DiagnosticTraceStore store = new DiagnosticTraceStore(
-                mapper, tracesFile.toString(), 100, MIN_HISTORY_FILE_BYTES);
+        DiagnosticTraceStore store = new DiagnosticTraceStore(tracesFile.toString(), 100, MIN_HISTORY_FILE_BYTES);
         store.restoreHistory();
 
         assertThat(store.findRecent(10)).extracting(RecentTraceStore.TraceRecord::traceId)
@@ -257,20 +235,18 @@ class TraceStorePersistenceTest {
 
     @Test
     void trimsOversizedHistoryToNewestRecordsWithinCountAndByteLimits() throws Exception {
-        ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
         Path tracesFile = directory.resolve("bounded-history.jsonl");
         String payload = "d".repeat(10 * 1024);
         StringBuilder jsonl = new StringBuilder();
         for (int index = 0; index < 140; index++) {
-            jsonl.append(mapper.writeValueAsString(traceWithDetail(
+            jsonl.append(DiagnosticTraceStoreTestSupport.json(traceWithDetail(
                     "bounded-" + index, payload, Instant.parse("2026-10-21T10:00:00Z").plusSeconds(index))))
                     .append('\n');
         }
         Files.writeString(tracesFile, jsonl, StandardCharsets.UTF_8);
         assertThat(Files.size(tracesFile)).isGreaterThan(MIN_HISTORY_FILE_BYTES);
 
-        DiagnosticTraceStore store = new DiagnosticTraceStore(
-                mapper, tracesFile.toString(), 100, MIN_HISTORY_FILE_BYTES);
+        DiagnosticTraceStore store = new DiagnosticTraceStore(tracesFile.toString(), 100, MIN_HISTORY_FILE_BYTES);
         store.restoreHistory();
 
         List<String> traceIds = store.findRecent(100).stream()
@@ -289,17 +265,15 @@ class TraceStorePersistenceTest {
 
     @Test
     void skipsMalformedLineWithoutChangingValidRecordOrder() throws Exception {
-        ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
         Path tracesFile = directory.resolve("malformed-history.jsonl");
         RecentTraceStore.TraceRecord first = trace(
                 "valid-first", "HTTP", Instant.parse("2026-10-21T10:00:00Z"));
         RecentTraceStore.TraceRecord second = trace(
                 "valid-second", "HTTP", Instant.parse("2026-10-21T10:00:01Z"));
-        Files.writeString(tracesFile, mapper.writeValueAsString(first) + "\n{not-json}\n"
-                + mapper.writeValueAsString(second) + "\n", StandardCharsets.UTF_8);
+        Files.writeString(tracesFile, DiagnosticTraceStoreTestSupport.json(first) + "\n{not-json}\n"
+                + DiagnosticTraceStoreTestSupport.json(second) + "\n", StandardCharsets.UTF_8);
 
-        DiagnosticTraceStore store = new DiagnosticTraceStore(
-                mapper, tracesFile.toString(), 100, MIN_HISTORY_FILE_BYTES);
+        DiagnosticTraceStore store = new DiagnosticTraceStore(tracesFile.toString(), 100, MIN_HISTORY_FILE_BYTES);
         store.restoreHistory();
 
         assertThat(store.findRecent(10)).extracting(RecentTraceStore.TraceRecord::traceId)
@@ -309,7 +283,6 @@ class TraceStorePersistenceTest {
 
     @Test
     void restoresUtf8CrLfHistoryWithAnUnterminatedFinalRecordInOrder() throws Exception {
-        ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
         Path tracesFile = directory.resolve("utf8-crlf-history.jsonl");
         RecentTraceStore.TraceRecord first = traceWithDetail(
                 "utf8-first", "第一条：数据库很慢", Instant.parse("2026-10-21T10:00:00Z"));
@@ -317,12 +290,11 @@ class TraceStorePersistenceTest {
                 "utf8-second", "第二条：缓存失败", Instant.parse("2026-10-21T10:00:01Z"));
         RecentTraceStore.TraceRecord third = traceWithDetail(
                 "utf8-third", "第三条：任务完成", Instant.parse("2026-10-21T10:00:02Z"));
-        Files.writeString(tracesFile, mapper.writeValueAsString(first) + "\r\n"
-                + mapper.writeValueAsString(second) + "\r\n" + mapper.writeValueAsString(third),
+        Files.writeString(tracesFile, DiagnosticTraceStoreTestSupport.json(first) + "\r\n"
+                + DiagnosticTraceStoreTestSupport.json(second) + "\r\n" + DiagnosticTraceStoreTestSupport.json(third),
                 StandardCharsets.UTF_8);
 
-        DiagnosticTraceStore store = new DiagnosticTraceStore(
-                mapper, tracesFile.toString(), 100, MIN_HISTORY_FILE_BYTES);
+        DiagnosticTraceStore store = new DiagnosticTraceStore(tracesFile.toString(), 100, MIN_HISTORY_FILE_BYTES);
         store.restoreHistory();
 
         assertThat(store.findRecent(10)).extracting(RecentTraceStore.TraceRecord::traceId)
@@ -334,10 +306,8 @@ class TraceStorePersistenceTest {
 
     @Test
     void keepsOversizedNewTraceInMemoryAndPersistsFollowingSmallTrace() throws Exception {
-        ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
         Path tracesFile = directory.resolve("oversized-new-record.jsonl");
-        DiagnosticTraceStore store = new DiagnosticTraceStore(
-                mapper, tracesFile.toString(), 100, MIN_HISTORY_FILE_BYTES);
+        DiagnosticTraceStore store = new DiagnosticTraceStore(tracesFile.toString(), 100, MIN_HISTORY_FILE_BYTES);
         RecentTraceStore.TraceRecord oversized = traceWithDetail(
                 "oversized-in-memory", "x".repeat((int) MIN_HISTORY_FILE_BYTES + 128 * 1024),
                 Instant.parse("2026-10-21T10:00:00Z"));
@@ -354,8 +324,7 @@ class TraceStorePersistenceTest {
         assertThat(tracesFile).exists();
         assertThat(Files.size(tracesFile)).isLessThan(MIN_HISTORY_FILE_BYTES);
 
-        DiagnosticTraceStore restored = new DiagnosticTraceStore(
-                mapper, tracesFile.toString(), 100, MIN_HISTORY_FILE_BYTES);
+        DiagnosticTraceStore restored = new DiagnosticTraceStore(tracesFile.toString(), 100, MIN_HISTORY_FILE_BYTES);
         restored.restoreHistory();
         assertThat(restored.findRecent(10)).extracting(RecentTraceStore.TraceRecord::traceId)
                 .containsExactly("small-persisted");

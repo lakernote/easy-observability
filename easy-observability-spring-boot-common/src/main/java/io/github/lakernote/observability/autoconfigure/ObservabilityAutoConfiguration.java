@@ -1,6 +1,5 @@
 package io.github.lakernote.observability.autoconfigure;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
 import io.github.lakernote.observability.integration.observation.ObservationTraceHandler;
 import io.github.lakernote.observability.integration.observation.ObservationTraceIdResolver;
@@ -20,23 +19,12 @@ import org.springframework.context.annotation.Bean;
  * <p>各 Bean 都允许宿主应用通过同类型 Bean 替换；框架专属接入由独立自动配置按需启用。</p>
  */
 @AutoConfiguration(afterName = {
-        "org.springframework.boot.autoconfigure.jackson.JacksonAutoConfiguration",
         "org.springframework.boot.actuate.autoconfigure.observation.ObservationAutoConfiguration",
         "org.springframework.boot.micrometer.observation.autoconfigure.ObservationAutoConfiguration"
 })
 @ConditionalOnProperty(prefix = "easy.observability", name = "enabled", havingValue = "true", matchIfMissing = true)
 @EnableConfigurationProperties(EasyObservabilityProperties.class)
 public class ObservabilityAutoConfiguration {
-
-    /**
-     * 为历史数据读写提供 JSON 序列化器；宿主应用已有 ObjectMapper 时沿用宿主配置。
-     */
-    @Bean
-    @ConditionalOnMissingBean
-    ObjectMapper observabilityObjectMapper() {
-        // 使用独立实例，避免修改宿主应用的 ObjectMapper 行为。
-        return new ObjectMapper().findAndRegisterModules();
-    }
 
     /**
      * 为 Trace 诊断归档提供有容量上限的写入器。
@@ -61,10 +49,9 @@ public class ObservabilityAutoConfiguration {
      */
     @Bean
     @ConditionalOnMissingBean
-    DiagnosticTraceStore diagnosticTraceStore(ObjectMapper objectMapper, EasyObservabilityProperties properties,
-                                               BoundedHistoryWriter writer) {
+    DiagnosticTraceStore diagnosticTraceStore(EasyObservabilityProperties properties, BoundedHistoryWriter writer) {
         EasyObservabilityProperties.Trace trace = properties.getTrace();
-        return new DiagnosticTraceStore(objectMapper, trace.getDiagnosticTraceFile(), trace.getDiagnosticHistoryLimit(),
+        return new DiagnosticTraceStore(trace.getDiagnosticTraceFile(), trace.getDiagnosticHistoryLimit(),
                 trace.getDiagnosticMaxBytes().toBytes(), writer);
     }
 
@@ -93,5 +80,4 @@ public class ObservabilityAutoConfiguration {
         return new ObservationTraceHandler(recentTraceStore, diagnosticTraceStore, properties,
                 resolvers.orderedStream().toList());
     }
-
 }

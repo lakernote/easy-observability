@@ -1,6 +1,8 @@
 package io.github.lakernote.observability.autoconfigure;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.lakernote.observability.trace.TraceSpanAspect;
+import io.github.lakernote.observability.trace.store.DiagnosticTraceStore;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.micrometer.observation.Observation;
@@ -77,4 +79,20 @@ class ObservabilityAutoConfigurationTest {
         });
     }
 
+    @Test
+    void doesNotContributeOrConsumeAJsonMapper() {
+        contextRunner.run(context -> {
+            assertThat(context).hasSingleBean(DiagnosticTraceStore.class);
+            assertThat(context).doesNotHaveBean(ObjectMapper.class);
+        });
+    }
+
+    @Test
+    void startsWithoutAnyJsonLibraryOnTheClasspath() {
+        contextRunner.withClassLoader(new FilteredClassLoader("com.fasterxml.jackson", "tools.jackson"))
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(context).hasSingleBean(DiagnosticTraceStore.class);
+                });
+    }
 }
