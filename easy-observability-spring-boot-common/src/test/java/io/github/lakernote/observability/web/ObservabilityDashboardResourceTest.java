@@ -67,4 +67,20 @@ class ObservabilityDashboardResourceTest {
         assertThat(metricsRedirect.getStatusCode()).isEqualTo(HttpStatus.PERMANENT_REDIRECT);
         assertThat(metricsRedirect.getHeaders().getLocation()).hasToString("metrics/");
     }
+
+    @Test
+    void keepsThreadIdentityVisibleForSingleThreadTimelines() throws IOException {
+        try (var script = getClass().getClassLoader()
+                .getResourceAsStream("META-INF/resources/easy-observability/assets/dashboard.js")) {
+            assertThat(script).isNotNull();
+            assertThat(new String(script.readAllBytes(), StandardCharsets.UTF_8))
+                    .contains("node('span', 'timeline-thread-heading', '线程')",
+                            "thread.info ? thread.key : '—'",
+                            "const role = !thread.info ? '线程信息未记录'",
+                            "container.insertBefore(legend, scale)")
+                    .doesNotContain("hasMultipleThreads ? thread.key : ''",
+                            "hasMultipleThreads ? '线程' : ''",
+                            "if (hasMultipleThreads)");
+        }
+    }
 }

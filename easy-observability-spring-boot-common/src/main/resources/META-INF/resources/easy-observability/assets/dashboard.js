@@ -201,7 +201,6 @@ function renderTraceTree(container, detailContainer, structuredNodes, totalMs) {
       threadEntries.push(thread)
     }
   }
-  const hasMultipleThreads = threadEntries.length > 1
   const deepest = candidates => candidates.reduce((best, candidate) => {
     if (!best || candidate.depth > best.depth) return candidate
     if (candidate.depth === best.depth
@@ -216,42 +215,45 @@ function renderTraceTree(container, detailContainer, structuredNodes, totalMs) {
     || flat[0]
   const scale = node('div', 'timeline-scale')
   scale.append(node('span', 'timeline-scale-label', ''))
-  scale.append(node('span', 'timeline-thread-heading', hasMultipleThreads ? '线程' : ''))
+  scale.append(node('span', 'timeline-thread-heading', '线程'))
   const ticks = node('span', 'timeline-ticks')
   ticks.append(node('span', '', '0 ms'), node('span', '', `${Math.round(maxMs / 2)} ms`), node('span', '', `${maxMs} ms`))
   scale.append(ticks, node('span', 'timeline-scale-duration', ''))
   container.append(scale)
-  if (hasMultipleThreads) {
-    const legend = node('div', 'thread-legend')
-    legend.append(node('span', 'thread-legend-title', '线程编号'))
-    for (const thread of threadEntries) {
-      const threadName = thread.representative.threadName || `线程 ${thread.representative.threadId || ''}`
-      const role = thread.info?.isEntry ? '入口线程' : '子线程'
-      const item = node('span', `thread-legend-item${thread.info?.isEntry ? ' entry-thread' : ' worker-thread'}`,
-        `${thread.key} · ${role} · ${threadName}`)
-      item.title = `${item.textContent}${thread.representative.threadId == null ? '' : ` · ID ${thread.representative.threadId}`}`
-      legend.append(item)
-    }
-    container.insertBefore(legend, scale)
+  const legend = node('div', 'thread-legend')
+  legend.append(node('span', 'thread-legend-title', '线程编号'))
+  for (const thread of threadEntries) {
+    const threadName = thread.representative.threadName
+      || (thread.representative.threadId == null ? '' : `线程 ${thread.representative.threadId}`)
+    const role = !thread.info ? '线程信息未记录' : thread.info.isEntry ? '入口线程' : '子线程'
+    const threadClass = !thread.info ? ' unknown-thread' : thread.info.isEntry ? ' entry-thread' : ' worker-thread'
+    const item = node('span', `thread-legend-item${threadClass}`,
+      `${thread.info ? thread.key : '—'} · ${role}${threadName ? ` · ${threadName}` : ''}`)
+    item.title = `${item.textContent}${thread.representative.threadId == null ? '' : ` · ID ${thread.representative.threadId}`}`
+    legend.append(item)
   }
+  container.insertBefore(legend, scale)
   if (!hasOffsets && flat.length > 1) container.append(node('p', 'timeline-legacy', '该 Trace 是旧版本记录，未保存节点开始偏移；时间线位置仅供参考。'))
   let selectedRow = null
   let primaryRow = null
   for (const { item, depth, threadKey } of flat) {
     const thread = threadsByKey.get(threadKey)
+    const threadClass = !thread.info ? ' unknown-thread' : thread.info.isEntry ? ' entry-thread' : ' worker-thread'
+    const threadLabel = thread.info ? `${thread.key} ${thread.info.label}` : '线程信息未记录'
     const row = node('button', `timeline-row${item.error ? ' has-error' : item.slow ? ' is-slow' : item.unfinishedAtTraceEnd ? ' is-unfinished' : ''}`)
     row.type = 'button'
     row.style.setProperty('--depth', Math.min(depth, 8))
-    row.setAttribute('aria-label', `${item.kind || '调用'} ${item.name || '未命名'}，${Number(item.durationMs || 0)} 毫秒${hasMultipleThreads ? `，${thread.key} ${thread.info?.label || '线程信息未记录'}` : ''}${item.error ? '，错误' : ''}${item.slow ? '，慢调用' : ''}${item.unfinishedAtTraceEnd ? '，请求结束时仍在运行' : ''}`)
+    row.setAttribute('aria-label', `${item.kind || '调用'} ${item.name || '未命名'}，${Number(item.durationMs || 0)} 毫秒，${threadLabel}${item.error ? '，错误' : ''}${item.slow ? '，慢调用' : ''}${item.unfinishedAtTraceEnd ? '，请求结束时仍在运行' : ''}`)
     const label = node('span', 'timeline-label')
     label.append(node('small', `timeline-kind kind-${String(item.kind || 'other').toLowerCase()}`, item.kind || 'Trace'))
     label.append(node('span', 'timeline-name', item.name || '未命名调用'))
     if (item.error) label.append(node('span', 'tree-state error-state', '错误'))
     if (item.slow) label.append(node('span', 'tree-state slow-state', '慢调用'))
     if (item.unfinishedAtTraceEnd) label.append(node('span', 'tree-state unfinished-state', '请求结束时仍运行'))
-    const threadMarker = node('span', `timeline-thread${thread.info?.isEntry ? ' entry-thread' : ' worker-thread'}`,
-      hasMultipleThreads ? thread.key : '')
-    threadMarker.title = `${thread.key} · ${thread.info?.label || '线程信息未记录'} · ${thread.representative.threadName || ''}${thread.representative.threadId == null ? '' : ` · ID ${thread.representative.threadId}`}`
+    const threadMarker = node('span', `timeline-thread${threadClass}`, thread.info ? thread.key : '—')
+    threadMarker.title = thread.info
+      ? `${thread.key} · ${thread.info.label}${thread.representative.threadName ? ` · ${thread.representative.threadName}` : ''}${thread.representative.threadId == null ? '' : ` · ID ${thread.representative.threadId}`}`
+      : '线程信息未记录'
     const track = node('span', 'timeline-track')
     const bar = node('i', `timeline-bar${item.error ? ' error-fill' : item.slow ? ' slow-fill' : ''}${item.unfinishedAtTraceEnd ? ' is-unfinished' : ''}`)
     const offset = hasOffsets ? Math.max(0, Number(item.startOffsetMs || 0)) : 0
