@@ -39,7 +39,10 @@ public final class DiagnosticTraceStore {
     private final long maxHistoryFileBytes;
     private final Consumer<Runnable> historyWriteExecutor;
     private final ConcurrentLinkedDeque<RecentTraceStore.TraceRecord> diagnosticTraces = new ConcurrentLinkedDeque<>();
-    private final Object storageLock = new Object();
+    /** Guards only short-lived in-memory state so business threads never wait for archive I/O. */
+    private final Object stateLock = new Object();
+    /** Serializes restore, append and clear operations performed against the JSONL archive. */
+    private final Object fileLock = new Object();
     private long clearGeneration;
     private boolean persistenceEnabled = true;
     private boolean storageWarningLogged;
@@ -66,9 +69,9 @@ public final class DiagnosticTraceStore {
     @PostConstruct
     public void restoreHistory() {
         // JSONL 按行恢复；单条记录损坏时跳过该行，尽量保留其他有效历史。
-        synchronized (storageLock) {
+        synchronized (fileLock) {
             try {
-                if (!persistenceEnabled) return;
+                if (!isPersistenceEnabled()) return;
                 if (!Files.isRegularFile(historyFile)) return;
                 if (Files.size(historyFile) > maxHistoryFileBytes) trimHistoryFile();
                 restoreHistoryLines();
@@ -82,8 +85,8 @@ public final class DiagnosticTraceStore {
         if (trace == null || !RecentTraceStore.isEntrySource(trace.sourceType())
                 || !isDiagnosticTrace(trace)) return;
         long writeGeneration;
-        synchronized (storageLock) {
-            addToIndex(trace);
+        synchronized (stateLock) {
+            addToIndexLocked(trace);
             if (!persistenceEnabled) return;
             writeGeneration = clearGeneration;
         }
@@ -100,8 +103,8 @@ public final class DiagnosticTraceStore {
     }
 
     private void appendToFile(RecentTraceStore.TraceRecord trace, long writeGeneration) {
-        synchronized (storageLock) {
-            if (!persistenceEnabled || writeGeneration != clearGeneration) return;
+        synchronized (fileLock) {
+            if (!shouldWrite(writeGeneration)) return;
             try {
                 Files.createDirectories(historyFile.getParent());
                 int maxRecordBytes = (int) maxHistoryRecordBytes();
@@ -147,21 +150,39 @@ public final class DiagnosticTraceStore {
     }
 
     private void disablePersistence(String operation, Exception failure) {
-        synchronized (storageLock) {
+        boolean logWarning;
+        synchronized (stateLock) {
             persistenceEnabled = false;
-            if (storageWarningLogged) return;
+            logWarning = !storageWarningLogged;
             storageWarningLogged = true;
+        }
+        if (logWarning) {
             log.warn("Could not {}; local trace history is disabled until the application restarts; path={}",
                     operation, historyFile, failure);
         }
     }
 
+    private boolean isPersistenceEnabled() {
+        synchronized (stateLock) {
+            return persistenceEnabled;
+        }
+    }
+
+    private boolean shouldWrite(long writeGeneration) {
+        synchronized (stateLock) {
+            return persistenceEnabled && writeGeneration == clearGeneration;
+        }
+    }
+
     /** Clears the diagnostic JSONL history and its in-memory index; queued earlier writes are discarded. */
     public int clearHistory() throws java.io.IOException {
-        synchronized (storageLock) {
-            clearGeneration++;
-            int cleared = diagnosticTraces.size();
-            diagnosticTraces.clear();
+        synchronized (fileLock) {
+            int cleared;
+            synchronized (stateLock) {
+                clearGeneration++;
+                cleared = diagnosticTraces.size();
+                diagnosticTraces.clear();
+            }
             Files.deleteIfExists(historyFile);
             Files.deleteIfExists(historyFile.resolveSibling(historyFile.getFileName() + ".tmp"));
             return cleared;
@@ -180,8 +201,8 @@ public final class DiagnosticTraceStore {
     }
 
     public StorageStatus storageStatus() {
-        synchronized (storageLock) {
-            if (!persistenceEnabled) {
+        synchronized (fileLock) {
+            if (!isPersistenceEnabled()) {
                 return new StorageStatus(diagnosticTraces.size(), maxHistorySize, 0, maxHistoryFileBytes, false);
             }
             try {
@@ -213,6 +234,12 @@ public final class DiagnosticTraceStore {
     }
 
     private void addToIndex(RecentTraceStore.TraceRecord trace) {
+        synchronized (stateLock) {
+            addToIndexLocked(trace);
+        }
+    }
+
+    private void addToIndexLocked(RecentTraceStore.TraceRecord trace) {
         if (trace == null || !RecentTraceStore.isEntrySource(trace.sourceType())
                 || !isDiagnosticTrace(trace)) return;
         diagnosticTraces.removeIf(item -> trace.traceId().equals(item.traceId())

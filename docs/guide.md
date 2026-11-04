@@ -63,7 +63,7 @@ easy:
 
 RRD 历史使用独立的 Micrometer `StepMeterRegistry`。采样周期或保留期变化会重建固定大小的 RRD 文件并清除旧的本地指标历史。多实例部署时，每个实例应使用独立目录；该历史不会自动跨实例汇总。采样与长周期归档的统计口径会显示在 Metrics 页面说明中。
 
-诊断 Trace 归档超过 `diagnostic-max-bytes` 后会流式裁剪到约一半容量，只保留最新的有界记录，不会把异常增大的文件整体载入内存。单条记录编码后若超过 `diagnostic-max-bytes` 或 16MB（取较小值），仍保留在内存窗口中，但不会写入本地归档。若运行时存储 I/O 失败，归档会降级到仅内存模式直到应用重启，`/api/easy-observability/traces/storage` 的 `diagnosticPersistenceEnabled` 会返回 `false`。
+诊断 Trace 归档超过 `diagnostic-max-bytes` 后会流式裁剪到约一半容量，只保留最新的有界记录，不会把异常增大的文件整体载入内存。单条记录编码后若超过 `diagnostic-max-bytes` 或 16MB（取较小值），仍保留在内存窗口中，但不会写入本地归档。后台序列化、裁剪和文件 I/O 不持有业务记录入口的状态锁，慢磁盘不会让请求、Kafka 消费或任务线程等待归档 I/O。若运行时存储 I/O 失败，归档会降级到仅内存模式直到应用重启，`/api/easy-observability/traces/storage` 的 `diagnosticPersistenceEnabled` 会返回 `false`。
 
 `step`、`retention-days`、`max-storage-bytes` 等无效配置仍会阻止应用启动，以便尽早暴露配置错误。若已有 RRD 文件超过当前容量上限，或运行时因目录权限、只读文件系统、磁盘 I/O 导致 RRD 历史不可用，组件会记录警告并停用本地历史，但不会中断宿主应用；Metrics 页面会显示“存储降级”。修复存储问题后需要重启应用以恢复历史采集。
 

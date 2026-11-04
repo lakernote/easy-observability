@@ -7,20 +7,28 @@ import ch.qos.logback.core.read.ListAppender;
 import io.github.lakernote.observability.trace.store.RecentTraceStore;
 import io.github.lakernote.observability.trace.store.DiagnosticTraceStore;
 
+import com.fasterxml.jackson.core.JsonGenerator;
+import com.fasterxml.jackson.databind.JsonSerializer;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializerProvider;
+import com.fasterxml.jackson.databind.module.SimpleModule;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -144,6 +152,54 @@ class TraceStorePersistenceTest {
 
         assertThat(tracesFile).doesNotExist();
         assertThat(store.findRecent(100)).hasSize(33);
+    }
+
+    @Test
+    void blockedBackgroundSerializationDoesNotBlockLaterTraceRecording() throws Exception {
+        CountDownLatch serializationStarted = new CountDownLatch(1);
+        CountDownLatch releaseSerialization = new CountDownLatch(1);
+        AtomicBoolean blockFirstSerialization = new AtomicBoolean(true);
+        SimpleModule module = new SimpleModule();
+        module.addSerializer(RecentTraceStore.TraceRecord.class,
+                new JsonSerializer<RecentTraceStore.TraceRecord>() {
+                    @Override
+                    public void serialize(RecentTraceStore.TraceRecord value, JsonGenerator generator,
+                                          SerializerProvider serializers) throws IOException {
+                        if (blockFirstSerialization.compareAndSet(true, false)) {
+                            serializationStarted.countDown();
+                            try {
+                                releaseSerialization.await();
+                            } catch (InterruptedException interrupted) {
+                                Thread.currentThread().interrupt();
+                                throw new IOException("Interrupted while simulating blocked trace serialization",
+                                        interrupted);
+                            }
+                        }
+                        generator.writeString(value.traceId());
+                    }
+                });
+        ObjectMapper mapper = new ObjectMapper().findAndRegisterModules().registerModule(module);
+        BoundedHistoryWriter writer = new BoundedHistoryWriter();
+        DiagnosticTraceStore store = new DiagnosticTraceStore(mapper,
+                directory.resolve("non-blocking-history.jsonl").toString(), 1000, 4 * 1024 * 1024, writer);
+        ExecutorService businessExecutor = Executors.newSingleThreadExecutor();
+        try {
+            store.recordDiagnosticTrace(trace(
+                    "blocked-writer", "HTTP", Instant.parse("2026-10-21T10:00:00Z")));
+            assertThat(serializationStarted.await(5, TimeUnit.SECONDS)).isTrue();
+
+            Future<?> laterRecord = businessExecutor.submit(() -> store.recordDiagnosticTrace(trace(
+                    "business-not-blocked", "HTTP", Instant.parse("2026-10-21T10:00:01Z"))));
+            laterRecord.get(2, TimeUnit.SECONDS);
+
+            assertThat(store.findRecent(10)).extracting(RecentTraceStore.TraceRecord::traceId)
+                    .containsExactly("business-not-blocked", "blocked-writer");
+        } finally {
+            releaseSerialization.countDown();
+            businessExecutor.shutdown();
+            if (!businessExecutor.awaitTermination(5, TimeUnit.SECONDS)) businessExecutor.shutdownNow();
+            writer.close();
+        }
     }
 
     @Test
