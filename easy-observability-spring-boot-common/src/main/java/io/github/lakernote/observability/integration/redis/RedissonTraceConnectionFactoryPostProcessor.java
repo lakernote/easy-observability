@@ -3,6 +3,11 @@ package io.github.lakernote.observability.integration.redis;
 import io.github.lakernote.observability.trace.SpanKind;
 import io.github.lakernote.observability.trace.TraceContext;
 import io.micrometer.core.instrument.MeterRegistry;
+import org.aopalliance.intercept.MethodInterceptor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.aop.framework.ProxyFactory;
+import org.springframework.aop.support.AopUtils;
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.data.redis.connection.RedisConnection;
@@ -12,15 +17,22 @@ import org.springframework.util.ClassUtils;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.lang.reflect.Proxy;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.function.Supplier;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Instruments Redisson commands that are issued through Spring Data Redis connections. */
 public final class RedissonTraceConnectionFactoryPostProcessor implements BeanPostProcessor {
+    private static final Logger log = LoggerFactory.getLogger(RedissonTraceConnectionFactoryPostProcessor.class);
+    private static final Set<MethodSignature> CONNECTION_FACTORY_METHODS = connectionFactoryMethods();
     private final Supplier<? extends MeterRegistry> metricsRegistryProvider;
+    private final AtomicBoolean connectionProxyFailureLogged = new AtomicBoolean();
     private volatile boolean metricsRegistryResolved;
     private volatile MeterRegistry metricsRegistry;
 
@@ -34,14 +46,44 @@ public final class RedissonTraceConnectionFactoryPostProcessor implements BeanPo
                 || !ClassUtils.getUserClass(bean).getName().startsWith("org.redisson.spring.data.connection.RedissonConnectionFactory")) {
             return bean;
         }
-        Set<Class<?>> interfaces = publicInterfaces(bean.getClass());
-        interfaces.add(RedisConnectionFactory.class);
-        return Proxy.newProxyInstance(bean.getClass().getClassLoader(), interfaces.toArray(Class<?>[]::new),
-                (proxy, method, args) -> {
-                    if (method.getDeclaringClass() == Object.class) return invokeTarget(method, factory, args);
-                    Object result = invokeTarget(method, factory, args);
-                    return result instanceof RedisConnection connection ? wrap(connection) : result;
-                });
+        Class<?> runtimeClass = bean.getClass();
+        Class<?> userClass = ClassUtils.getUserClass(bean);
+        if (AopUtils.isAopProxy(bean)) {
+            log.warn("Redisson tracing is disabled for connection factory '{}' because type {} is already proxied",
+                    beanName, userClass.getName());
+            return bean;
+        }
+        try {
+            if (!supportsTypePreservingProxy(runtimeClass)) {
+                log.warn("Redisson tracing is disabled for connection factory '{}' because type {} cannot be "
+                        + "safely class-proxied", beanName, userClass.getName());
+                return bean;
+            }
+            ProxyFactory proxyFactory = new ProxyFactory();
+            proxyFactory.setTarget(factory);
+            proxyFactory.setProxyTargetClass(true);
+            proxyFactory.addAdvice((MethodInterceptor) invocation -> {
+                Object result = invocation.proceed();
+                if (!(result instanceof RedisConnection connection)
+                        || !CONNECTION_FACTORY_METHODS.contains(MethodSignature.from(invocation.getMethod()))) {
+                    return result;
+                }
+                try {
+                    return wrap(connection);
+                } catch (RuntimeException | LinkageError failure) {
+                    if (connectionProxyFailureLogged.compareAndSet(false, true)) {
+                        log.warn("Redisson tracing is disabled for a connection returned by factory '{}' because "
+                                + "its type {} could not be proxied", beanName, connection.getClass().getName(), failure);
+                    }
+                    return connection;
+                }
+            });
+            return proxyFactory.getProxy(runtimeClass.getClassLoader());
+        } catch (RuntimeException | LinkageError failure) {
+            log.warn("Redisson tracing is disabled for connection factory '{}' because a type-preserving proxy for "
+                    + "{} could not be created", beanName, userClass.getName(), failure);
+            return bean;
+        }
     }
 
     RedisConnection wrap(RedisConnection connection) {
@@ -147,5 +189,31 @@ public final class RedissonTraceConnectionFactoryPostProcessor implements BeanPo
                     .forEach(interfaces::add);
         }
         return interfaces;
+    }
+
+    private static boolean supportsTypePreservingProxy(Class<?> targetClass) {
+        if (Modifier.isFinal(targetClass.getModifiers())) return false;
+        for (Method method : targetClass.getMethods()) {
+            int modifiers = method.getModifiers();
+            if (method.getDeclaringClass() != Object.class && !Modifier.isStatic(modifiers)
+                    && Modifier.isFinal(modifiers)) return false;
+        }
+        return true;
+    }
+
+    private static Set<MethodSignature> connectionFactoryMethods() {
+        Set<MethodSignature> methods = new HashSet<>();
+        for (Method method : RedisConnectionFactory.class.getMethods()) {
+            if (RedisConnection.class.isAssignableFrom(method.getReturnType())) {
+                methods.add(MethodSignature.from(method));
+            }
+        }
+        return Set.copyOf(methods);
+    }
+
+    private record MethodSignature(String name, List<Class<?>> parameterTypes) {
+        private static MethodSignature from(Method method) {
+            return new MethodSignature(method.getName(), List.of(method.getParameterTypes()));
+        }
     }
 }
