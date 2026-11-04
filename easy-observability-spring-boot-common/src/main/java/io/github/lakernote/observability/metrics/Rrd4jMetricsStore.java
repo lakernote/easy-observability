@@ -165,7 +165,7 @@ public final class Rrd4jMetricsStore {
             if (Files.exists(file)) {
                 long existingBytes = Files.size(file);
                 if (existingBytes > maxStorageBytes) {
-                    throw new IllegalArgumentException("Existing RRD history exceeds easy.observability.metrics.max-storage-bytes: "
+                    throw new IOException("Existing RRD history exceeds easy.observability.metrics.max-storage-bytes: "
                             + file);
                 }
                 try (RrdDb ignored = open()) { }

@@ -6,8 +6,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.util.unit.DataSize;
 
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.util.Map;
 import java.util.Set;
@@ -211,6 +214,26 @@ class Rrd4jMetricsStoreTest {
 
         assertDoesNotThrow(() -> store.update(Map.of("process_cpu_pct", 12.5)));
         assertFalse(store.status().initialized());
+        assertTrue(assertDoesNotThrow(() -> store.fetch("1h")).points().isEmpty());
+    }
+
+    @Test
+    void disablesLocalHistoryWithoutFailingWhenExistingRrdExceedsConfiguredLimit() throws Exception {
+        EasyObservabilityProperties.Metrics settings = properties();
+        long maxStorageBytes = settings.getMaxStorageBytes().toBytes();
+        Path rrdFile = directory.resolve("common-metrics-v7-10s-30d.rrd");
+        try (FileChannel channel = FileChannel.open(rrdFile, StandardOpenOption.CREATE_NEW,
+                StandardOpenOption.WRITE)) {
+            channel.position(maxStorageBytes);
+            channel.write(ByteBuffer.wrap(new byte[]{1}));
+        }
+        assertEquals(maxStorageBytes + 1, Files.size(rrdFile));
+
+        Rrd4jMetricsStore store = assertDoesNotThrow(() -> new Rrd4jMetricsStore(settings));
+
+        assertFalse(store.status().initialized());
+        assertEquals(0, store.status().storageBytes());
+        assertDoesNotThrow(() -> store.update(Map.of("process_cpu_pct", 12.5)));
         assertTrue(assertDoesNotThrow(() -> store.fetch("1h")).points().isEmpty());
     }
 
