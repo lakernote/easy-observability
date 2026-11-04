@@ -83,7 +83,8 @@ public class ObservabilityController {
                 diagnosticStorage == null ? 0 : diagnosticStorage.traceCount(),
                 diagnosticStorage == null ? 0 : diagnosticStorage.maxTraceCount(),
                 diagnosticStorage == null ? 0 : diagnosticStorage.fileBytes(),
-                diagnosticStorage == null ? 0 : diagnosticStorage.maxFileBytes());
+                diagnosticStorage == null ? 0 : diagnosticStorage.maxFileBytes(),
+                diagnosticStorage != null && diagnosticStorage.persistenceEnabled());
     }
 
     @GetMapping("/diagnostics")
@@ -148,7 +149,14 @@ public class ObservabilityController {
 
     public record TraceStorageStatus(int recentTraceCount, int recentTraceCapacity, int diagnosticTraceCount,
                                      int diagnosticTraceCapacity, long diagnosticFileBytes,
-                                     long diagnosticFileMaxBytes) { }
+                                     long diagnosticFileMaxBytes, boolean diagnosticPersistenceEnabled) {
+        public TraceStorageStatus(int recentTraceCount, int recentTraceCapacity, int diagnosticTraceCount,
+                                  int diagnosticTraceCapacity, long diagnosticFileBytes,
+                                  long diagnosticFileMaxBytes) {
+            this(recentTraceCount, recentTraceCapacity, diagnosticTraceCount, diagnosticTraceCapacity,
+                    diagnosticFileBytes, diagnosticFileMaxBytes, true);
+        }
+    }
 
     public record ClearStorageResult(int clearedDiagnosticTraceCount, int clearedRecentTraceCount) { }
 

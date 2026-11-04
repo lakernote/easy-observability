@@ -144,6 +144,7 @@ class ObservabilityControllerTest {
         assertThat(status.recentTraceCount()).isEqualTo(1);
         assertThat(status.recentTraceCapacity()).isEqualTo(12);
         assertThat(status.diagnosticTraceCapacity()).isZero();
+        assertThat(status.diagnosticPersistenceEnabled()).isFalse();
     }
 
     private static void record(RecentTraceStore history, String traceId, String name, String method, String sourceType,

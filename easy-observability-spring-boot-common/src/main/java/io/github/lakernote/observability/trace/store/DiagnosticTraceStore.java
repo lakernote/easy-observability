@@ -26,6 +26,8 @@ public final class DiagnosticTraceStore {
     private final ConcurrentLinkedDeque<RecentTraceStore.TraceRecord> diagnosticTraces = new ConcurrentLinkedDeque<>();
     private final Object storageLock = new Object();
     private long clearGeneration;
+    private boolean persistenceEnabled = true;
+    private boolean storageWarningLogged;
 
     public DiagnosticTraceStore(ObjectMapper mapper, String historyFile, int maxHistorySize, long maxHistoryFileBytes) {
         this(mapper, historyFile, maxHistorySize, maxHistoryFileBytes, Runnable::run);
@@ -49,8 +51,9 @@ public final class DiagnosticTraceStore {
     public void restoreHistory() {
         // JSONL 按行恢复；单条记录损坏时跳过该行，尽量保留其他有效历史。
         synchronized (storageLock) {
-            if (!Files.isRegularFile(historyFile)) return;
             try {
+                if (!persistenceEnabled) return;
+                if (!Files.isRegularFile(historyFile)) return;
                 if (Files.size(historyFile) > maxHistoryFileBytes) trimHistoryFile();
                 for (String line : Files.readAllLines(historyFile, StandardCharsets.UTF_8)) {
                     try {
@@ -60,7 +63,9 @@ public final class DiagnosticTraceStore {
                     }
                     catch (Exception invalid) { log.debug("Skipping malformed Easy Observability trace record", invalid); }
                 }
-            } catch (Exception failure) { log.warn("Failed to restore Easy Observability trace history: {}", historyFile, failure); }
+            } catch (Exception failure) {
+                disablePersistence("restore trace history", failure);
+            }
         }
     }
 
@@ -70,10 +75,15 @@ public final class DiagnosticTraceStore {
         long writeGeneration;
         synchronized (storageLock) {
             addToIndex(trace);
+            if (!persistenceEnabled) return;
             writeGeneration = clearGeneration;
         }
         // Starter 默认通过有界后台队列写文件，避免磁盘 I/O 占用请求线程。
-        historyWriteExecutor.accept(() -> appendToFile(trace, writeGeneration));
+        try {
+            historyWriteExecutor.accept(() -> appendToFile(trace, writeGeneration));
+        } catch (RuntimeException failure) {
+            disablePersistence("schedule trace history write", failure);
+        }
     }
 
     private static boolean isDiagnosticTrace(RecentTraceStore.TraceRecord trace) {
@@ -82,7 +92,7 @@ public final class DiagnosticTraceStore {
 
     private void appendToFile(RecentTraceStore.TraceRecord trace, long writeGeneration) {
         synchronized (storageLock) {
-            if (writeGeneration != clearGeneration) return;
+            if (!persistenceEnabled || writeGeneration != clearGeneration) return;
             try {
                 Files.createDirectories(historyFile.getParent());
                 byte[] bytes = (objectMapper.writeValueAsString(trace) + "\n").getBytes(StandardCharsets.UTF_8);
@@ -91,7 +101,19 @@ public final class DiagnosticTraceStore {
                 }
                 Files.write(historyFile, bytes, java.nio.file.StandardOpenOption.CREATE,
                         java.nio.file.StandardOpenOption.WRITE, java.nio.file.StandardOpenOption.APPEND);
-            } catch (Exception failure) { log.warn("Failed to write Easy Observability trace history", failure); }
+            } catch (Exception failure) {
+                disablePersistence("write trace history", failure);
+            }
+        }
+    }
+
+    private void disablePersistence(String operation, Exception failure) {
+        synchronized (storageLock) {
+            persistenceEnabled = false;
+            if (storageWarningLogged) return;
+            storageWarningLogged = true;
+            log.warn("Could not {}; local trace history is disabled until the application restarts; path={}",
+                    operation, historyFile, failure);
         }
     }
 
@@ -119,12 +141,18 @@ public final class DiagnosticTraceStore {
     }
 
     public StorageStatus storageStatus() {
-        long bytes = 0;
-        try {
-            if (Files.isRegularFile(historyFile)) bytes = Files.size(historyFile);
-        } catch (Exception ignored) {
+        synchronized (storageLock) {
+            if (!persistenceEnabled) {
+                return new StorageStatus(diagnosticTraces.size(), maxHistorySize, 0, maxHistoryFileBytes, false);
+            }
+            try {
+                long bytes = Files.isRegularFile(historyFile) ? Files.size(historyFile) : 0;
+                return new StorageStatus(diagnosticTraces.size(), maxHistorySize, bytes, maxHistoryFileBytes, true);
+            } catch (Exception failure) {
+                disablePersistence("inspect trace history", failure);
+                return new StorageStatus(diagnosticTraces.size(), maxHistorySize, 0, maxHistoryFileBytes, false);
+            }
         }
-        return new StorageStatus(diagnosticTraces.size(), maxHistorySize, bytes, maxHistoryFileBytes);
     }
 
     public RecentTraceStore.TraceRecord findByTraceId(String traceId) {
@@ -177,5 +205,10 @@ public final class DiagnosticTraceStore {
         }
     }
 
-    public record StorageStatus(int traceCount, int maxTraceCount, long fileBytes, long maxFileBytes) { }
+    public record StorageStatus(int traceCount, int maxTraceCount, long fileBytes, long maxFileBytes,
+                                boolean persistenceEnabled) {
+        public StorageStatus(int traceCount, int maxTraceCount, long fileBytes, long maxFileBytes) {
+            this(traceCount, maxTraceCount, fileBytes, maxFileBytes, true);
+        }
+    }
 }
