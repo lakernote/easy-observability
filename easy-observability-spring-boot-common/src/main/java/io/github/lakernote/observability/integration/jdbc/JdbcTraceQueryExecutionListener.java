@@ -1,6 +1,5 @@
 package io.github.lakernote.observability.integration.jdbc;
 
-import io.github.lakernote.observability.trace.BoundedThrowableFormatter;
 import io.github.lakernote.observability.trace.SpanKind;
 import io.github.lakernote.observability.trace.TraceContext;
 import net.ttddyy.dsproxy.ExecutionInfo;
@@ -12,7 +11,6 @@ import java.util.List;
 /** 将 JDBC 执行记录为当前 Trace 的子节点，不发布 Micrometer Observation。 */
 public final class JdbcTraceQueryExecutionListener implements QueryExecutionListener {
     private static final String TRACE_STATE_KEY = JdbcTraceQueryExecutionListener.class.getName() + ".traceState";
-    private static final String SAFE_ERROR_MESSAGE = "JDBC query failed";
 
     @Override
     public void beforeQuery(ExecutionInfo executionInfo, List<QueryInfo> queryInfoList) {
@@ -44,7 +42,7 @@ public final class JdbcTraceQueryExecutionListener implements QueryExecutionList
 
             Throwable failure = executionInfo.getThrowable();
             if (failure != null) {
-                TraceContext.markError("SQL_ERROR", safeFailureEvidence(failure));
+                TraceContext.markError("SQL_ERROR", JdbcTraceSafety.captureFailure(failure));
             }
         } catch (Throwable ignored) {
             // Trace 回调不能替换 JDBC 结果或原始异常。
@@ -56,15 +54,6 @@ public final class JdbcTraceQueryExecutionListener implements QueryExecutionList
                     // Trace 清理失败不能传播到业务代码。
                 }
             }
-        }
-    }
-
-    private static BoundedThrowableFormatter.FailureEvidence safeFailureEvidence(Throwable failure) {
-        try {
-            return BoundedThrowableFormatter.captureWithoutMessages(failure, SAFE_ERROR_MESSAGE);
-        } catch (Throwable ignored) {
-            String type = failure.getClass().getName();
-            return new BoundedThrowableFormatter.FailureEvidence(type, SAFE_ERROR_MESSAGE, type);
         }
     }
 

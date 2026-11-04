@@ -11,7 +11,9 @@ import io.micrometer.observation.ObservationRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
+import java.sql.SQLException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -45,6 +47,77 @@ class ObservationTraceHandlerTest {
         history.add("trace-redis-1", "GET /cache", "GET", "HTTP", 200, 20, false, false,
                 completion[0].nodes(), "", -1, -1, -1, "", "", "", false, false);
         assertThat(TraceNodeFixtures.names(history.find("trace-redis-1", "HTTP").treeNodes())).contains("GET");
+    }
+
+    @Test
+    void redactsJdbcObservationSqlAndDriverFailureEvidence() {
+        EasyObservabilityProperties properties = new EasyObservabilityProperties();
+        ObservationRegistry registry = ObservationRegistry.create();
+        registry.observationConfig().observationHandler(new ObservationTraceHandler(
+                new RecentTraceStore(10), null, properties, java.util.List.of()));
+        String sqlSecret = "observation-secret-c91e--tail";
+        String causeSecret = "bind-secret-4d2e";
+        SQLException failure = new SQLException(
+                "Syntax error in SQL SELECT '" + sqlSecret + "'",
+                new IllegalArgumentException(causeSecret));
+        AtomicReference<TraceContext.DeferredCompletion> completion = new AtomicReference<>();
+
+        TraceContext.startRoot("jdbc-observation", SpanKind.HTTP);
+        Observation observation = Observation.createNotStarted("spring.jdbc", registry)
+                .contextualName("SELECT")
+                .lowCardinalityKeyValue("db.operation", "SELECT")
+                .lowCardinalityKeyValue("jdbc.datasource.name", "orders")
+                .highCardinalityKeyValue("jdbc.query[0]",
+                        "SELECT '" + sqlSecret + "' FROM missing_table");
+        observation.start();
+        observation.error(failure);
+        observation.stop();
+        TraceContext.stopRootDeferred(null, completion::set);
+
+        TraceContext.DeferredCompletion result = completion.get();
+        assertThat(result.error()).isTrue();
+        assertThat(result.reasons()).containsExactly("DATABASE_ERROR");
+        assertThat(result.errorType()).isEqualTo(SQLException.class.getName());
+        assertThat(result.errorMessage()).isEqualTo("JDBC query failed");
+        assertThat(result.stackTrace())
+                .contains(SQLException.class.getName(), IllegalArgumentException.class.getName())
+                .doesNotContain(sqlSecret, causeSecret, "Syntax error in SQL", "secret");
+        assertThat(result.tree())
+                .contains("[Database] SELECT", "orders · SELECT ? FROM missing_table")
+                .doesNotContain(sqlSecret, causeSecret, "secret");
+        assertThat(result.nodes()).flatExtracting(node -> node.children())
+                .anySatisfy(node -> {
+                    assertThat(node.kind()).isEqualTo("Database");
+                    assertThat(node.error()).isTrue();
+                    assertThat(node.errorType()).isEqualTo(SQLException.class.getName());
+                });
+    }
+
+    @Test
+    void redactsJdbcFailureDiscoveredOnlyAtObservationStop() {
+        EasyObservabilityProperties properties = new EasyObservabilityProperties();
+        ObservationTraceHandler handler = new ObservationTraceHandler(
+                new RecentTraceStore(10), null, properties, java.util.List.of());
+        Observation.Context context = new Observation.Context();
+        context.setName("spring.jdbc");
+        context.setContextualName("SELECT");
+        context.addHighCardinalityKeyValue(io.micrometer.common.KeyValue.of(
+                "jdbc.query[0]", "SELECT 'stop-secret--tail'"));
+        SQLException failure = new SQLException("driver-stop-secret");
+        AtomicReference<TraceContext.DeferredCompletion> completion = new AtomicReference<>();
+
+        TraceContext.startRoot("jdbc-observation-stop", SpanKind.HTTP);
+        handler.onStart(context);
+        context.setError(failure);
+        handler.onStop(context);
+        TraceContext.stopRootDeferred(null, completion::set);
+
+        assertThat(completion.get().error()).isTrue();
+        assertThat(completion.get().reasons()).containsExactly("DATABASE_ERROR");
+        assertThat(completion.get().errorType()).isEqualTo(SQLException.class.getName());
+        assertThat(completion.get().errorMessage()).isEqualTo("JDBC query failed");
+        assertThat(completion.get().stackTrace()).doesNotContain("driver-stop-secret", "secret");
+        assertThat(completion.get().tree()).contains("SELECT ?").doesNotContain("stop-secret", "secret");
     }
 
     @Test

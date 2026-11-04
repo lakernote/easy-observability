@@ -1,6 +1,7 @@
 package io.github.lakernote.observability.integration.observation;
 
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
+import io.github.lakernote.observability.integration.jdbc.JdbcTraceSafety;
 import io.github.lakernote.observability.trace.*;
 import io.github.lakernote.observability.trace.store.DiagnosticTraceStore;
 import io.github.lakernote.observability.trace.store.RecentTraceStore;
@@ -13,7 +14,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.regex.Pattern;
 
 /**
  * 将 Spring/Micrometer 发布的框架 Observation 接入统一 Trace。
@@ -22,9 +22,6 @@ import java.util.regex.Pattern;
 public final class ObservationTraceHandler implements ObservationHandler<Observation.Context> {
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(ObservationTraceHandler.class);
     private static final Object STATE_KEY = ObservationTraceHandler.class.getName() + ".state";
-    private static final Pattern SQL_LITERAL = Pattern.compile("'(?:''|[^'])*'|\\b[0-9]+(?:\\.[0-9]+)?\\b");
-    private static final Pattern SQL_COMMENT = Pattern.compile("(?s)/\\*.*?\\*/|--[^\\r\\n]*");
-
     private final RecentTraceStore recentTraceStore;
     private final EasyObservabilityProperties properties;
     private final DiagnosticTraceStore diagnosticTraceStore;
@@ -133,14 +130,7 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
         ObservationState state = context.get(STATE_KEY);
         if (state == null || context.getError() == null) return;
         try {
-            BoundedThrowableFormatter.FailureEvidence failure = BoundedThrowableFormatter.capture(context.getError());
-            state.failure = failure;
-            if (state.spanHandle != null) state.spanHandle.markError(failure);
-            if (state.traceHandle != null) {
-                state.traceHandle.markError(state.observationType.name() + "_ERROR", failure);
-            } else if (state.startedOnCurrentThread()) {
-                TraceContext.markError(state.observationType.name() + "_ERROR", failure);
-            }
+            markFailure(state, context.getError(), state.startedOnCurrentThread());
         } catch (RuntimeException failure) {
             logCallbackFailure("error", failure);
         }
@@ -152,7 +142,7 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
         if (state == null) return;
         boolean sameThread = state.startedOnCurrentThread();
         try {
-            // JDBC query text is fixed at observation start; avoid re-running sanitization regexes on completion.
+            // JDBC query text is fixed at observation start; avoid scanning and sanitizing it again on completion.
             String currentDetail = state.observationType == ObservationType.DATABASE
                     ? state.startDetail : observationDetail(context, state.observationType);
             // Spring MVC 的 URI 路由标签可能到 onStop 才补齐；此时再判断，避免诊断页轮询占满 Trace 保留区。
@@ -168,10 +158,13 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
             Throwable error = context.getError();
             String commandError = state.observationType == ObservationType.REDIS
                     ? highCardinality(context, "lettuce.command.error") : "";
-            if (error != null && state.spanHandle != null) {
-                BoundedThrowableFormatter.FailureEvidence failure = state.failure == null
-                        ? BoundedThrowableFormatter.capture(error) : state.failure;
-                state.spanHandle.markError(failure);
+            if (error != null) {
+                if (state.failure == null) {
+                    // Some instrumentation only exposes the error at stop; preserve the same child/root semantics.
+                    markFailure(state, error, sameThread);
+                } else if (state.spanHandle != null) {
+                    state.spanHandle.markError(state.failure);
+                }
             }
             int status = httpStatus(context);
             boolean failed = error != null || status >= 500 || !commandError.isBlank();
@@ -378,13 +371,29 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
         for (KeyValue value : context.getHighCardinalityKeyValues()) {
             if (value.getKey().startsWith("jdbc.query[")) {
                 if (!value.getValue().isBlank()) {
-                    String withoutComments = SQL_COMMENT.matcher(value.getValue()).replaceAll(" ");
-                    String withoutLiterals = SQL_LITERAL.matcher(withoutComments).replaceAll("?");
-                    return withoutLiterals.replaceAll("\\s+", " ").trim();
+                    return JdbcTraceSafety.sanitizeSql(value.getValue());
                 }
             }
         }
         return "";
+    }
+
+    private static BoundedThrowableFormatter.FailureEvidence failureEvidence(
+            ObservationType type, Throwable failure) {
+        return type == ObservationType.DATABASE
+                ? JdbcTraceSafety.captureFailure(failure)
+                : BoundedThrowableFormatter.capture(failure);
+    }
+
+    private static void markFailure(ObservationState state, Throwable error, boolean sameThread) {
+        BoundedThrowableFormatter.FailureEvidence failure = failureEvidence(state.observationType, error);
+        if (state.spanHandle != null) state.spanHandle.markError(failure);
+        if (state.traceHandle != null) {
+            state.traceHandle.markError(state.observationType.name() + "_ERROR", failure);
+        } else if (sameThread) {
+            TraceContext.markError(state.observationType.name() + "_ERROR", failure);
+        }
+        state.failure = failure;
     }
 
     private static boolean isDashboardRequest(Observation.Context context) {
