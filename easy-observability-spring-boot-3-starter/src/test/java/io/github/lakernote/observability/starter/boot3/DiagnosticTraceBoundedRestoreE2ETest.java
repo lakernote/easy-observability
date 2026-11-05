@@ -130,9 +130,11 @@ class DiagnosticTraceBoundedRestoreE2ETest {
     private static RecentTraceStore.TraceRecord trace(int index, String detail, Instant finishedAt) {
         String traceId = index == 0 ? OLDEST_TRACE_ID
                 : index == RECORD_COUNT - 1 ? LATEST_TRACE_ID : "restore-trace-" + index;
-        return new RecentTraceStore.TraceRecord(index + 1L, traceId, "GET /restore/" + index, detail,
-                500, 5, false, true, List.of(), finishedAt, -1, -1, -1, "HTTP",
-                IllegalStateException.class.getName(), "history failure", "", "", false, false);
+        return RecentTraceStore.TraceRecord.builder()
+                .id(index + 1L).traceId(traceId).sourceType("HTTP").name("GET /restore/" + index).method(detail)
+                .status(500).durationMs(5).error(true).finishedAt(finishedAt)
+                .errorType(IllegalStateException.class.getName()).errorMessage("history failure")
+                .build();
     }
 
     private record PreparedHistory(Path directory, Path file, long originalBytes) { }

@@ -12,8 +12,11 @@ class ObservabilityControllerTest {
     @Test
     void returnsOnlySlowAndErrorTraces() {
         RecentTraceStore history = new RecentTraceStore(10);
-        record(history, "trace-1", "OrdersController#create", "POST /orders", "HTTP", 201, 12, false, false, "", "", -1, -1, -1, "", "", "");
-        record(history, "trace-2", "OrdersController#slow", "GET /orders", "HTTP", 200, 900, true, false, "", "", -1, -1, -1, "", "", "");
+        history.add(trace().traceId("trace-1").sourceType("HTTP")
+                .name("OrdersController#create").method("POST /orders").status(201).durationMs(12).build());
+        history.add(trace().traceId("trace-2").sourceType("HTTP")
+                .name("OrdersController#slow").method("GET /orders").status(200).durationMs(900)
+                .slow(true).build());
         ObservabilityController controller = new ObservabilityController(history, null, allowAll());
 
         var traces = controller.traces(100, "", "");
@@ -33,7 +36,9 @@ class ObservabilityControllerTest {
     @Test
     void clearsRecentTraceWindowThroughProtectedClearAction() throws Exception {
         RecentTraceStore history = new RecentTraceStore(10);
-        record(history, "trace-1", "GET /orders", "GET", "HTTP", 200, 12, false, false, "tree", "", -1, -1, -1, "", "", "");
+        history.add(trace().traceId("trace-1").sourceType("HTTP")
+                .name("GET /orders").method("GET").status(200).durationMs(12)
+                .treeNodes(TraceNodeFixtures.named("tree")).build());
         ObservabilityController controller = new ObservabilityController(history, null, allowAll());
 
         var result = controller.clearTraceHistory();
@@ -54,7 +59,9 @@ class ObservabilityControllerTest {
     @Test
     void deniesClearActionByDefaultEvenWhenViewIsAllowed() {
         RecentTraceStore history = new RecentTraceStore(10);
-        record(history, "trace-1", "GET /orders", "GET", "HTTP", 200, 900, true, false, "tree", "", -1, -1, -1, "", "", "");
+        history.add(trace().traceId("trace-1").sourceType("HTTP")
+                .name("GET /orders").method("GET").status(200).durationMs(900)
+                .slow(true).treeNodes(TraceNodeFixtures.named("tree")).build());
         ObservabilityController controller = new ObservabilityController(history, null, () -> true);
 
         assertThatThrownBy(controller::clearTraceHistory)
@@ -79,8 +86,13 @@ class ObservabilityControllerTest {
     @Test
     void slowAndErrorListsReturnRootTracesFilteredByTheirEntrySource() {
         RecentTraceStore history = new RecentTraceStore(10);
-        record(history, "http-slow", "OrdersController#list", "GET /orders", "HTTP", 200, 900, true, false, "http tree", "", -1, -1, -1, "", "", "");
-        record(history, "job-error", "NightlyJob#run", "nightly-job", "JOB", 500, 120, false, true, "job tree", "", 7, 2, 100, "TransactionRollback", "query failed", "");
+        history.add(trace().traceId("http-slow").sourceType("HTTP")
+                .name("OrdersController#list").method("GET /orders").status(200).durationMs(900)
+                .slow(true).treeNodes(TraceNodeFixtures.named("http tree")).build());
+        history.add(trace().traceId("job-error").sourceType("JOB")
+                .name("NightlyJob#run").method("nightly-job").status(500).durationMs(120)
+                .error(true).treeNodes(TraceNodeFixtures.named("job tree")).threadId(7).cpuTimeMs(2)
+                .allocatedBytes(100).errorType("TransactionRollback").errorMessage("query failed").build());
         ObservabilityController controller = new ObservabilityController(history, null, allowAll());
 
         var slow = controller.diagnostics("slow", "", 100);
@@ -96,9 +108,15 @@ class ObservabilityControllerTest {
     @Test
     void diagnosticTraceDrillDownNeverExposesDependencyOperationsAsRoots() {
         RecentTraceStore history = new RecentTraceStore(10);
-        record(history, "http-1", "GET /orders", "GET", "HTTP", 200, 40, false, false, "http tree", "", -1, -1, -1, "", "", "");
-        record(history, "redis-1", "Redis get", "get", "REDIS", 200, 1, true, false, "redis tree", "", -1, -1, -1, "", "", "");
-        record(history, "transaction-1", "OrderService#create", "write", "TRANSACTION", 500, 100, false, true, "transaction tree", "", -1, -1, -1, "", "", "");
+        history.add(trace().traceId("http-1").sourceType("HTTP")
+                .name("GET /orders").method("GET").status(200).durationMs(40)
+                .treeNodes(TraceNodeFixtures.named("http tree")).build());
+        history.add(trace().traceId("redis-1").sourceType("REDIS")
+                .name("Redis get").method("get").status(200).durationMs(1)
+                .slow(true).treeNodes(TraceNodeFixtures.named("redis tree")).build());
+        history.add(trace().traceId("transaction-1").sourceType("TRANSACTION")
+                .name("OrderService#create").method("write").status(500).durationMs(100)
+                .error(true).treeNodes(TraceNodeFixtures.named("transaction tree")).build());
         ObservabilityController controller = new ObservabilityController(history, null, allowAll());
 
         assertThat(controller.traces(100, "", "")).isEmpty();
@@ -111,8 +129,12 @@ class ObservabilityControllerTest {
     @Test
     void keepsDistinctEntryRootsWhenHttpAndKafkaShareOneTraceId() {
         RecentTraceStore history = new RecentTraceStore(10);
-        record(history, "shared-trace", "/api/demo/kafka/error", "GET", "HTTP", 200, 35, false, false, "http tree", "", -1, -1, -1, "", "", "");
-        record(history, "shared-trace", "receive", "", "KAFKA_CONSUMER", 200, 4, false, true, "kafka tree", "", -1, -1, -1, "", "", "");
+        history.add(trace().traceId("shared-trace").sourceType("HTTP")
+                .name("/api/demo/kafka/error").method("GET").status(200).durationMs(35)
+                .treeNodes(TraceNodeFixtures.named("http tree")).build());
+        history.add(trace().traceId("shared-trace").sourceType("KAFKA_CONSUMER")
+                .name("receive").method("").status(200).durationMs(4)
+                .error(true).treeNodes(TraceNodeFixtures.named("kafka tree")).build());
         ObservabilityController controller = new ObservabilityController(history, null, allowAll());
 
         assertThat(controller.traces(10, "", "")).extracting(RecentTraceStore.TraceRecord::sourceType)
@@ -124,8 +146,12 @@ class ObservabilityControllerTest {
     @Test
     void filtersTraceListBySource() {
         RecentTraceStore history = new RecentTraceStore(10);
-        record(history, "job-trace", "nightly cleanup", "", "JOB", 200, 120, true, false, "tree", "", -1, -1, -1, "", "", "");
-        record(history, "http-trace", "GET /orders", "GET", "HTTP", 200, 20, false, false, "tree", "", -1, -1, -1, "", "", "");
+        history.add(trace().traceId("job-trace").sourceType("JOB")
+                .name("nightly cleanup").method("").status(200).durationMs(120)
+                .slow(true).treeNodes(TraceNodeFixtures.named("tree")).build());
+        history.add(trace().traceId("http-trace").sourceType("HTTP")
+                .name("GET /orders").method("GET").status(200).durationMs(20)
+                .treeNodes(TraceNodeFixtures.named("tree")).build());
         ObservabilityController controller = new ObservabilityController(history, null, allowAll());
 
         var matches = controller.traces(100, "JOB", "");
@@ -139,8 +165,14 @@ class ObservabilityControllerTest {
     @Test
     void searchesRecentTraceTreesForSqlAndDependencyDetails() {
         RecentTraceStore history = new RecentTraceStore(10);
-        record(history, "sql-trace", "GET /orders", "GET", "HTTP", 200, 400, true, false, "`- [Database] query tag=\"select * from orders where id = ?\" 7ms", "", -1, -1, -1, "", "", "");
-        record(history, "other-trace", "GET /health", "GET", "HTTP", 200, 3, false, false, "health tree", "", -1, -1, -1, "", "", "");
+        history.add(trace().traceId("sql-trace").sourceType("HTTP")
+                .name("GET /orders").method("GET").status(200).durationMs(400)
+                .slow(true)
+                .treeNodes(TraceNodeFixtures.named("`- [Database] query tag=\"select * from orders where id = ?\" 7ms"))
+                .build());
+        history.add(trace().traceId("other-trace").sourceType("HTTP")
+                .name("GET /health").method("GET").status(200).durationMs(3)
+                .treeNodes(TraceNodeFixtures.named("health tree")).build());
         ObservabilityController controller = new ObservabilityController(history, null, allowAll());
 
         var matches = controller.traces(100, "HTTP", "select * from orders");
@@ -151,7 +183,10 @@ class ObservabilityControllerTest {
     @Test
     void searchesKafkaTraceByListenerThreadName() {
         RecentTraceStore history = new RecentTraceStore(10);
-        record(history, "kafka-trace", "receive", "", "KAFKA_CONSUMER", 500, 8, false, true, "kafka tree", "demo-listener-0-C-1", 11, 1, 512, "", "", "");
+        history.add(trace().traceId("kafka-trace").sourceType("KAFKA_CONSUMER")
+                .name("receive").method("").status(500).durationMs(8)
+                .error(true).treeNodes(TraceNodeFixtures.named("kafka tree")).threadName("demo-listener-0-C-1")
+                .threadId(11).cpuTimeMs(1).allocatedBytes(512).build());
         ObservabilityController controller = new ObservabilityController(history, null, allowAll());
 
         var matches = controller.traces(100, "KAFKA_CONSUMER", "demo-listener-0");
@@ -162,7 +197,9 @@ class ObservabilityControllerTest {
     @Test
     void reportsTheMemoryTraceHistoryCapacity() {
         RecentTraceStore history = new RecentTraceStore(12);
-        record(history, "trace-1", "GET /orders", "GET", "HTTP", 200, 20, false, false, "tree", "", -1, -1, -1, "", "", "");
+        history.add(trace().traceId("trace-1").sourceType("HTTP")
+                .name("GET /orders").method("GET").status(200).durationMs(20)
+                .treeNodes(TraceNodeFixtures.named("tree")).build());
         ObservabilityController controller = new ObservabilityController(history, null, allowAll());
 
         var status = controller.traceStorage();
@@ -173,13 +210,8 @@ class ObservabilityControllerTest {
         assertThat(status.diagnosticPersistenceEnabled()).isFalse();
     }
 
-    private static void record(RecentTraceStore history, String traceId, String name, String method, String sourceType,
-                              int status, long durationMs, boolean slow, boolean error, String tree, String threadName,
-                              long threadId, long cpuTimeMs, long allocatedBytes, String errorType, String errorMessage,
-                              String errorStackTrace) {
-        history.add(traceId, name, method, sourceType, status, durationMs, slow, error,
-                TraceNodeFixtures.named(tree), threadName, threadId, cpuTimeMs, allocatedBytes, errorType,
-                errorMessage, errorStackTrace, false, false);
+    private static RecentTraceStore.TraceRecord.Builder trace() {
+        return RecentTraceStore.TraceRecord.builder();
     }
 
     private static ObservabilityAccessPolicy allowAll() {

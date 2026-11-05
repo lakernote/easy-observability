@@ -20,7 +20,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.LinkedHashSet;
-import java.util.List;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -106,9 +105,12 @@ class DashboardContextPathE2ETest {
         assertThat(metricsApi).isEqualTo(traceApi);
 
         recentTraceStore.clear();
-        recentTraceStore.add("context-path-trace", "GET /context-path", "GET", "HTTP", 503,
-                12, false, true, List.of(), "test-thread", Thread.currentThread().getId(),
-                -1, -1, IllegalStateException.class.getName(), "context failure", "", false, false);
+        recentTraceStore.add(RecentTraceStore.TraceRecord.builder()
+                .traceId("context-path-trace").sourceType("HTTP").name("GET /context-path").method("GET")
+                .status(503).durationMs(12).error(true)
+                .threadName("test-thread").threadId(Thread.currentThread().getId())
+                .errorType(IllegalStateException.class.getName()).errorMessage("context failure")
+                .build());
 
         HttpResponse<String> traces = get(traceApi.resolve("traces?limit=500"));
         assertThat(traces.statusCode()).isEqualTo(200);

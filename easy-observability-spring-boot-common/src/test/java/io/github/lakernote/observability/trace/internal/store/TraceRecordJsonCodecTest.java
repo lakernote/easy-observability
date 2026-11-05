@@ -41,9 +41,12 @@ class TraceRecordJsonCodecTest {
     @Test
     void archiveFormatIsStable() throws IOException {
         TraceNode node = new TraceNode("Database", "q\"1", "", 2, 7L, false, true, false, "", "w", 3, List.of());
-        RecentTraceStore.TraceRecord trace = new RecentTraceStore.TraceRecord(1, "t", "n", "GET", 500, 9, true,
-                false, List.of(node), Instant.parse("2026-10-21T10:00:00Z"), 4, 5, 6, "HTTP", "E", "m\n", "th", "",
-                false, true);
+        RecentTraceStore.TraceRecord trace = RecentTraceStore.TraceRecord.builder()
+                .id(1).traceId("t").sourceType("HTTP").name("n").method("GET").status(500).durationMs(9)
+                .slow(true).highAllocation(true).treeNodes(List.of(node))
+                .finishedAt(Instant.parse("2026-10-21T10:00:00Z"))
+                .threadId(4).threadName("th").cpuTimeMs(5).allocatedBytes(6).errorType("E").errorMessage("m\n")
+                .build();
 
         assertThat(new String(encode(trace), StandardCharsets.UTF_8)).isEqualTo("{\"id\":1,\"traceId\":\"t\","
                 + "\"name\":\"n\",\"method\":\"GET\",\"status\":500,\"durationMs\":9,\"slow\":true,\"error\":false,"
@@ -124,10 +127,14 @@ class TraceRecordJsonCodecTest {
                 "SQLTimeout", "worker-2", 78, List.of());
         TraceNode root = new TraceNode("Http", "HTTP GET", TRICKY, 845, 0L, true, true, false,
                 "HTTP_5XX", "http-nio-1", 77, List.of(child));
-        return new RecentTraceStore.TraceRecord(42, "trace-1", "GET /orders/{id}", "GET", 500, 845, true, true,
-                List.of(root), Instant.parse("2026-10-21T10:00:00.123Z"), 77, Long.MAX_VALUE, Long.MIN_VALUE,
-                "HTTP", "HTTP_5XX", TRICKY, "http-nio-1", "java.lang.IllegalStateException\n\tat x.y(Z.java:1)",
-                false, true);
+        return RecentTraceStore.TraceRecord.builder()
+                .id(42).traceId("trace-1").sourceType("HTTP").name("GET /orders/{id}").method("GET")
+                .status(500).durationMs(845).slow(true).error(true).highAllocation(true).treeNodes(List.of(root))
+                .finishedAt(Instant.parse("2026-10-21T10:00:00.123Z"))
+                .threadId(77).threadName("http-nio-1").cpuTimeMs(Long.MAX_VALUE).allocatedBytes(Long.MIN_VALUE)
+                .errorType("HTTP_5XX").errorMessage(TRICKY)
+                .errorStackTrace("java.lang.IllegalStateException\n\tat x.y(Z.java:1)")
+                .build();
     }
 
     private static final class CloseTrackingStream extends ByteArrayOutputStream {

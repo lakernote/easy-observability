@@ -1,8 +1,9 @@
 package io.github.lakernote.observability.trace.internal.store;
 
-import org.junit.jupiter.api.Test;
 import io.github.lakernote.observability.trace.internal.TraceNodeFixtures;
+import org.junit.jupiter.api.Test;
 
+import java.time.Instant;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -11,9 +12,9 @@ class RecentTraceStoreTest {
     @Test
     void onlyKeepsInboundEntryPointsAsTraceRoots() {
         RecentTraceStore history = new RecentTraceStore(10);
-        history.add("http-1", "GET /orders", "GET", "HTTP", 200, 8, false, false, TraceNodeFixtures.named("http tree"), "", -1, -1, -1, "", "", "", false, false);
-        history.add("redis-1", "Redis get", "get", "REDIS", 200, 1, false, false, TraceNodeFixtures.named("redis tree"), "", -1, -1, -1, "", "", "", false, false);
-        history.add("transaction-1", "OrderService#create", "write", "TRANSACTION", 200, 4, false, false, TraceNodeFixtures.named("transaction tree"), "", -1, -1, -1, "", "", "", false, false);
+        history.add(trace("http-1", "HTTP").build());
+        assertThat(history.add(trace("redis-1", "REDIS").build())).isNull();
+        assertThat(history.add(trace("transaction-1", "TRANSACTION").build())).isNull();
 
         assertThat(history.recent(10)).extracting(RecentTraceStore.TraceRecord::traceId)
                 .containsExactly("http-1");
@@ -24,9 +25,12 @@ class RecentTraceStoreTest {
     @Test
     void keepsOnlyNewestTreesAndStoresEntryResourcesOnTheTrace() {
         RecentTraceStore history = new RecentTraceStore(2);
-        history.add("trace-1", "first", "GET /first", "HTTP", 200, 5, false, false, TraceNodeFixtures.named("first tree"), "", -1, -1, -1, "", "", "", false, false);
-        history.add("trace-2", "second", "GET /second", "HTTP", 500, 40, true, true, TraceNodeFixtures.named("second tree"), "", 12, 8, 4096, "HTTP_500", "request failed", "", false, false);
-        history.add("trace-3", "third", "GET /third", "HTTP", 200, 7, false, false, TraceNodeFixtures.named("third tree"), "", -1, -1, -1, "", "", "", false, false);
+        history.add(trace("trace-1", "HTTP").build());
+        history.add(trace("trace-2", "HTTP").status(500).durationMs(40).slow(true).error(true)
+                .treeNodes(TraceNodeFixtures.named("second tree"))
+                .threadId(12).cpuTimeMs(8).allocatedBytes(4096)
+                .errorType("HTTP_500").errorMessage("request failed").build());
+        history.add(trace("trace-3", "HTTP").build());
 
         List<RecentTraceStore.TraceRecord> records = history.recent(10);
 
@@ -45,16 +49,56 @@ class RecentTraceStoreTest {
     }
 
     @Test
+    void assignsIdentityAndReturnsTheStoredRecord() {
+        RecentTraceStore history = new RecentTraceStore(10);
+        Instant before = Instant.now();
+
+        RecentTraceStore.TraceRecord first = history.add(trace("trace-1", "HTTP").id(99)
+                .finishedAt(Instant.EPOCH).durationMs(-5).build());
+        RecentTraceStore.TraceRecord second = history.add(trace("trace-2", "JOB").build());
+
+        assertThat(first.id()).isEqualTo(1);
+        assertThat(second.id()).isEqualTo(2);
+        assertThat(first.finishedAt()).isAfterOrEqualTo(before);
+        assertThat(first.durationMs()).isZero();
+        assertThat(history.find("trace-1", "HTTP")).isSameAs(first);
+    }
+
+    @Test
+    void builderDefaultsDescribeUnknownResourcesAndNoFailure() {
+        RecentTraceStore.TraceRecord trace = RecentTraceStore.TraceRecord.builder().traceId("t").build();
+
+        assertThat(trace.threadId()).isEqualTo(-1);
+        assertThat(trace.cpuTimeMs()).isEqualTo(-1);
+        assertThat(trace.allocatedBytes()).isEqualTo(-1);
+        assertThat(trace.treeNodes()).isEmpty();
+        assertThat(trace.sourceType()).isEmpty();
+        assertThat(trace.errorType()).isEmpty();
+        assertThat(trace.errorMessage()).isEmpty();
+        assertThat(trace.errorStackTrace()).isEmpty();
+        assertThat(trace.threadName()).isEmpty();
+    }
+
+    @Test
     void selectsRequestedEntrySourceWhenKafkaAndHttpShareTraceId() {
         RecentTraceStore history = new RecentTraceStore(10);
-        history.add("shared-trace", "/api/demo/real-flow", "GET", "HTTP", 200, 500, true, false, TraceNodeFixtures.named("http tree"), "", 1, 12, 2048, "", "", "", false, false);
-        history.add("shared-trace", "receive", "", "KAFKA_CONSUMER", 200, 20, false, false, TraceNodeFixtures.named("kafka tree"), "", 2, 3, 512, "", "", "", false, false);
+        history.add(trace("shared-trace", "HTTP").treeNodes(TraceNodeFixtures.named("http tree"))
+                .cpuTimeMs(12).build());
+        history.add(trace("shared-trace", "KAFKA_CONSUMER").treeNodes(TraceNodeFixtures.named("kafka tree"))
+                .cpuTimeMs(3).build());
 
         assertThat(history.find("shared-trace", "").sourceType()).isEqualTo("HTTP");
         assertThat(history.find("shared-trace", "").treeNodes()).extracting("name").containsExactly("http tree");
-        assertThat(history.find("shared-trace", "KAFKA_CONSUMER").treeNodes()).extracting("name").containsExactly("kafka tree");
+        assertThat(history.find("shared-trace", "KAFKA_CONSUMER").treeNodes()).extracting("name")
+                .containsExactly("kafka tree");
         assertThat(history.find("shared-trace", "KAFKA_CONSUMER").cpuTimeMs()).isEqualTo(3);
         assertThat(history.recent(10)).extracting(RecentTraceStore.TraceRecord::sourceType)
                 .containsExactly("KAFKA_CONSUMER", "HTTP");
+    }
+
+    private static RecentTraceStore.TraceRecord.Builder trace(String traceId, String sourceType) {
+        return RecentTraceStore.TraceRecord.builder().traceId(traceId).sourceType(sourceType)
+                .name(traceId).method("GET").status(200).durationMs(5)
+                .treeNodes(TraceNodeFixtures.named(traceId + " tree"));
     }
 }

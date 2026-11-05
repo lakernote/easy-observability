@@ -44,8 +44,8 @@ class ObservationTraceHandlerTest {
         TraceContext.stopRoot(Long.MAX_VALUE, "test", null, result -> completion[0] = result);
         assertThat(completion[0].tree()).contains("[Redis] GET");
         assertThat(completion[0].slow()).isFalse();
-        history.add("trace-redis-1", "GET /cache", "GET", "HTTP", 200, 20, false, false,
-                completion[0].nodes(), "", -1, -1, -1, "", "", "", false, false);
+        history.add(RecentTraceStore.TraceRecord.builder().traceId("trace-redis-1").sourceType("HTTP")
+                .name("GET /cache").method("GET").status(200).durationMs(20).treeNodes(completion[0].nodes()).build());
         assertThat(TraceNodeFixtures.names(history.find("trace-redis-1", "HTTP").treeNodes())).contains("GET");
     }
 
@@ -133,8 +133,9 @@ class ObservationTraceHandlerTest {
         observation.start().stop();
 
         assertThat(history.recent(10)).isEmpty();
-        history.add("orphan-trace", "GET /cache", "GET", "HTTP", 200, 10, false, false,
-                TraceNodeFixtures.named("tree"), "", -1, -1, -1, "", "", "", false, false);
+        history.add(RecentTraceStore.TraceRecord.builder().traceId("orphan-trace").sourceType("HTTP")
+                .name("GET /cache").method("GET").status(200).durationMs(10)
+                .treeNodes(TraceNodeFixtures.named("tree")).build());
 
         assertThat(TraceNodeFixtures.names(history.find("orphan-trace", "HTTP").treeNodes())).containsExactly("tree");
     }

@@ -62,10 +62,12 @@ class DiagnosticTraceArchiveFormatE2ETest {
 
     @Test
     void archiveKeepsItsOwnFormatWhileTheApiFollowsTheHostJsonSettings() throws Exception {
-        diagnosticTraceStore.recordDiagnosticTrace(new RecentTraceStore.TraceRecord(
-                1, "archive-format-trace", "GET /archive", "GET", 500, 12, false, true, List.of(),
-                Instant.parse("2026-10-21T10:00:00Z"), 7, 1, 2, "HTTP", "HTTP_5XX", "boom 中文", "worker", "",
-                false, false));
+        diagnosticTraceStore.recordDiagnosticTrace(RecentTraceStore.TraceRecord.builder()
+                .id(1).traceId("archive-format-trace").sourceType("HTTP").name("GET /archive").method("GET")
+                .status(500).durationMs(12).error(true).finishedAt(Instant.parse("2026-10-21T10:00:00Z"))
+                .threadId(7).threadName("worker").cpuTimeMs(1).allocatedBytes(2)
+                .errorType("HTTP_5XX").errorMessage("boom 中文")
+                .build());
 
         String line = awaitArchivedLine();
         assertThat(line)

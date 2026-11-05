@@ -262,15 +262,30 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
         boolean traceFailed = failed || completion.error();
         // Retain resource-heavy roots as diagnostics even when their wall-clock duration is low.
         if (!traceSlow && !traceFailed && !highCpu && !highAllocation) return;
-        recentTraceStore.add(state.traceId, displayName, detail, state.observationType.name(),
-                status > 0 ? status : failed ? 500 : 200, durationMs, traceSlow, traceFailed, completion.nodes(),
-                state.startThreadName, state.startThreadId, cpuTimeMs, allocatedBytes,
-                completion.errorType(), completion.errorMessage(), completion.stackTrace(), highCpu, highAllocation);
-        if (diagnosticTraceStore == null) return;
+        RecentTraceStore.TraceRecord stored = recentTraceStore.add(RecentTraceStore.TraceRecord.builder()
+                .traceId(state.traceId)
+                .sourceType(state.observationType.name())
+                .name(displayName)
+                .method(detail)
+                .status(status > 0 ? status : failed ? 500 : 200)
+                .durationMs(durationMs)
+                .slow(traceSlow)
+                .error(traceFailed)
+                .highCpu(highCpu)
+                .highAllocation(highAllocation)
+                .treeNodes(completion.nodes())
+                .threadName(state.startThreadName)
+                .threadId(state.startThreadId)
+                .cpuTimeMs(cpuTimeMs)
+                .allocatedBytes(allocatedBytes)
+                .errorType(completion.errorType())
+                .errorMessage(completion.errorMessage())
+                .errorStackTrace(completion.stackTrace())
+                .build());
+        if (diagnosticTraceStore == null || stored == null) return;
         // 内存近期列表和持久存储只保留慢、错或资源超阈值的入口 Trace。
         try {
-            diagnosticTraceStore.recordDiagnosticTrace(
-                    recentTraceStore.find(state.traceId, state.observationType.name()));
+            diagnosticTraceStore.recordDiagnosticTrace(stored);
         } catch (RuntimeException failure) {
             logCallbackFailure("diagnostic trace persistence", failure);
         }

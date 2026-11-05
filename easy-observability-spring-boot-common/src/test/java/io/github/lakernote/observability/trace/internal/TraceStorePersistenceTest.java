@@ -37,11 +37,14 @@ class TraceStorePersistenceTest {
     void persistsDiagnosticTraceTreeAndEntryResourcesAcrossRestart() {
         Path tracesFile = directory.resolve("traces.jsonl");
         BoundedHistoryWriter writer = new BoundedHistoryWriter();
-        RecentTraceStore.TraceRecord trace = new RecentTraceStore.TraceRecord(1, "trace-123", "GET /orders/{id}",
-                "GET /orders/{id}", 500, 845, true, true,
-                List.of(new TraceNode("Http", "HTTP GET", "", 845, 0L, true, true, false, "HTTP_5XX", "", 77,
-                        List.of(new TraceNode("Database", "SQL select", "", 2, 1L, false, false, false, "", "", 77, List.of())))),
-                Instant.parse("2026-10-15T10:00:00Z"), 77, 51, 2048, "HTTP", "HTTP_5XX", "500", "", "", false, false);
+        RecentTraceStore.TraceRecord trace = RecentTraceStore.TraceRecord.builder()
+                .id(1).traceId("trace-123").sourceType("HTTP").name("GET /orders/{id}").method("GET /orders/{id}")
+                .status(500).durationMs(845).slow(true).error(true)
+                .treeNodes(List.of(new TraceNode("Http", "HTTP GET", "", 845, 0L, true, true, false, "HTTP_5XX", "", 77,
+                        List.of(new TraceNode("Database", "SQL select", "", 2, 1L, false, false, false, "", "", 77, List.of())))))
+                .finishedAt(Instant.parse("2026-10-15T10:00:00Z"))
+                .threadId(77).cpuTimeMs(51).allocatedBytes(2048).errorType("HTTP_5XX").errorMessage("500")
+                .build();
         DiagnosticTraceStore diagnosticStore = new DiagnosticTraceStore(tracesFile, 1000,
                 4 * 1024 * 1024, writer);
         diagnosticStore.restoreHistory();
@@ -331,13 +334,16 @@ class TraceStorePersistenceTest {
     }
 
     private static RecentTraceStore.TraceRecord trace(String traceId, String source, Instant finishedAt) {
-        return new RecentTraceStore.TraceRecord(1, traceId, source, "", 500, 5,
-                false, true, TraceNodeFixtures.named(source + " tree"), finishedAt, -1, -1, -1, source, "", "", "", "", false, false);
+        return RecentTraceStore.TraceRecord.builder()
+                .id(1).traceId(traceId).sourceType(source).name(source).method("").status(500).durationMs(5)
+                .error(true).treeNodes(TraceNodeFixtures.named(source + " tree")).finishedAt(finishedAt)
+                .build();
     }
 
     private static RecentTraceStore.TraceRecord traceWithDetail(String traceId, String detail, Instant finishedAt) {
-        return new RecentTraceStore.TraceRecord(1, traceId, traceId, detail, 500, 5,
-                false, true, TraceNodeFixtures.named("HTTP tree"), finishedAt, -1, -1, -1,
-                "HTTP", "", "", "", "", false, false);
+        return RecentTraceStore.TraceRecord.builder()
+                .id(1).traceId(traceId).sourceType("HTTP").name(traceId).method(detail).status(500).durationMs(5)
+                .error(true).treeNodes(TraceNodeFixtures.named("HTTP tree")).finishedAt(finishedAt)
+                .build();
     }
 }

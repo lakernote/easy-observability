@@ -32,7 +32,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -159,10 +158,12 @@ class DiagnosticTraceConcurrentRecordE2ETest {
 
         @GetMapping("/record/{id}")
         String record(@PathVariable String id) {
-            store.recordDiagnosticTrace(new RecentTraceStore.TraceRecord(
-                    1, "trace-" + id, "/record/" + id, "GET", 200, 1,
-                    true, false, List.of(), Instant.now(), Thread.currentThread().getId(),
-                    0, 0, "HTTP", "", "", Thread.currentThread().getName(), "", false, false));
+            store.recordDiagnosticTrace(RecentTraceStore.TraceRecord.builder()
+                    .id(1).traceId("trace-" + id).sourceType("HTTP").name("/record/" + id).method("GET")
+                    .status(200).durationMs(1).slow(true).finishedAt(Instant.now())
+                    .threadId(Thread.currentThread().getId()).threadName(Thread.currentThread().getName())
+                    .cpuTimeMs(0).allocatedBytes(0)
+                    .build());
             return "recorded-" + id;
         }
 
