@@ -3,6 +3,7 @@ package io.github.lakernote.observability.integration.observation.internal;
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
 import io.github.lakernote.observability.integration.jdbc.internal.JdbcTraceSafety;
 import io.github.lakernote.observability.integration.observation.ObservationTraceIdResolver;
+import io.github.lakernote.observability.stats.internal.OperationStats;
 import io.github.lakernote.observability.trace.TraceIdContext;
 import io.github.lakernote.observability.trace.internal.BoundedThrowableFormatter;
 import io.github.lakernote.observability.trace.internal.BoundedThrowableFormatter.FailureEvidence;
@@ -35,15 +36,25 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
     private final EasyObservabilityProperties properties;
     private final DiagnosticTraceStore diagnosticTraceStore;
     private final List<ObservationTraceIdResolver> traceIdResolvers;
+    private final OperationStats operationStats;
     private final AtomicBoolean callbackFailureLogged = new AtomicBoolean();
 
     public ObservationTraceHandler(RecentTraceStore recentTraceStore, DiagnosticTraceStore diagnosticTraceStore,
                                    EasyObservabilityProperties properties,
                                    List<ObservationTraceIdResolver> traceIdResolvers) {
+        this(recentTraceStore, diagnosticTraceStore, properties, traceIdResolvers, null);
+    }
+
+    /** {@code operationStats} may be null when call statistics are disabled. */
+    public ObservationTraceHandler(RecentTraceStore recentTraceStore, DiagnosticTraceStore diagnosticTraceStore,
+                                   EasyObservabilityProperties properties,
+                                   List<ObservationTraceIdResolver> traceIdResolvers,
+                                   OperationStats operationStats) {
         this.recentTraceStore = recentTraceStore;
         this.diagnosticTraceStore = diagnosticTraceStore;
         this.properties = properties;
         this.traceIdResolvers = List.copyOf(traceIdResolvers);
+        this.operationStats = operationStats;
     }
 
     @Override
@@ -152,7 +163,8 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
                 if (ownsRoot) state.traceHandle.discard();
                 return;
             }
-            long durationMs = Math.max(0, TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - state.startedAtNanos));
+            long durationNanos = Math.max(0, System.nanoTime() - state.startedAtNanos);
+            long durationMs = TimeUnit.NANOSECONDS.toMillis(durationNanos);
             ThreadResourceSnapshot resourcesAtStop = state.root ? state.resourcesAtStop() : null;
             Throwable error = context.getError();
             if (error != null) {
@@ -170,6 +182,8 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
             // 通过所属 Trace 句柄更新标记，不读取结束线程当前的 ThreadLocal Trace。
             if (slow) markSlow(state);
             if (state.span != null) state.span.close();
+            recordStats(context, state, detail, durationNanos,
+                    error != null || state.failure != null || status >= 500 || redisFailed);
             if (!ownsRoot) return;
             String displayName = displayName(context, state.type, state.operationName, detail);
             state.traceHandle.updateRootIdentity(displayName, detail);
@@ -186,6 +200,15 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
             if (state.startedOnCurrentThread()) clearInstalledTraceId(state);
             context.remove(STATE_KEY);
         }
+    }
+
+    private void recordStats(Observation.Context context, ObservationState state, String detail, long durationNanos,
+                             boolean failed) {
+        if (operationStats == null) return;
+        OperationStats.Category category = statsCategory(state.type);
+        if (category == null) return;
+        operationStats.record(category, statsName(context, state.type, state.operationName, detail),
+                statsTraceQuery(context, state.type), durationNanos, failed);
     }
 
     private void storeCompletedTrace(ObservationState state, TraceCompletion completion, RootOutcome outcome) {

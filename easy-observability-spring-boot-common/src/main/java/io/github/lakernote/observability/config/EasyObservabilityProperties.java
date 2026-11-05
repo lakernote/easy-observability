@@ -17,6 +17,7 @@ public class EasyObservabilityProperties {
     private final Web web = new Web();
     private final Metrics metrics = new Metrics();
     private final Storage storage = new Storage();
+    private final Stats stats = new Stats();
 
     public boolean isEnabled() {
         return enabled;
@@ -40,6 +41,29 @@ public class EasyObservabilityProperties {
 
     public Storage getStorage() {
         return storage;
+    }
+
+    public Stats getStats() {
+        return stats;
+    }
+
+    /**
+     * In-memory per-operation statistics (HTTP endpoints, SQL, remote calls, Redis commands, jobs, Kafka) shown on
+     * the statistics page. Requires {@code easy.observability.trace.enabled}; data resets on restart.
+     */
+    public static class Stats {
+        private boolean enabled = true;
+        /** Maximum number of distinct operations kept across all categories; later ones are merged per category. */
+        private int maxKeys = 1_000;
+        /** Disk budget for the daily statistics files; the oldest days are deleted beyond it. */
+        private DataSize maxStorageSize = DataSize.ofMegabytes(64);
+
+        public boolean isEnabled() { return enabled; }
+        public DataSize getMaxStorageSize() { return maxStorageSize; }
+        public void setMaxStorageSize(DataSize maxStorageSize) { this.maxStorageSize = maxStorageSize; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+        public int getMaxKeys() { return maxKeys; }
+        public void setMaxKeys(int maxKeys) { this.maxKeys = maxKeys; }
     }
 
     public static class Storage {

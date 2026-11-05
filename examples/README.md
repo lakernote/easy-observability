@@ -17,13 +17,13 @@ docker compose -f examples/docker-compose.yml up -d --wait
 
 ```bash
 mvn -pl examples/easy-observability-example-spring-boot-3 -am package
-java -jar examples/easy-observability-example-spring-boot-3/target/easy-observability-example-spring-boot-3-0.1.0-alpha.3.jar
+java -jar examples/easy-observability-example-spring-boot-3/target/easy-observability-example-spring-boot-3-0.1.0-alpha.4.jar
 
 mvn -pl examples/easy-observability-example-spring-boot-4 -am package
-java -jar examples/easy-observability-example-spring-boot-4/target/easy-observability-example-spring-boot-4-0.1.0-alpha.3.jar
+java -jar examples/easy-observability-example-spring-boot-4/target/easy-observability-example-spring-boot-4-0.1.0-alpha.4.jar
 ```
 
-打开应用主页，Trace 页面为 `/easy-observability/`，指标趋势页为 `/easy-observability/metrics/`。Boot 3 示例可用 `http://localhost:8083/`，Boot 4 示例可用 `http://localhost:8084/`。
+打开应用主页，Trace 页面为 `/easy-observability/`，调用排行页为 `/easy-observability/stats/`，指标趋势页为 `/easy-observability/metrics/`。Boot 3 示例可用 `http://localhost:8083/`，Boot 4 示例可用 `http://localhost:8084/`。
 
 页面和查询 API 默认允许访问；两个示例额外通过 `DemoAccessConfiguration` 定义了允许所有人清空历史的 `ObservabilityAccessPolicy`。仅用于本机体验，不要将示例直接暴露到不可信网络。生产应用应复用自己的登录和授权，详见[接入与配置指南](../docs/guide.md#页面和-api-访问)。
 

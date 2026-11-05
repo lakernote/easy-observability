@@ -11,6 +11,47 @@ import static org.assertj.core.api.Assertions.assertThat;
 class JdbcTraceSqlTest {
 
     @Test
+    void statisticsKeyCollapsesVariableLengthPlaceholderLists() {
+        assertThat(statsName("SELECT * FROM orders WHERE id IN (1, 2, 3) AND status = 'x'"))
+                .isEqualTo("SELECT * FROM orders WHERE id IN (?…) AND status = ?");
+        assertThat(statsName("select * from orders where id in (?)"))
+                .isEqualTo(statsName("select * from orders where id in ( ?,?,? )"))
+                .isEqualTo("select * from orders where id in (?…)");
+        assertThat(statsName("INSERT INTO t (a, b) VALUES (?, ?), (?, ?), (3, 'x')"))
+                .isEqualTo(statsName("INSERT INTO t (a, b) VALUES (?, ?), (?, ?)"))
+                .isEqualTo("INSERT INTO t (a, b) VALUES (?, ?), …");
+        assertThat(statsName("INSERT INTO t (a, b) VALUES (?, ?)")).isEqualTo("INSERT INTO t (a, b) VALUES (?, ?)");
+        assertThat(statsName("SELECT now()")).isEqualTo("SELECT now()");
+    }
+
+    @Test
+    void statisticsKeyForStatementBatchUsesFirstStatementOnly() {
+        List<QueryInfo> two = List.of(new QueryInfo("DELETE FROM a WHERE id = 1"), new QueryInfo("DELETE FROM b"));
+        List<QueryInfo> three = List.of(new QueryInfo("DELETE FROM a WHERE id = 2"), new QueryInfo("DELETE FROM b"),
+                new QueryInfo("DELETE FROM c"));
+
+        assertThat(JdbcTraceSql.statsName(two, JdbcTraceSql.describe(two)))
+                .isEqualTo(JdbcTraceSql.statsName(three, JdbcTraceSql.describe(three)))
+                .isEqualTo("DELETE FROM a WHERE id = ? [batch]");
+        assertThat(JdbcTraceSql.commandOf("delete from a")).isEqualTo("DELETE");
+    }
+
+    @Test
+    void traceQueryIsThePrefixThatTraceTagsAlsoContain() {
+        assertThat(JdbcTraceSql.traceQuery("SELECT * FROM t WHERE id IN (?…) AND a = ?"))
+                .isEqualTo("SELECT * FROM t WHERE id IN");
+        assertThat(JdbcTraceSql.traceQuery("INSERT INTO t (a, b) VALUES (?, ?), …"))
+                .isEqualTo("INSERT INTO t (a, b) VALUES (?, ?)");
+        assertThat(JdbcTraceSql.traceQuery("DELETE FROM a WHERE id = ? [batch]")).isEqualTo("DELETE FROM a WHERE id = ?");
+        assertThat(JdbcTraceSql.traceQuery("SELECT 1")).isNull();
+    }
+
+    private static String statsName(String sql) {
+        List<QueryInfo> queries = List.of(new QueryInfo(sql));
+        return JdbcTraceSql.statsName(queries, JdbcTraceSql.describe(queries));
+    }
+
+    @Test
     void redactsStandardLiteralsWithoutChangingIdentifiers() {
         String sql = "SELECT * FROM tenant_2026.orders WHERE email = 'alice@example.com' AND age = -12.50";
 

@@ -2,6 +2,7 @@ package io.github.lakernote.observability.autoconfigure;
 
 import io.github.lakernote.observability.integration.jdbc.internal.JdbcTraceQueryExecutionListener;
 import io.github.lakernote.observability.integration.jdbc.internal.SpringAwareJdbcProxyFactory;
+import io.github.lakernote.observability.stats.internal.OperationStats;
 import net.ttddyy.dsproxy.proxy.ProxyJdbcObject;
 import net.ttddyy.dsproxy.support.ProxyDataSource;
 import net.ttddyy.dsproxy.support.ProxyDataSourceBuilder;
@@ -17,7 +18,7 @@ import org.springframework.util.StringUtils;
 import javax.sql.DataSource;
 
 /**
- * 为活动 Trace 中的 JDBC 调用记录轻量 SQL 子节点，不创建 Micrometer Observation 或 Meter。
+ * 为活动 Trace 中的 JDBC 调用记录轻量 SQL 子节点并汇总 SQL 统计，不创建 Micrometer Observation 或 Meter。
  */
 @AutoConfiguration(after = ObservabilityAutoConfiguration.class)
 @ConditionalOnClass({DataSource.class, ProxyDataSourceBuilder.class})
@@ -26,8 +27,8 @@ import javax.sql.DataSource;
 @ConditionalOnProperty(prefix = "jdbc.datasource-proxy", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class JdbcTraceAutoConfiguration {
     @Bean
-    JdbcTraceQueryExecutionListener jdbcTraceQueryExecutionListener() {
-        return new JdbcTraceQueryExecutionListener();
+    JdbcTraceQueryExecutionListener jdbcTraceQueryExecutionListener(ObjectProvider<OperationStats> operationStats) {
+        return new JdbcTraceQueryExecutionListener(operationStats.getIfAvailable());
     }
 
     @Bean

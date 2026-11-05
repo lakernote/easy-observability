@@ -4,6 +4,7 @@ import io.github.lakernote.observability.autoconfigure.ObservabilityAutoConfigur
 
 import io.github.lakernote.observability.metrics.internal.Rrd4jStepMeterRegistry;
 import io.github.lakernote.observability.integration.redis.internal.RedissonTraceConnectionFactoryPostProcessor;
+import io.github.lakernote.observability.stats.internal.OperationStats;
 import io.micrometer.observation.ObservationRegistry;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -48,8 +49,10 @@ public class RedisTraceAutoConfiguration {
     static class RedissonConfiguration {
         @org.springframework.context.annotation.Bean
         static RedissonTraceConnectionFactoryPostProcessor redissonTraceConnectionFactoryPostProcessor(
-                ObjectProvider<Rrd4jStepMeterRegistry> metricsRegistryProvider) {
-            return new RedissonTraceConnectionFactoryPostProcessor(metricsRegistryProvider::getIfAvailable);
+                ObjectProvider<Rrd4jStepMeterRegistry> metricsRegistryProvider,
+                ObjectProvider<OperationStats> operationStatsProvider) {
+            return new RedissonTraceConnectionFactoryPostProcessor(metricsRegistryProvider::getIfAvailable,
+                    operationStatsProvider::getIfAvailable);
         }
     }
 }

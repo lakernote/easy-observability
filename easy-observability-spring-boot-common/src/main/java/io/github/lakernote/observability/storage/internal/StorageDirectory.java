@@ -12,7 +12,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 
 /**
- * The local directory that holds the trace archive and metric history, owned exclusively by one process.
+ * The local directory that holds the trace archive, metric history and operation statistics, owned exclusively by one process.
  *
  * <p>Two instances writing the same files would corrupt them, so the directory is guarded by an OS file lock held
  * for the application's lifetime. When the lock cannot be acquired, or the directory cannot be created, the
@@ -79,6 +79,11 @@ public final class StorageDirectory implements AutoCloseable {
     /** The metric history directory, or {@code null} when the directory is unavailable. */
     public Path metricsDirectory() {
         return available() ? root.resolve("metrics") : null;
+    }
+
+    /** The operation statistics directory, or {@code null} when the directory is unavailable. */
+    public Path statsDirectory() {
+        return available() ? root.resolve("stats") : null;
     }
 
     @Override

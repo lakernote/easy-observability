@@ -1,5 +1,6 @@
 package io.github.lakernote.observability.integration.redis.internal;
 
+import io.github.lakernote.observability.stats.internal.OperationStats;
 import io.github.lakernote.observability.trace.SpanKind;
 import io.github.lakernote.observability.trace.internal.TraceContext;
 import io.github.lakernote.observability.trace.internal.DetachedSpan;
@@ -36,13 +37,22 @@ public final class RedissonTraceConnectionFactoryPostProcessor implements BeanPo
     private static final Set<MethodSignature> CONNECTION_FACTORY_METHODS = connectionFactoryMethods();
     private static final Set<MethodSignature> COMMAND_ACCESSOR_METHODS = commandAccessorMethods();
     private final Supplier<? extends MeterRegistry> metricsRegistryProvider;
+    private final Supplier<OperationStats> operationStatsProvider;
     private final AtomicBoolean connectionProxyFailureLogged = new AtomicBoolean();
     private final AtomicBoolean commandProxyFailureLogged = new AtomicBoolean();
-    private volatile boolean metricsRegistryResolved;
+    private volatile boolean providersResolved;
     private volatile MeterRegistry metricsRegistry;
+    private volatile OperationStats operationStats;
 
     public RedissonTraceConnectionFactoryPostProcessor(Supplier<? extends MeterRegistry> metricsRegistryProvider) {
+        this(metricsRegistryProvider, () -> null);
+    }
+
+    /** Both suppliers are resolved on the first command and may return null when the feature is disabled. */
+    public RedissonTraceConnectionFactoryPostProcessor(Supplier<? extends MeterRegistry> metricsRegistryProvider,
+                                                       Supplier<OperationStats> operationStatsProvider) {
         this.metricsRegistryProvider = metricsRegistryProvider;
+        this.operationStatsProvider = operationStatsProvider;
     }
 
     @Override
@@ -185,30 +195,34 @@ public final class RedissonTraceConnectionFactoryPostProcessor implements BeanPo
 
     private void recordMetric(Method method, long startedAt, Throwable failure) {
         try {
-            MeterRegistry registry = metricsRegistry();
-            if (registry == null) return;
+            resolveProviders();
+            long durationNanos = Math.max(0, System.nanoTime() - startedAt);
             String command = method.getName().toUpperCase(java.util.Locale.ROOT);
+            OperationStats stats = operationStats;
+            if (stats != null) stats.record(OperationStats.Category.REDIS, command, durationNanos, failure != null);
+            MeterRegistry registry = metricsRegistry;
+            if (registry == null) return;
             registry.timer("spring.data.redis",
                             "client", "Redisson",
                             "command", command,
                             "operation", method.getName(),
                             "result", failure == null ? "success" : "error")
-                    .record(Math.max(0, System.nanoTime() - startedAt), TimeUnit.NANOSECONDS);
+                    .record(durationNanos, TimeUnit.NANOSECONDS);
         } catch (RuntimeException ignored) {
             // Metrics must not affect the application's Redis result.
         }
     }
 
-    private MeterRegistry metricsRegistry() {
-        if (!metricsRegistryResolved) {
+    private void resolveProviders() {
+        if (!providersResolved) {
             synchronized (this) {
-                if (!metricsRegistryResolved) {
+                if (!providersResolved) {
                     metricsRegistry = metricsRegistryProvider.get();
-                    metricsRegistryResolved = true;
+                    operationStats = operationStatsProvider.get();
+                    providersResolved = true;
                 }
             }
         }
-        return metricsRegistry;
     }
 
     private void finish(DetachedSpan span, Throwable failure) {

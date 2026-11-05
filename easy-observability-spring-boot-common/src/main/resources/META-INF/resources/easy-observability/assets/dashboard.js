@@ -354,6 +354,15 @@ async function refresh() {
   }
 }
 
+// The statistics page links here with ?q= and ?source= so a ranked row opens its slow and error traces.
+function applyLinkedFilters() {
+  const params = new URLSearchParams(window.location.search)
+  const query = params.get('q')
+  if (query) $('search').value = query.slice(0, 200)
+  const source = params.get('source')
+  if (source && [...$('source-filter').options].some(option => option.value === source)) $('source-filter').value = source
+}
+
 function bind() {
   for (const id of ['result-filter', 'source-filter']) $(id).addEventListener('change', () => { page = 0; render() })
   $('search').addEventListener('input', () => {
@@ -390,6 +399,7 @@ async function loadPermissions() {
   }
 }
 
+applyLinkedFilters()
 bind()
 initializeEmbeddedAuth().then(() => Promise.all([loadPermissions(), refresh()]))
 timer = window.setInterval(refresh, 10000)

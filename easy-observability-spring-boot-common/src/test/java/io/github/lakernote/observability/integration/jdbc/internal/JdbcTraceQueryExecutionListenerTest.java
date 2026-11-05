@@ -23,6 +23,33 @@ class JdbcTraceQueryExecutionListenerTest {
     }
 
     @Test
+    void countsSqlStatisticsWithAndWithoutAnActiveTrace() {
+        var stats = new io.github.lakernote.observability.stats.internal.OperationStats(10);
+        var counting = new JdbcTraceQueryExecutionListener(stats);
+        List<QueryInfo> queries = List.of(new QueryInfo("SELECT * FROM orders WHERE id IN (1, 2)"));
+
+        ExecutionInfo outsideTrace = new ExecutionInfo();
+        counting.beforeQuery(outsideTrace, queries);
+        counting.afterQuery(outsideTrace, queries);
+        ExecutionInfo failed = new ExecutionInfo();
+        failed.setThrowable(new SQLException("boom"));
+        TraceContext.startRoot("jdbc-request", SpanKind.HTTP);
+        counting.beforeQuery(failed, queries);
+        counting.afterQuery(failed, queries);
+        TraceContext.clear();
+
+        var sql = stats.snapshot(io.github.lakernote.observability.stats.internal.OperationStats.Window.TODAY)
+                .categories().stream()
+                .filter(c -> c.category() == io.github.lakernote.observability.stats.internal.OperationStats.Category.SQL)
+                .findFirst().orElseThrow();
+        assertThat(sql.rows()).singleElement().satisfies(row -> {
+            assertThat(row.name()).isEqualTo("SELECT * FROM orders WHERE id IN (?…)");
+            assertThat(row.count()).isEqualTo(2);
+            assertThat(row.errors()).isEqualTo(1);
+        });
+    }
+
+    @Test
     void recordsOnlyTheRedactedSqlTemplate() {
         ExecutionInfo execution = new ExecutionInfo();
         execution.setDataSourceName("primary");

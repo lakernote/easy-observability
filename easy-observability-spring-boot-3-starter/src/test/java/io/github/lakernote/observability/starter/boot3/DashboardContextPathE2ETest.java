@@ -71,8 +71,11 @@ class DashboardContextPathE2ETest {
 
         HttpResponse<String> tracePage = get(tracePageUri);
         assertThat(tracePage.statusCode()).isEqualTo(200);
-        assertThat(tracePage.body()).contains("Trace 诊断", "href=\"metrics/\"");
-        assertThat(tracePageUri.resolve("metrics/")).isEqualTo(metricsPageUri);
+        assertThat(tracePage.body()).contains("Trace 诊断", "href=\"stats/\"");
+        HttpResponse<String> statsPage = get(tracePageUri.resolve("stats/"));
+        assertThat(statsPage.statusCode()).isEqualTo(200);
+        assertThat(statsPage.body()).contains("href=\"../metrics/\"");
+        assertThat(tracePageUri.resolve("stats/").resolve("../metrics/")).isEqualTo(metricsPageUri);
 
         URI dashboardCss = referencedUri(tracePageUri, tracePage.body(), "href", "dashboard.css");
         URI dashboardScript = referencedUri(tracePageUri, tracePage.body(), "src", "dashboard.js");

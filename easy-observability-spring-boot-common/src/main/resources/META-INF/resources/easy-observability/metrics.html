@@ -6,7 +6,7 @@
   <meta name="color-scheme" content="light">
   <title>Easy Observability · 指标趋势</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="../assets/dashboard.css?v=20261104.1">
+  <link rel="stylesheet" href="../assets/dashboard.css?v=20261105.1">
   <link rel="stylesheet" href="../assets/uplot.min.css?v=1.6.32">
   <link rel="stylesheet" href="../assets/metrics.css?v=20261104.3">
 </head>
@@ -15,11 +15,11 @@
   <header class="masthead">
     <a class="brand" href="../">
       <span class="brand-mark" aria-hidden="true">↗</span>
-      <span><strong>Easy Observability</strong><small>公共运行指标</small></span>
+      <span><strong>Easy Observability</strong><small>运行指标</small></span>
     </a>
     <nav class="view-nav" aria-label="可观测性视图">
       <a href="../">Trace 诊断</a>
-      <a class="active" href="./">指标趋势</a>
+      <a class="active" href="../stats/">运行指标</a>
     </nav>
     <div class="toolbar">
       <span id="instance" class="instance-pill"><i></i>连接中</span>
@@ -33,6 +33,10 @@
       <p>查看 HTTP、任务、Kafka、Redis、JVM 和线程池的实例级趋势；RRD 历史独立存储，不改变应用已有的指标后端。</p>
       <p class="metric-semantics">请求、错误、执行、消费和发送数量按采样窗口计数，不是所选时间范围的累计量；平均耗时是该窗口内的均值。7 天和 30 天视图会把较短窗口的数据取平均，平均耗时不会按请求量加权；CPU、内存和线程池状态是采样值。HTTP 按方法和 URI、任务与 Kafka 按名称、Redis 按命令、JVM 内存按内存池、GC 按动作和原因、线程池按池名称拆分曲线。点击图例可开关曲线，拖动图表可缩放，双击或点“重置缩放”恢复范围。</p>
     </section>
+    <nav class="sub-nav" aria-label="运行指标视图">
+      <a href="../stats/">调用排行</a>
+      <a class="active" aria-current="page" href="./">指标趋势</a>
+    </nav>
     <div id="notice" class="notice" role="status" hidden></div>
     <section class="metrics-controls" aria-label="指标趋势筛选">
       <label><span>时间范围</span><select id="period"><option value="1h" selected>最近 1 小时</option><option value="24h">最近 24 小时</option><option value="7d">最近 7 天</option><option value="30d">最近 30 天</option></select></label>

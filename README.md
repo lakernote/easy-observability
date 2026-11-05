@@ -11,6 +11,7 @@ Easy Observability 帮助应用开发者快速回答两个问题：一次请求�
 ## 解决什么问题
 
 - **单次请求定位：** 从 HTTP、定时任务或 Kafka 消费入口查看调用时间线，串联 JDBC、Redis、远程 HTTP、Kafka 和已接入的异步任务；慢调用、错误及 CPU 时间或内存分配量超阈值的入口会进入诊断列表。
+- **调用排行：** 不论快慢，按 HTTP 接口、SQL、远程调用、Redis 命令、定时任务和 Kafka 统计次数、错误率、平均/P95/最大耗时和总耗时，可看最近 1 小时、今天、7 天和 30 天，重启不丢；点一行直接跳到它的慢调用和错误 Trace。
 - **趋势查看：** 在内嵌 Metrics 页面查看 HTTP、任务、Kafka、Redis、JVM/GC、CPU 和线程池等公共指标，识别问题出现的时间和变化方向。
 - **轻量接入：** 通过 Spring Boot Starter 自动配置。指标历史只保存组件定义的公共指标，使用有界的本地 RRD 存储；应用现有 Micrometer registry（例如 InfluxDB）仍按原配置工作。
 
@@ -53,6 +54,7 @@ Metrics 页面按指标类别查看历史曲线，点击图例可切换序列：
 默认启用 Trace、公共 Metrics 和嵌入页面。应用启动后访问：
 
 - Trace 诊断：`/easy-observability/`
+- 调用排行：`/easy-observability/stats/`
 - Metrics 趋势：`/easy-observability/metrics/`
 
 生产环境请通过应用现有的 Spring Security 或网关保护页面和 API；Starter 不创建独立账号或登录系统。常用配置、采集范围和访问控制说明见[接入与配置指南](docs/guide.md)。

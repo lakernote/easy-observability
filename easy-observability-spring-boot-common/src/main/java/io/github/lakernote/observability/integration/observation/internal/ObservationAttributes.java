@@ -1,6 +1,7 @@
 package io.github.lakernote.observability.integration.observation.internal;
 
 import io.github.lakernote.observability.integration.jdbc.internal.JdbcTraceSafety;
+import io.github.lakernote.observability.stats.internal.OperationStats;
 import io.micrometer.common.KeyValue;
 import io.micrometer.observation.Observation;
 
@@ -41,6 +42,74 @@ final class ObservationAttributes {
             if (!route.isBlank()) return safe(route + (method.isBlank() ? "" : " · " + method), 256);
         }
         return operation;
+    }
+
+    /** SQL is counted by the JDBC listener and transactions wrap other calls, so neither is ranked here. */
+    static OperationStats.Category statsCategory(ObservationType type) {
+        return switch (type) {
+            case HTTP -> OperationStats.Category.HTTP;
+            case JOB -> OperationStats.Category.JOB;
+            case KAFKA_CONSUMER -> OperationStats.Category.KAFKA_CONSUMER;
+            case KAFKA_PRODUCER -> OperationStats.Category.KAFKA_PRODUCER;
+            case REMOTE, ELASTICSEARCH -> OperationStats.Category.REMOTE;
+            case REDIS -> OperationStats.Category.REDIS;
+            case DATABASE, TRANSACTION -> null;
+        };
+    }
+
+    /**
+     * Returns a low-cardinality statistics key. Only tag values that Micrometer itself treats as low cardinality are
+     * used, so per-request values such as Kafka offsets or raw URLs never create new rows.
+     */
+    static String statsName(Observation.Context context, ObservationType type, String operation, String detail) {
+        return switch (type) {
+            case HTTP, JOB -> displayName(context, type, operation, detail);
+            case KAFKA_CONSUMER -> joinNonBlank(" · ", lowCardinality(context, "messaging.source.name"),
+                    lowCardinality(context, "spring.kafka.listener.id"), operation);
+            case KAFKA_PRODUCER -> joinNonBlank(" · ", lowCardinality(context, "messaging.destination.name"),
+                    operation);
+            case REMOTE -> joinNonBlank(" ",
+                    firstLowCardinality(context, "http.request.method", "http.method", "method"),
+                    firstLowCardinality(context, "client.name", "server.address", "target.host", "host"),
+                    meaningful(firstLowCardinality(context, "uri", "url.template", "http.route")), operation);
+            case REDIS -> operation.toUpperCase(java.util.Locale.ROOT);
+            case ELASTICSEARCH -> "Elasticsearch " + operation;
+            case DATABASE, TRANSACTION -> operation;
+        };
+    }
+
+    /**
+     * Returns the text the Trace Explorer can find for this operation when the statistics name joins values that
+     * traces store in separate fields, or null when the statistics name itself is searchable.
+     */
+    static String statsTraceQuery(Observation.Context context, ObservationType type) {
+        return switch (type) {
+            case REMOTE -> emptyToNull(meaningful(firstLowCardinality(context, "uri", "url.template", "http.route")));
+            case KAFKA_CONSUMER -> {
+                String listenerId = lowCardinality(context, "spring.kafka.listener.id");
+                yield emptyToNull(listenerId.isBlank() ? lowCardinality(context, "messaging.source.name") : listenerId);
+            }
+            default -> null;
+        };
+    }
+
+    private static String emptyToNull(String value) {
+        return value == null || value.isBlank() ? null : value;
+    }
+
+    /** Joins the non-blank parts; the last part is a fallback used only when every earlier part is blank. */
+    private static String joinNonBlank(String separator, String... parts) {
+        StringBuilder joined = new StringBuilder();
+        for (int i = 0; i < parts.length - 1; i++) {
+            if (parts[i] == null || parts[i].isBlank()) continue;
+            if (!joined.isEmpty()) joined.append(separator);
+            joined.append(parts[i]);
+        }
+        return joined.isEmpty() ? parts[parts.length - 1] : safe(joined.toString(), 256);
+    }
+
+    private static String meaningful(String uri) {
+        return "none".equalsIgnoreCase(uri) ? "" : uri;
     }
 
     static String detail(Observation.Context context, ObservationType type) {
@@ -90,8 +159,7 @@ final class ObservationAttributes {
     static boolean isDashboardPath(String route) {
         if (route == null || route.isBlank()) return false;
         String path = route.split("[?#]", 2)[0];
-        return "/easy-observability".equals(path) || "/easy-observability/".equals(path)
-                || path.startsWith("/easy-observability/assets/")
+        return "/easy-observability".equals(path) || path.startsWith("/easy-observability/")
                 || "/api/easy-observability".equals(path) || path.startsWith("/api/easy-observability/");
     }
 

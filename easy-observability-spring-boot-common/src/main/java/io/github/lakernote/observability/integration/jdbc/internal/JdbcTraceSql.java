@@ -5,6 +5,7 @@ import net.ttddyy.dsproxy.QueryInfo;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 /** 生成有长度上限的 SQL 标签，不保留字面量或绑定参数。 */
 final class JdbcTraceSql {
@@ -16,6 +17,9 @@ final class JdbcTraceSql {
             "GRANT", "INSERT", "MERGE", "PRAGMA", "REPLACE", "REVOKE", "ROLLBACK", "SAVEPOINT",
             "SELECT", "SET", "SHOW", "TRUNCATE", "UPDATE", "UPSERT", "USE", "WITH");
 
+    private static final Pattern IN_LIST = Pattern.compile("(?i)\\b(in)\\s*\\(\\s*\\?(?:\\s*,\\s*\\?)*\\s*\\)");
+    private static final Pattern VALUE_ROWS = Pattern.compile("(\\([?,\\s]+\\))(?:\\s*,\\s*\\([?,\\s]+\\))+");
+
     private JdbcTraceSql() { }
 
     static String describe(List<QueryInfo> queries) {
@@ -26,8 +30,39 @@ final class JdbcTraceSql {
         return sql;
     }
 
+    /**
+     * Returns a statistics key: placeholder lists whose length varies per call ({@code IN (?, ?, ...)}, multi-row
+     * {@code VALUES}) are collapsed so they map to one row, and statement batches are keyed by their first statement.
+     */
+    static String statsName(List<QueryInfo> queries, String described) {
+        String sql = described;
+        if (queries != null && queries.size() > 1 && queries.get(0) != null) {
+            String first = normalize(queries.get(0).getQuery());
+            sql = (first.isBlank() ? "statement" : first) + " [batch]";
+        }
+        if (sql.indexOf('?') < 0) return sql;
+        sql = VALUE_ROWS.matcher(sql).replaceAll("$1, …");
+        return IN_LIST.matcher(sql).replaceAll("$1 (?…)");
+    }
+
+    /**
+     * Returns the longest prefix of {@code statsName} that also appears in the trace tag, i.e. the text before the
+     * first collapsed placeholder list or batch marker. Null when the statistics name is the trace text itself.
+     */
+    static String traceQuery(String statsName) {
+        int end = statsName.length();
+        for (String marker : new String[] {" (?…)", ", …", " [batch]"}) {
+            int index = statsName.indexOf(marker);
+            if (index >= 0) end = Math.min(end, index);
+        }
+        return end == statsName.length() ? null : statsName.substring(0, end).strip();
+    }
+
     static String command(List<QueryInfo> queries) {
-        String sql = describe(queries);
+        return commandOf(describe(queries));
+    }
+
+    static String commandOf(String sql) {
         int end = 0;
         while (end < sql.length() && isAsciiLetter(sql.charAt(end))) end++;
         if (end == 0 || (end < sql.length() && sql.charAt(end) != ' ')) return "STATEMENT";

@@ -26,13 +26,14 @@ class ObservabilityDashboardResourceTest {
         String pageContent = new String(page.readAllBytes(), StandardCharsets.UTF_8);
         String metricsPageContent = new String(metricsPage.readAllBytes(), StandardCharsets.UTF_8);
         assertThat(pageContent)
-                .contains("Easy Observability", "src=\"assets/dashboard.js", "href=\"metrics/\"",
+                .contains("Easy Observability", "src=\"assets/dashboard.js", "href=\"stats/\">运行指标",
                         "Trace 诊断", "正常请求不会显示在此列表中", "内存分配量", "完成时间", "入口线程资源",
                         "表格可横向滚动查看全部字段",
                         "<button id=\"clear-history\" class=\"quiet-button\" type=\"button\" hidden>")
                 .doesNotContain("href=\"/easy-observability", "src=\"/easy-observability");
         assertThat(metricsPageContent)
-                .contains("src=\"../assets/metrics.js", "href=\"../\"", "href=\"./\"")
+                .contains("src=\"../assets/metrics.js", "href=\"../\"", "href=\"./\">指标趋势",
+                        "href=\"../stats/\">调用排行")
                 .doesNotContain("href=\"/easy-observability", "src=\"/easy-observability");
         assertThat(new String(script.readAllBytes(), StandardCharsets.UTF_8))
                 .contains("new URL('../../api/easy-observability/', import.meta.url)",
@@ -58,6 +59,37 @@ class ObservabilityDashboardResourceTest {
         script.close();
         metricsScript.close();
         style.close();
+    }
+
+    @Test
+    void bundlesTheStatisticsPageWithRelativeLinks() throws IOException {
+        var classLoader = getClass().getClassLoader();
+        try (var page = classLoader.getResourceAsStream("META-INF/resources/easy-observability/stats.html");
+             var script = classLoader.getResourceAsStream("META-INF/resources/easy-observability/assets/stats.js");
+             var style = classLoader.getResourceAsStream("META-INF/resources/easy-observability/assets/stats.css");
+             var index = classLoader.getResourceAsStream("META-INF/resources/easy-observability/index.html");
+             var metrics = classLoader.getResourceAsStream("META-INF/resources/easy-observability/metrics.html");
+             var dashboard = classLoader.getResourceAsStream(
+                     "META-INF/resources/easy-observability/assets/dashboard.js")) {
+            assertThat(style).isNotNull();
+            assertThat(new String(page.readAllBytes(), StandardCharsets.UTF_8))
+                    .contains("src=\"../assets/stats.js", "href=\"../\"", "href=\"../metrics/\">指标趋势",
+                            "<option value=\"30d\">最近 30 天</option>",
+                            "<button id=\"reset-stats\" class=\"quiet-button\" type=\"button\" hidden>")
+                    .doesNotContain("href=\"/easy-observability", "src=\"/easy-observability");
+            assertThat(new String(script.readAllBytes(), StandardCharsets.UTF_8))
+                    .contains("new URL('../../api/easy-observability/', import.meta.url)",
+                            "request(`stats?window=${encodeURIComponent($('window').value)}`)",
+                            "LONG_RANGE_REFRESH_MS", "url.searchParams.set('window', $('window').value)",
+                            "request('/stats/reset', { method: 'POST' }",
+                            "$('reset-stats').hidden = !permissions.canClear",
+                            "target.searchParams.set('q', String(row.traceQuery).slice(0, 200))")
+                    .doesNotContain("innerHTML", "const api = '/api/");
+            assertThat(new String(index.readAllBytes(), StandardCharsets.UTF_8)).contains("href=\"stats/\"");
+            assertThat(new String(metrics.readAllBytes(), StandardCharsets.UTF_8)).contains("href=\"../stats/\"");
+            assertThat(new String(dashboard.readAllBytes(), StandardCharsets.UTF_8))
+                    .contains("new URLSearchParams(window.location.search)", "applyLinkedFilters()\nbind()");
+        }
     }
 
     @Test

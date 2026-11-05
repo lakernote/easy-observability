@@ -126,6 +126,25 @@ class RedissonTraceConnectionFactoryPostProcessorTest {
     }
 
     @Test
+    void countsRedissonCommandsInOperationStatisticsWithoutMeterRegistry() {
+        var stats = new io.github.lakernote.observability.stats.internal.OperationStats(10);
+        var processor = new RedissonTraceConnectionFactoryPostProcessor(() -> null, () -> stats);
+
+        assertThat(processor.wrap(connection(false)).ping()).isEqualTo("PONG");
+        assertThatThrownBy(processor.wrap(connection(true))::ping).isInstanceOf(IllegalStateException.class);
+
+        var redis = stats.snapshot(io.github.lakernote.observability.stats.internal.OperationStats.Window.TODAY)
+                .categories().stream()
+                .filter(c -> c.category() == io.github.lakernote.observability.stats.internal.OperationStats.Category.REDIS)
+                .findFirst().orElseThrow();
+        assertThat(redis.rows()).singleElement().satisfies(row -> {
+            assertThat(row.name()).isEqualTo("PING");
+            assertThat(row.count()).isEqualTo(2);
+            assertThat(row.errors()).isEqualTo(1);
+        });
+    }
+
+    @Test
     void recordsFailedRedissonSpringDataCommandWithoutChangingException() {
         SimpleMeterRegistry registry = new SimpleMeterRegistry();
         var processor = new RedissonTraceConnectionFactoryPostProcessor(() -> registry);

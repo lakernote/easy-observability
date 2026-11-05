@@ -73,7 +73,7 @@ class DashboardContextPathE2ETest {
         Set<URI> traceReferences = assertPageReferencesAvailable(tracePage, tracePageResponse.body());
         assertThat(paths(traceReferences)).containsExactlyInAnyOrder(
                 APPLICATION_PATH + "/easy-observability/",
-                APPLICATION_PATH + "/easy-observability/metrics/",
+                APPLICATION_PATH + "/easy-observability/stats/",
                 APPLICATION_PATH + "/easy-observability/assets/dashboard.css",
                 APPLICATION_PATH + "/easy-observability/assets/dashboard.js");
 
@@ -83,6 +83,7 @@ class DashboardContextPathE2ETest {
         Set<URI> metricsReferences = assertPageReferencesAvailable(metricsPage, metricsPageResponse.body());
         assertThat(paths(metricsReferences)).containsExactlyInAnyOrder(
                 APPLICATION_PATH + "/easy-observability/",
+                APPLICATION_PATH + "/easy-observability/stats/",
                 APPLICATION_PATH + "/easy-observability/metrics/",
                 APPLICATION_PATH + "/easy-observability/assets/dashboard.css",
                 APPLICATION_PATH + "/easy-observability/assets/uplot.min.css",
@@ -123,6 +124,15 @@ class DashboardContextPathE2ETest {
         HttpResponse<String> metricsHistory = get(traceApi.resolve("metrics?period=1h"));
         assertThat(metricsHistory.statusCode()).isEqualTo(200);
         assertThat(metricsHistory.body()).contains("\"period\":\"1h\"", "\"points\":[]");
+
+        URI statsPage = assertCanonicalRedirect("/easy-observability/stats", "/easy-observability/stats/");
+        HttpResponse<String> statsPageResponse = get(statsPage);
+        assertThat(statsPageResponse.body()).contains("调用排行");
+        assertThat(paths(assertPageReferencesAvailable(statsPage, statsPageResponse.body()))).contains(
+                APPLICATION_PATH + "/easy-observability/assets/stats.css",
+                APPLICATION_PATH + "/easy-observability/assets/stats.js");
+        // Trace is disabled here, so statistics are off: the page stays reachable and the API explains with 404.
+        assertThat(get(traceApi.resolve("stats")).statusCode()).isEqualTo(404);
 
         HttpResponse<String> metricsStorage = get(traceApi.resolve("metrics/storage"));
         assertThat(metricsStorage.statusCode()).isEqualTo(200);

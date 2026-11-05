@@ -2,6 +2,7 @@ package io.github.lakernote.observability.benchmark;
 
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
 import io.github.lakernote.observability.integration.observation.internal.ObservationTraceHandler;
+import io.github.lakernote.observability.stats.internal.OperationStats;
 import io.github.lakernote.observability.trace.internal.TraceContext;
 import io.github.lakernote.observability.trace.internal.TraceIds;
 import io.github.lakernote.observability.trace.internal.store.RecentTraceStore;
@@ -41,6 +42,10 @@ public class ObservationOverheadBenchmark {
     @Param({"0", "5", "20"})
     public int dependencies;
 
+    /** Call statistics are on by default; {@code false} isolates the Trace cost. */
+    @Param({"true", "false"})
+    public boolean stats;
+
     private ObservationRegistry baseline;
     private ObservationRegistry instrumented;
 
@@ -51,7 +56,8 @@ public class ObservationOverheadBenchmark {
 
         instrumented = ObservationRegistry.create();
         instrumented.observationConfig().observationHandler(new ObservationTraceHandler(
-                new RecentTraceStore(500), null, new EasyObservabilityProperties(), List.of()));
+                new RecentTraceStore(500), null, new EasyObservabilityProperties(), List.of(),
+                stats ? new OperationStats(1_000) : null));
     }
 
     @TearDown(Level.Iteration)

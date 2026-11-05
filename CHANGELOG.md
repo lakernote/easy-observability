@@ -19,8 +19,14 @@ This preview contains breaking configuration and API changes. Data written by ea
 ### Fixes
 
 - Reactive (WebFlux) HTTP requests no longer create entry traces; only Servlet applications are supported.
+- Requests for any page under `/easy-observability/` (including the metrics page) are no longer recorded as application traces.
 - `TraceContextTaskDecorator` is applied together with application task decorators (composed on Spring Boot 4; on Spring Boot 3 an existing application decorator keeps precedence).
 - Removed an exception thrown on every non-HTTP observation while parsing a status code (20-dependency request: 21.6 µs → 6.9 µs).
+
+### New
+
+- Operation statistics page `/easy-observability/stats/`: count, errors, mean, P95, max and total time for every HTTP endpoint, SQL template, remote call, Redis command, scheduled job and Kafka topic, over the last hour, today, 7 days or 30 days. Lock-free in memory (about 50 ns per call) with completed hours appended to `stats/yyyyMMdd.tsv` in the storage directory, so day ranges survive restarts (31-day retention, `stats.max-storage-size`). Each row links to its slow and failed traces. Configured with `easy.observability.stats.enabled`, `stats.max-keys` and `stats.max-storage-size`. The navigation groups it with metric trends under "运行指标". API: `GET /api/easy-observability/stats?window=1h|today|7d|30d`, `POST /api/easy-observability/stats/reset` (requires `canClear()`).
+- The Trace Explorer accepts `?q=` and `?source=` so other pages can link to a filtered list.
 
 ### Other
 

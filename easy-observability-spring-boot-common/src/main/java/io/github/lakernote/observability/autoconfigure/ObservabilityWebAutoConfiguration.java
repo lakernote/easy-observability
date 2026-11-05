@@ -5,6 +5,7 @@ import io.github.lakernote.observability.web.internal.ObservabilityController;
 import io.github.lakernote.observability.web.internal.ObservabilityDashboardController;
 import io.github.lakernote.observability.web.internal.MetricsHistoryController;
 import io.github.lakernote.observability.web.internal.MetricsDashboardController;
+import io.github.lakernote.observability.web.internal.OperationStatsController;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -23,7 +24,7 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 @ConditionalOnProperty(prefix = "easy.observability", name = "enabled", havingValue = "true", matchIfMissing = true)
 @ConditionalOnProperty(prefix = "easy.observability.web", name = "enabled", havingValue = "true", matchIfMissing = true)
 @Import({ObservabilityController.class, ObservabilityDashboardController.class,
-        MetricsHistoryController.class, MetricsDashboardController.class})
+        MetricsHistoryController.class, MetricsDashboardController.class, OperationStatsController.class})
 public class ObservabilityWebAutoConfiguration implements WebMvcConfigurer {
     /**
      * Allows every request to view data and keeps clearing disabled. The host application is expected to protect

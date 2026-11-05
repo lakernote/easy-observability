@@ -79,6 +79,10 @@ button:disabled { cursor: default; opacity: .5; }
 .view-nav a { padding: 8px 11px; border-radius: 7px; color: #66768c; font-size: 12px; font-weight: 650; text-decoration: none; }
 .view-nav a:hover { background: #f1f4f9; color: var(--ink); }
 .view-nav a.active { background: #edf2ff; color: var(--blue); }
+.sub-nav { display: flex; gap: 4px; margin: 0 0 16px; border-bottom: 1px solid var(--line, #e3e8f0); }
+.sub-nav a { margin-bottom: -1px; padding: 8px 14px; border-bottom: 2px solid transparent; color: #66768c; font-size: 13px; font-weight: 650; text-decoration: none; }
+.sub-nav a:hover { color: var(--ink); }
+.sub-nav a.active { border-bottom-color: var(--blue); color: var(--blue); }
 
 .report { max-width: 1488px; margin: 0 auto; padding: 28px 32px 24px; }
 .intro { margin-bottom: 19px; }
