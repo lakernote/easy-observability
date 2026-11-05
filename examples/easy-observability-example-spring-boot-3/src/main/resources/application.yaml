@@ -9,7 +9,7 @@ spring:
   application:
     name: easy-observability-example-spring-boot-3
   datasource:
-    url: jdbc:h2:file:./data/easy-observability-example-spring-boot-3/demo-db;AUTO_SERVER=TRUE
+    url: jdbc:h2:mem:demo-db;DB_CLOSE_DELAY=-1
     username: sa
     password:
   sql:
