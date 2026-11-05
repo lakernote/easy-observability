@@ -43,12 +43,13 @@ public final class Rrd4jMetricsStore {
     private final AtomicBoolean storageWarningLogged = new AtomicBoolean();
     private volatile boolean initialized;
 
-    public Rrd4jMetricsStore(EasyObservabilityProperties.Metrics properties) {
-        if (properties.getStorageDirectory() == null || properties.getStorageDirectory().isBlank()) {
-            throw new IllegalArgumentException("easy.observability.metrics.storage-directory must not be blank");
-        }
-        this.directory = Path.of(properties.getStorageDirectory()).toAbsolutePath().normalize();
-        this.seriesMapFile = directory.resolve("common-metrics-series.properties");
+    /**
+     * @param directory history directory, or {@code null} to keep no local history (for example when the storage
+     *                  directory is owned by another instance)
+     */
+    public Rrd4jMetricsStore(EasyObservabilityProperties.Metrics properties, Path directory) {
+        this.directory = directory == null ? null : directory.toAbsolutePath().normalize();
+        this.seriesMapFile = this.directory == null ? null : this.directory.resolve("common-metrics-series.properties");
         this.stepSeconds = validateStep(properties.getStep());
         this.retentionSeconds = Duration.ofDays(validateRetention(properties.getRetentionDays())).toSeconds();
         if (properties.getMaxStorageBytes() == null) {
@@ -60,8 +61,9 @@ public final class Rrd4jMetricsStore {
             throw new IllegalArgumentException("easy.observability.metrics.max-storage-bytes must be at least "
                     + expectedBytes + " bytes for the configured step, retention and fixed metric set");
         }
-        this.file = directory.resolve(FILE_PREFIX + stepSeconds + "s-" + properties.getRetentionDays() + "d.rrd");
-        this.initialized = initialize();
+        this.file = this.directory == null ? null
+                : this.directory.resolve(FILE_PREFIX + stepSeconds + "s-" + properties.getRetentionDays() + "d.rrd");
+        this.initialized = this.directory != null && initialize();
     }
 
     /** Returns a stable bounded series slot. Excess tag values share the family overflow line. */

@@ -14,6 +14,7 @@ public class EasyObservabilityProperties {
     private final Trace trace = new Trace();
     private final Web web = new Web();
     private final Metrics metrics = new Metrics();
+    private final Storage storage = new Storage();
 
     public boolean isEnabled() {
         return enabled;
@@ -35,10 +36,25 @@ public class EasyObservabilityProperties {
         return metrics;
     }
 
+    public Storage getStorage() {
+        return storage;
+    }
+
+    public static class Storage {
+        /**
+         * Directory for the trace archive and metric history. Defaults to
+         * {@code ./data/easy-observability/<spring.application.name>}. Each application instance needs its own
+         * directory; an instance that finds the directory in use keeps its history in memory only.
+         */
+        private String directory;
+
+        public String getDirectory() { return directory; }
+        public void setDirectory(String directory) { this.directory = directory; }
+    }
+
     public static class Metrics {
         private boolean enabled = true;
         private Duration step = Duration.ofSeconds(60);
-        private String storageDirectory = "./data/easy-observability/metrics";
         private int retentionDays = 30;
         private DataSize maxStorageBytes = DataSize.ofMegabytes(64);
 
@@ -46,8 +62,6 @@ public class EasyObservabilityProperties {
         public void setEnabled(boolean enabled) { this.enabled = enabled; }
         public Duration getStep() { return step; }
         public void setStep(Duration step) { this.step = step; }
-        public String getStorageDirectory() { return storageDirectory; }
-        public void setStorageDirectory(String storageDirectory) { this.storageDirectory = storageDirectory; }
         public int getRetentionDays() { return retentionDays; }
         public void setRetentionDays(int retentionDays) { this.retentionDays = retentionDays; }
         public DataSize getMaxStorageBytes() { return maxStorageBytes; }
@@ -84,7 +98,6 @@ public class EasyObservabilityProperties {
         private long kafkaConsumerSlowThresholdMs = 1_000;
         private long cpuThresholdMs = 500;
         private DataSize allocatedMemoryThreshold = DataSize.ofMegabytes(50);
-        private String diagnosticTraceFile = "./data/easy-observability/traces.jsonl";
         private int diagnosticHistoryLimit = 1_000;
         private DataSize diagnosticMaxBytes = DataSize.ofMegabytes(8);
 
@@ -142,14 +155,6 @@ public class EasyObservabilityProperties {
 
         public void setAllocatedMemoryThreshold(DataSize allocatedMemoryThreshold) {
             this.allocatedMemoryThreshold = allocatedMemoryThreshold;
-        }
-
-        public String getDiagnosticTraceFile() {
-            return diagnosticTraceFile;
-        }
-
-        public void setDiagnosticTraceFile(String diagnosticTraceFile) {
-            this.diagnosticTraceFile = diagnosticTraceFile;
         }
 
         public int getDiagnosticHistoryLimit() {

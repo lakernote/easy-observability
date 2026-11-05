@@ -122,9 +122,7 @@ class AccessPolicyE2ETest {
     }
 
     private static void registerStorage(DynamicPropertyRegistry registry, Path storage) {
-        registry.add("easy.observability.metrics.storage-directory", () -> storage.resolve("metrics").toString());
-        registry.add("easy.observability.trace.diagnostic-trace-file",
-                () -> storage.resolve("traces.jsonl").toString());
+        registry.add("easy.observability.storage.directory", storage::toString);
     }
 
     /** Stands in for a role resolved by the application's own authentication. */

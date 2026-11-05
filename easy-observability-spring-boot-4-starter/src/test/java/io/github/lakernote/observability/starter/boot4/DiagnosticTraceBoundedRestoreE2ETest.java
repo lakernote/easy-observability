@@ -12,6 +12,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.util.FileSystemUtils;
 
 import java.io.BufferedWriter;
 import java.io.IOException;
@@ -53,16 +54,14 @@ class DiagnosticTraceBoundedRestoreE2ETest {
 
     @DynamicPropertySource
     static void diagnosticStorage(DynamicPropertyRegistry registry) {
-        registry.add("easy.observability.trace.diagnostic-trace-file", () -> HISTORY.file().toString());
+        registry.add("easy.observability.storage.directory", () -> HISTORY.directory().toString());
         registry.add("easy.observability.trace.diagnostic-history-limit", () -> Integer.toString(HISTORY_LIMIT));
         registry.add("easy.observability.trace.diagnostic-max-bytes", () -> "1MB");
     }
 
     @AfterAll
     static void cleanStoragePath() throws IOException {
-        Files.deleteIfExists(HISTORY.file().resolveSibling(HISTORY.file().getFileName() + ".tmp"));
-        Files.deleteIfExists(HISTORY.file());
-        Files.deleteIfExists(HISTORY.directory());
+        FileSystemUtils.deleteRecursively(HISTORY.directory());
     }
 
     @Test

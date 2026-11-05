@@ -50,7 +50,7 @@ class Rrd4jMetricsStoreTest {
     void reportsTheConfiguredRrdArchiveInterval() throws Exception {
         EasyObservabilityProperties.Metrics settings = properties();
         settings.setStep(Duration.ofSeconds(40));
-        Rrd4jMetricsStore store = new Rrd4jMetricsStore(settings);
+        Rrd4jMetricsStore store = new Rrd4jMetricsStore(settings, directory);
 
         assertEquals(40, store.fetch("1h").pointIntervalSeconds());
         assertEquals(320, store.fetch("7d").pointIntervalSeconds());
@@ -58,14 +58,14 @@ class Rrd4jMetricsStoreTest {
 
         settings = properties();
         settings.setStep(Duration.ofHours(1));
-        store = new Rrd4jMetricsStore(settings);
+        store = new Rrd4jMetricsStore(settings, directory);
         assertEquals(7_200, store.fetch("7d").pointIntervalSeconds());
         assertEquals(10_800, store.fetch("30d").pointIntervalSeconds());
     }
 
     @Test
     void keepsBoundedTaggedSeriesStableAcrossRestartAndUsesOverflowSeries() throws Exception {
-        Rrd4jMetricsStore store = new Rrd4jMetricsStore(properties());
+        Rrd4jMetricsStore store = new Rrd4jMetricsStore(properties(), directory);
         MetricsCatalog.SeriesFamily family = MetricsCatalog.family("http_server_uri");
         for (int index = 0; index < family.limit(); index++) {
             assertEquals(index, store.seriesSlotIndex(family.key(), "/route/" + index));
@@ -79,7 +79,7 @@ class Rrd4jMetricsStoreTest {
                 java.util.stream.Stream.of("其他 URI")) .toList()), false).size(), history.series().size());
         assertTrue(history.series().stream().anyMatch(series -> "其他 HTTP 入口 URI".equals(series.legend())));
 
-        Rrd4jMetricsStore restarted = new Rrd4jMetricsStore(properties());
+        Rrd4jMetricsStore restarted = new Rrd4jMetricsStore(properties(), directory);
         assertEquals(0, restarted.seriesSlotIndex(family.key(), "/route/0"));
         assertEquals(family.limit(), restarted.seriesSlotIndex(family.key(), "/new/overflow"));
         assertTrue(restarted.status().storageBytes() <= DataSize.ofMegabytes(64).toBytes());
@@ -87,7 +87,7 @@ class Rrd4jMetricsStoreTest {
 
     @Test
     void excludesTheComponentOwnHttpEndpointsFromUriSeries() {
-        Rrd4jMetricsStore store = new Rrd4jMetricsStore(properties());
+        Rrd4jMetricsStore store = new Rrd4jMetricsStore(properties(), directory);
         Rrd4jStepMeterRegistry registry = new Rrd4jStepMeterRegistry(properties(), store);
         try {
             Timer.builder("http.server.requests").tag("uri", "/api/easy-observability/metrics")
@@ -104,7 +104,7 @@ class Rrd4jMetricsStoreTest {
 
     @Test
     void omitsMemoryPoolsWithoutAFixedMaximumFromHistory() throws Exception {
-        Rrd4jMetricsStore store = new Rrd4jMetricsStore(properties());
+        Rrd4jMetricsStore store = new Rrd4jMetricsStore(properties(), directory);
         assertEquals(0, store.seriesSlotIndex("memory", "heap · Metaspace"));
         assertEquals(1, store.seriesSlotIndex("memory", "heap · G1 Old Gen"));
         store.update(Map.of("memory_00_max", 0.0, "memory_01_max", 1024.0));
@@ -116,7 +116,7 @@ class Rrd4jMetricsStoreTest {
 
     @Test
     void keepsHttpMethodAndNormalizedUriAsTheSeriesDimension() {
-        Rrd4jMetricsStore store = new Rrd4jMetricsStore(properties());
+        Rrd4jMetricsStore store = new Rrd4jMetricsStore(properties(), directory);
         Rrd4jStepMeterRegistry registry = new Rrd4jStepMeterRegistry(properties(), store);
         try {
             Timer.builder("http.server.requests").tag("uri", "/api/orders/123?debug=true")
@@ -130,7 +130,7 @@ class Rrd4jMetricsStoreTest {
 
     @Test
     void keepsSpringKafkaListenerIdTopicAndConsumerGroupAsSeriesDimensions() {
-        Rrd4jMetricsStore store = new Rrd4jMetricsStore(properties());
+        Rrd4jMetricsStore store = new Rrd4jMetricsStore(properties(), directory);
         Rrd4jStepMeterRegistry registry = new Rrd4jStepMeterRegistry(properties(), store);
         try {
             Timer.builder("spring.kafka.listener")
@@ -150,7 +150,7 @@ class Rrd4jMetricsStoreTest {
 
     @Test
     void classifiesSpringKafkaErrorTagForRequestErrorCounts() {
-        Rrd4jMetricsStore store = new Rrd4jMetricsStore(properties());
+        Rrd4jMetricsStore store = new Rrd4jMetricsStore(properties(), directory);
         Rrd4jStepMeterRegistry registry = new Rrd4jStepMeterRegistry(properties(), store);
         try {
             Timer success = Timer.builder("spring.kafka.listener")
@@ -171,7 +171,7 @@ class Rrd4jMetricsStoreTest {
 
     @Test
     void keepsSpringKafkaTemplateNameAndDestinationAsSeriesDimensions() {
-        Rrd4jMetricsStore store = new Rrd4jMetricsStore(properties());
+        Rrd4jMetricsStore store = new Rrd4jMetricsStore(properties(), directory);
         Rrd4jStepMeterRegistry registry = new Rrd4jStepMeterRegistry(properties(), store);
         try {
             Timer.builder("spring.kafka.template")
@@ -190,9 +190,9 @@ class Rrd4jMetricsStoreTest {
     void disablesLocalHistoryWithoutFailingTheApplicationWhenStorageCannotBeCreated() throws Exception {
         Path blockingFile = Files.writeString(directory.resolve("not-a-directory"), "blocking file");
         EasyObservabilityProperties.Metrics settings = properties();
-        settings.setStorageDirectory(blockingFile.resolve("metrics").toString());
 
-        Rrd4jMetricsStore store = assertDoesNotThrow(() -> new Rrd4jMetricsStore(settings));
+        Rrd4jMetricsStore store = assertDoesNotThrow(() -> new Rrd4jMetricsStore(settings,
+                blockingFile.resolve("metrics")));
 
         assertFalse(store.status().initialized());
         assertEquals(0, store.status().storageBytes());
@@ -207,7 +207,7 @@ class Rrd4jMetricsStoreTest {
 
     @Test
     void disablesLocalHistoryWithoutThrowingWhenStorageFailsAtRuntime() throws Exception {
-        Rrd4jMetricsStore store = new Rrd4jMetricsStore(properties());
+        Rrd4jMetricsStore store = new Rrd4jMetricsStore(properties(), directory);
         Path rrdFile = directory.resolve("common-metrics-v7-10s-30d.rrd");
         Files.delete(rrdFile);
         Files.createDirectory(rrdFile);
@@ -229,7 +229,7 @@ class Rrd4jMetricsStoreTest {
         }
         assertEquals(maxStorageBytes + 1, Files.size(rrdFile));
 
-        Rrd4jMetricsStore store = assertDoesNotThrow(() -> new Rrd4jMetricsStore(settings));
+        Rrd4jMetricsStore store = assertDoesNotThrow(() -> new Rrd4jMetricsStore(settings, directory));
 
         assertFalse(store.status().initialized());
         assertEquals(0, store.status().storageBytes());
@@ -241,20 +241,29 @@ class Rrd4jMetricsStoreTest {
     void stillRejectsInvalidMetricsConfiguration() {
         EasyObservabilityProperties.Metrics invalidStep = properties();
         invalidStep.setStep(Duration.ofSeconds(9));
-        assertThrows(IllegalArgumentException.class, () -> new Rrd4jMetricsStore(invalidStep));
+        assertThrows(IllegalArgumentException.class, () -> new Rrd4jMetricsStore(invalidStep, directory));
 
         EasyObservabilityProperties.Metrics invalidRetention = properties();
         invalidRetention.setRetentionDays(6);
-        assertThrows(IllegalArgumentException.class, () -> new Rrd4jMetricsStore(invalidRetention));
+        assertThrows(IllegalArgumentException.class, () -> new Rrd4jMetricsStore(invalidRetention, directory));
 
         EasyObservabilityProperties.Metrics insufficientStorage = properties();
         insufficientStorage.setMaxStorageBytes(DataSize.ofBytes(1));
-        assertThrows(IllegalArgumentException.class, () -> new Rrd4jMetricsStore(insufficientStorage));
+        assertThrows(IllegalArgumentException.class, () -> new Rrd4jMetricsStore(insufficientStorage, directory));
+    }
+
+    @Test
+    void keepsNoLocalHistoryWithoutADirectory() throws Exception {
+        Rrd4jMetricsStore store = new Rrd4jMetricsStore(properties(), null);
+
+        assertFalse(store.status().initialized());
+        assertDoesNotThrow(() -> store.update(Map.of("process_cpu_pct", 12.5)));
+        assertEquals(0, store.seriesSlotIndex("http_server_uri", "GET /orders"));
+        assertTrue(store.fetch("1h").points().isEmpty());
     }
 
     private EasyObservabilityProperties.Metrics properties() {
         EasyObservabilityProperties.Metrics properties = new EasyObservabilityProperties.Metrics();
-        properties.setStorageDirectory(directory.toString());
         properties.setStep(Duration.ofSeconds(10));
         properties.setMaxStorageBytes(DataSize.ofMegabytes(64));
         return properties;

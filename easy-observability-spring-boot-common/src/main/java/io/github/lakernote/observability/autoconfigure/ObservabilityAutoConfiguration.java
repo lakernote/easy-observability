@@ -3,6 +3,7 @@ package io.github.lakernote.observability.autoconfigure;
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
 import io.github.lakernote.observability.integration.observation.internal.ObservationTraceHandler;
 import io.github.lakernote.observability.integration.observation.ObservationTraceIdResolver;
+import io.github.lakernote.observability.storage.internal.StorageDirectory;
 import io.github.lakernote.observability.trace.internal.BoundedHistoryWriter;
 import io.github.lakernote.observability.trace.TraceContextTaskDecorator;
 import io.github.lakernote.observability.trace.internal.store.DiagnosticTraceStore;
@@ -13,6 +14,9 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
+import org.springframework.core.env.Environment;
+
+import java.nio.file.Path;
 
 /**
  * 注册监控共用组件。
@@ -25,6 +29,25 @@ import org.springframework.context.annotation.Bean;
 @ConditionalOnProperty(prefix = "easy.observability", name = "enabled", havingValue = "true", matchIfMissing = true)
 @EnableConfigurationProperties(EasyObservabilityProperties.class)
 public class ObservabilityAutoConfiguration {
+
+    /**
+     * 独占本实例的本地存储目录；目录被其他实例占用或不可写时，历史数据只保存在内存中。
+     */
+    @Bean(destroyMethod = "close")
+    StorageDirectory easyObservabilityStorageDirectory(EasyObservabilityProperties properties,
+                                                       Environment environment) {
+        return StorageDirectory.acquire(storageDirectory(properties.getStorage().getDirectory(),
+                environment.getProperty("spring.application.name")));
+    }
+
+    static Path storageDirectory(String configured, String applicationName) {
+        if (configured != null && !configured.isBlank()) return Path.of(configured);
+        String name = applicationName == null || applicationName.isBlank() ? "application"
+                : applicationName.strip().replaceAll("[^A-Za-z0-9._-]", "_");
+        // "." and ".." are valid file-name characters but would escape the per-application directory.
+        if (name.chars().allMatch(c -> c == '.')) name = "application";
+        return Path.of("data", "easy-observability", name);
+    }
 
     /**
      * 为 Trace 诊断归档提供有容量上限的写入器。
@@ -46,9 +69,10 @@ public class ObservabilityAutoConfiguration {
      * 持久化慢操作和错误 Trace，并按配置限制历史数量与文件容量。
      */
     @Bean
-    DiagnosticTraceStore diagnosticTraceStore(EasyObservabilityProperties properties, BoundedHistoryWriter writer) {
+    DiagnosticTraceStore diagnosticTraceStore(EasyObservabilityProperties properties, StorageDirectory storage,
+                                              BoundedHistoryWriter writer) {
         EasyObservabilityProperties.Trace trace = properties.getTrace();
-        return new DiagnosticTraceStore(trace.getDiagnosticTraceFile(), trace.getDiagnosticHistoryLimit(),
+        return new DiagnosticTraceStore(storage.traceFile(), trace.getDiagnosticHistoryLimit(),
                 trace.getDiagnosticMaxBytes().toBytes(), writer);
     }
 

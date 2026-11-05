@@ -43,28 +43,30 @@ public final class DiagnosticTraceStore {
     /** Serializes restore, append and clear operations performed against the JSONL archive. */
     private final Object fileLock = new Object();
     private long clearGeneration;
-    private boolean persistenceEnabled = true;
+    private boolean persistenceEnabled;
     private boolean storageWarningLogged;
     private boolean oversizedRecordWarningLogged;
 
-    public DiagnosticTraceStore(String historyFile, int maxHistorySize, long maxHistoryFileBytes) {
+    /** @param historyFile archive file, or {@code null} to keep diagnostic traces in memory only */
+    public DiagnosticTraceStore(Path historyFile, int maxHistorySize, long maxHistoryFileBytes) {
         this(TraceRecordJsonCodec.INSTANCE, historyFile, maxHistorySize, maxHistoryFileBytes, Runnable::run);
     }
 
-    public DiagnosticTraceStore(String historyFile, int maxHistorySize, long maxHistoryFileBytes,
+    public DiagnosticTraceStore(Path historyFile, int maxHistorySize, long maxHistoryFileBytes,
                                 BoundedHistoryWriter writer) {
         this(TraceRecordJsonCodec.INSTANCE, historyFile, maxHistorySize, maxHistoryFileBytes, writer::execute);
     }
 
-    DiagnosticTraceStore(TraceRecordJsonCodec codec, String historyFile, int maxHistorySize,
+    DiagnosticTraceStore(TraceRecordJsonCodec codec, Path historyFile, int maxHistorySize,
                          long maxHistoryFileBytes, BoundedHistoryWriter writer) {
         this(codec, historyFile, maxHistorySize, maxHistoryFileBytes, writer::execute);
     }
 
-    private DiagnosticTraceStore(TraceRecordJsonCodec codec, String historyFile, int maxHistorySize,
+    private DiagnosticTraceStore(TraceRecordJsonCodec codec, Path historyFile, int maxHistorySize,
                                  long maxHistoryFileBytes, Consumer<Runnable> historyWriteExecutor) {
         this.codec = codec;
-        this.historyFile = Path.of(historyFile).toAbsolutePath().normalize();
+        this.historyFile = historyFile == null ? null : historyFile.toAbsolutePath().normalize();
+        this.persistenceEnabled = historyFile != null;
         this.maxHistorySize = Math.max(100, maxHistorySize);
         this.maxHistoryFileBytes = Math.max(1024 * 1024, maxHistoryFileBytes);
         this.historyWriteExecutor = historyWriteExecutor;
@@ -187,8 +189,10 @@ public final class DiagnosticTraceStore {
                 cleared = diagnosticTraces.size();
                 diagnosticTraces.clear();
             }
-            Files.deleteIfExists(historyFile);
-            Files.deleteIfExists(historyFile.resolveSibling(historyFile.getFileName() + ".tmp"));
+            if (historyFile != null) {
+                Files.deleteIfExists(historyFile);
+                Files.deleteIfExists(historyFile.resolveSibling(historyFile.getFileName() + ".tmp"));
+            }
             return cleared;
         }
     }

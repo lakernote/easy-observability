@@ -42,13 +42,13 @@ class TraceStorePersistenceTest {
                 List.of(new TraceNode("Http", "HTTP GET", "", 845, 0L, true, true, false, "HTTP_5XX", "", 77,
                         List.of(new TraceNode("Database", "SQL select", "", 2, 1L, false, false, false, "", "", 77, List.of())))),
                 Instant.parse("2026-10-15T10:00:00Z"), 77, 51, 2048, "HTTP", "HTTP_5XX", "500", "", "", false, false);
-        DiagnosticTraceStore diagnosticStore = new DiagnosticTraceStore(tracesFile.toString(), 1000,
+        DiagnosticTraceStore diagnosticStore = new DiagnosticTraceStore(tracesFile, 1000,
                 4 * 1024 * 1024, writer);
         diagnosticStore.restoreHistory();
         diagnosticStore.recordDiagnosticTrace(trace);
         writer.close();
 
-        DiagnosticTraceStore restoredDiagnosticStore = new DiagnosticTraceStore(tracesFile.toString(), 1000, 4 * 1024 * 1024);
+        DiagnosticTraceStore restoredDiagnosticStore = new DiagnosticTraceStore(tracesFile, 1000, 4 * 1024 * 1024);
         restoredDiagnosticStore.restoreHistory();
 
         assertThat(restoredDiagnosticStore.findByTraceId("trace-123")).satisfies(saved -> {
@@ -67,7 +67,7 @@ class TraceStorePersistenceTest {
     void keepsDifferentEntrySourcesWithTheSamePropagatedTraceId() {
         Path tracesFile = directory.resolve("shared-trace.jsonl");
         BoundedHistoryWriter writer = new BoundedHistoryWriter();
-        DiagnosticTraceStore diagnosticStore = new DiagnosticTraceStore(tracesFile.toString(), 1000,
+        DiagnosticTraceStore diagnosticStore = new DiagnosticTraceStore(tracesFile, 1000,
                 4 * 1024 * 1024, writer);
         diagnosticStore.restoreHistory();
         Instant httpFinished = Instant.parse("2026-10-21T10:00:01Z");
@@ -76,7 +76,7 @@ class TraceStorePersistenceTest {
         diagnosticStore.recordDiagnosticTrace(trace("shared", "KAFKA_CONSUMER", kafkaFinished));
         writer.close();
 
-        DiagnosticTraceStore restored = new DiagnosticTraceStore(tracesFile.toString(), 1000, 4 * 1024 * 1024);
+        DiagnosticTraceStore restored = new DiagnosticTraceStore(tracesFile, 1000, 4 * 1024 * 1024);
         restored.restoreHistory();
 
         assertThat(restored.findRecent(10)).extracting(RecentTraceStore.TraceRecord::sourceType)
@@ -97,7 +97,7 @@ class TraceStorePersistenceTest {
             Path blockedParent = directory.resolve("blocked-history");
             Files.writeString(blockedParent, "not a directory");
             Path tracesFile = blockedParent.resolve("traces.jsonl");
-            DiagnosticTraceStore store = new DiagnosticTraceStore(tracesFile.toString(), 1000, 4 * 1024 * 1024);
+            DiagnosticTraceStore store = new DiagnosticTraceStore(tracesFile, 1000, 4 * 1024 * 1024);
 
             store.recordDiagnosticTrace(trace("first-failure", "HTTP", Instant.parse("2026-10-21T10:00:01Z")));
             store.recordDiagnosticTrace(trace("still-blocked", "HTTP", Instant.parse("2026-10-21T10:00:02Z")));
@@ -124,7 +124,7 @@ class TraceStorePersistenceTest {
         Path blockedParent = directory.resolve("concurrent-blocked-history");
         Files.writeString(blockedParent, "not a directory");
         Path tracesFile = blockedParent.resolve("traces.jsonl");
-        DiagnosticTraceStore store = new DiagnosticTraceStore(tracesFile.toString(), 1000, 4 * 1024 * 1024);
+        DiagnosticTraceStore store = new DiagnosticTraceStore(tracesFile, 1000, 4 * 1024 * 1024);
         store.recordDiagnosticTrace(trace("initial-failure", "HTTP", Instant.parse("2026-10-21T10:00:00Z")));
         Files.delete(blockedParent);
         Files.createDirectory(blockedParent);
@@ -153,7 +153,7 @@ class TraceStorePersistenceTest {
         AtomicBoolean blockFirstSerialization = new AtomicBoolean(true);
         BoundedHistoryWriter writer = new BoundedHistoryWriter();
         DiagnosticTraceStore store = DiagnosticTraceStoreTestSupport.storeWithWriteHook(
-                directory.resolve("non-blocking-history.jsonl").toString(), 1000, 4 * 1024 * 1024, writer,
+                directory.resolve("non-blocking-history.jsonl"), 1000, 4 * 1024 * 1024, writer,
                 trace -> {
                     if (blockFirstSerialization.compareAndSet(true, false)) {
                         serializationStarted.countDown();
@@ -191,7 +191,7 @@ class TraceStorePersistenceTest {
         Path blockedParent = directory.resolve("restart-recovers-history");
         Files.writeString(blockedParent, "not a directory");
         Path tracesFile = blockedParent.resolve("traces.jsonl");
-        DiagnosticTraceStore disabledStore = new DiagnosticTraceStore(tracesFile.toString(), 1000, 4 * 1024 * 1024);
+        DiagnosticTraceStore disabledStore = new DiagnosticTraceStore(tracesFile, 1000, 4 * 1024 * 1024);
         disabledStore.recordDiagnosticTrace(trace(
                 "before-repair", "HTTP", Instant.parse("2026-10-21T10:00:00Z")));
 
@@ -199,12 +199,12 @@ class TraceStorePersistenceTest {
         Files.createDirectory(blockedParent);
         disabledStore.recordDiagnosticTrace(trace(
                 "old-instance-after-repair", "HTTP", Instant.parse("2026-10-21T10:00:01Z")));
-        DiagnosticTraceStore replacementStore = new DiagnosticTraceStore(tracesFile.toString(), 1000, 4 * 1024 * 1024);
+        DiagnosticTraceStore replacementStore = new DiagnosticTraceStore(tracesFile, 1000, 4 * 1024 * 1024);
         replacementStore.restoreHistory();
         replacementStore.recordDiagnosticTrace(trace(
                 "new-instance-after-repair", "HTTP", Instant.parse("2026-10-21T10:00:02Z")));
 
-        DiagnosticTraceStore restoredStore = new DiagnosticTraceStore(tracesFile.toString(), 1000, 4 * 1024 * 1024);
+        DiagnosticTraceStore restoredStore = new DiagnosticTraceStore(tracesFile, 1000, 4 * 1024 * 1024);
         restoredStore.restoreHistory();
         assertThat(restoredStore.findRecent(10)).extracting(RecentTraceStore.TraceRecord::traceId)
                 .containsExactly("new-instance-after-repair");
@@ -224,7 +224,7 @@ class TraceStorePersistenceTest {
         Files.writeString(tracesFile, validJson + "\n" + oversizedMalformedLine + "\n",
                 StandardCharsets.UTF_8);
 
-        DiagnosticTraceStore store = new DiagnosticTraceStore(tracesFile.toString(), 100, MIN_HISTORY_FILE_BYTES);
+        DiagnosticTraceStore store = new DiagnosticTraceStore(tracesFile, 100, MIN_HISTORY_FILE_BYTES);
         store.restoreHistory();
 
         assertThat(store.findRecent(10)).extracting(RecentTraceStore.TraceRecord::traceId)
@@ -246,7 +246,7 @@ class TraceStorePersistenceTest {
         Files.writeString(tracesFile, jsonl, StandardCharsets.UTF_8);
         assertThat(Files.size(tracesFile)).isGreaterThan(MIN_HISTORY_FILE_BYTES);
 
-        DiagnosticTraceStore store = new DiagnosticTraceStore(tracesFile.toString(), 100, MIN_HISTORY_FILE_BYTES);
+        DiagnosticTraceStore store = new DiagnosticTraceStore(tracesFile, 100, MIN_HISTORY_FILE_BYTES);
         store.restoreHistory();
 
         List<String> traceIds = store.findRecent(100).stream()
@@ -273,7 +273,7 @@ class TraceStorePersistenceTest {
         Files.writeString(tracesFile, DiagnosticTraceStoreTestSupport.json(first) + "\n{not-json}\n"
                 + DiagnosticTraceStoreTestSupport.json(second) + "\n", StandardCharsets.UTF_8);
 
-        DiagnosticTraceStore store = new DiagnosticTraceStore(tracesFile.toString(), 100, MIN_HISTORY_FILE_BYTES);
+        DiagnosticTraceStore store = new DiagnosticTraceStore(tracesFile, 100, MIN_HISTORY_FILE_BYTES);
         store.restoreHistory();
 
         assertThat(store.findRecent(10)).extracting(RecentTraceStore.TraceRecord::traceId)
@@ -294,7 +294,7 @@ class TraceStorePersistenceTest {
                 + DiagnosticTraceStoreTestSupport.json(second) + "\r\n" + DiagnosticTraceStoreTestSupport.json(third),
                 StandardCharsets.UTF_8);
 
-        DiagnosticTraceStore store = new DiagnosticTraceStore(tracesFile.toString(), 100, MIN_HISTORY_FILE_BYTES);
+        DiagnosticTraceStore store = new DiagnosticTraceStore(tracesFile, 100, MIN_HISTORY_FILE_BYTES);
         store.restoreHistory();
 
         assertThat(store.findRecent(10)).extracting(RecentTraceStore.TraceRecord::traceId)
@@ -307,7 +307,7 @@ class TraceStorePersistenceTest {
     @Test
     void keepsOversizedNewTraceInMemoryAndPersistsFollowingSmallTrace() throws Exception {
         Path tracesFile = directory.resolve("oversized-new-record.jsonl");
-        DiagnosticTraceStore store = new DiagnosticTraceStore(tracesFile.toString(), 100, MIN_HISTORY_FILE_BYTES);
+        DiagnosticTraceStore store = new DiagnosticTraceStore(tracesFile, 100, MIN_HISTORY_FILE_BYTES);
         RecentTraceStore.TraceRecord oversized = traceWithDetail(
                 "oversized-in-memory", "x".repeat((int) MIN_HISTORY_FILE_BYTES + 128 * 1024),
                 Instant.parse("2026-10-21T10:00:00Z"));
@@ -324,7 +324,7 @@ class TraceStorePersistenceTest {
         assertThat(tracesFile).exists();
         assertThat(Files.size(tracesFile)).isLessThan(MIN_HISTORY_FILE_BYTES);
 
-        DiagnosticTraceStore restored = new DiagnosticTraceStore(tracesFile.toString(), 100, MIN_HISTORY_FILE_BYTES);
+        DiagnosticTraceStore restored = new DiagnosticTraceStore(tracesFile, 100, MIN_HISTORY_FILE_BYTES);
         restored.restoreHistory();
         assertThat(restored.findRecent(10)).extracting(RecentTraceStore.TraceRecord::traceId)
                 .containsExactly("small-persisted");

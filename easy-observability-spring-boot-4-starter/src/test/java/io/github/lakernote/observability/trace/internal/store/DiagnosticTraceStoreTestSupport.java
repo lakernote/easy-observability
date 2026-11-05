@@ -25,7 +25,7 @@ public final class DiagnosticTraceStoreTestSupport {
     }
 
     /** Creates a store that invokes {@code hook} on the archive writer thread before each record is encoded. */
-    public static DiagnosticTraceStore storeWithWriteHook(String historyFile, int maxHistorySize,
+    public static DiagnosticTraceStore storeWithWriteHook(java.nio.file.Path historyFile, int maxHistorySize,
                                                           long maxHistoryFileBytes, BoundedHistoryWriter writer,
                                                           WriteHook hook) {
         TraceRecordJsonCodec codec = new TraceRecordJsonCodec() {

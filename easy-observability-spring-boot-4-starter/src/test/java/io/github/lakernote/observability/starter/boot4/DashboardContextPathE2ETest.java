@@ -53,10 +53,7 @@ class DashboardContextPathE2ETest {
 
     @DynamicPropertySource
     static void metricsStorage(DynamicPropertyRegistry registry) {
-        registry.add("easy.observability.metrics.storage-directory",
-                () -> BLOCKING_FILE.resolve("metrics").toString());
-        registry.add("easy.observability.trace.diagnostic-trace-file",
-                () -> BLOCKING_FILE.resolve("traces.jsonl").toString());
+        registry.add("easy.observability.storage.directory", () -> BLOCKING_FILE.resolve("storage").toString());
     }
 
     @AfterAll

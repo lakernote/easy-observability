@@ -12,6 +12,7 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.util.FileSystemUtils;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
@@ -36,8 +37,9 @@ import static org.assertj.core.api.Assertions.assertThat;
                 "easy.observability.trace.allocated-memory-threshold=0B"
         })
 class DiagnosticTraceStorageFailOpenE2ETest {
-    private static final Path BLOCKING_PARENT = createBlockingFile();
-    private static final Path TRACE_FILE = BLOCKING_PARENT.resolve("traces.jsonl");
+    private static final Path STORAGE_DIRECTORY = createStorageDirectory();
+    // A directory where the archive file belongs makes every archive write fail at runtime.
+    private static final Path TRACE_FILE = STORAGE_DIRECTORY.resolve("traces.jsonl");
     private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(5))
             .build();
@@ -53,13 +55,12 @@ class DiagnosticTraceStorageFailOpenE2ETest {
 
     @DynamicPropertySource
     static void diagnosticStorage(DynamicPropertyRegistry registry) {
-        registry.add("easy.observability.trace.diagnostic-trace-file", TRACE_FILE::toString);
+        registry.add("easy.observability.storage.directory", STORAGE_DIRECTORY::toString);
     }
 
     @AfterAll
     static void cleanStoragePath() throws IOException {
-        if (Files.isDirectory(BLOCKING_PARENT)) Files.deleteIfExists(TRACE_FILE);
-        Files.deleteIfExists(BLOCKING_PARENT);
+        FileSystemUtils.deleteRecursively(STORAGE_DIRECTORY);
     }
 
     @Test
@@ -72,8 +73,7 @@ class DiagnosticTraceStorageFailOpenE2ETest {
         assertThat(recentTraceStore.find("storage-failure-first", "HTTP")).isNotNull();
         assertThat(awaitPersistenceDisabled()).isTrue();
 
-        Files.delete(BLOCKING_PARENT);
-        Files.createDirectory(BLOCKING_PARENT);
+        Files.delete(TRACE_FILE);
 
         HttpResponse<String> second = get("/slow/second", "storage-failure-second");
         assertThat(second.statusCode()).isEqualTo(200);
@@ -124,11 +124,11 @@ class DiagnosticTraceStorageFailOpenE2ETest {
         return HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
     }
 
-    private static Path createBlockingFile() {
+    private static Path createStorageDirectory() {
         try {
-            Path file = Files.createTempFile("easy-observability-trace-storage", ".tmp");
-            file.toFile().deleteOnExit();
-            return file;
+            Path directory = Files.createTempDirectory("easy-observability-trace-storage");
+            Files.createDirectory(directory.resolve("traces.jsonl"));
+            return directory;
         } catch (IOException failure) {
             throw new ExceptionInInitializerError(failure);
         }

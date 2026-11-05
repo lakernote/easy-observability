@@ -9,6 +9,7 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.util.FileSystemUtils;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -45,13 +46,12 @@ class OversizedMetricsStorageFailOpenE2ETest {
 
     @DynamicPropertySource
     static void metricsStorage(DynamicPropertyRegistry registry) {
-        registry.add("easy.observability.metrics.storage-directory", STORAGE_DIRECTORY::toString);
+        registry.add("easy.observability.storage.directory", () -> STORAGE_DIRECTORY.getParent().toString());
     }
 
     @AfterAll
     static void deleteStorage() throws IOException {
-        Files.deleteIfExists(STORAGE_DIRECTORY.resolve(RRD_FILE_NAME));
-        Files.deleteIfExists(STORAGE_DIRECTORY);
+        FileSystemUtils.deleteRecursively(STORAGE_DIRECTORY.getParent());
     }
 
     @Test
@@ -81,7 +81,8 @@ class OversizedMetricsStorageFailOpenE2ETest {
 
     private static Path createOversizedStorage() {
         try {
-            Path directory = Files.createTempDirectory("easy-observability-oversized-metrics");
+            Path directory = Files.createDirectory(
+                    Files.createTempDirectory("easy-observability-oversized-metrics").resolve("metrics"));
             Path file = directory.resolve(RRD_FILE_NAME);
             try (FileChannel channel = FileChannel.open(file, StandardOpenOption.CREATE_NEW,
                     StandardOpenOption.WRITE)) {

@@ -44,4 +44,3 @@ easy:
       job-slow-threshold-ms: 250 # 降低示例定时任务阈值，便于快速看到慢任务 Trace。
       cpu-threshold-ms: 100 # 示例入口线程 CPU 时间阈值。
       allocated-memory-threshold: 8MB # 示例入口线程内存分配量阈值。
-      diagnostic-trace-file: ./data/easy-observability-example-spring-boot-3/traces.jsonl

@@ -51,8 +51,7 @@ class MicrometerTracingCoexistenceE2ETest {
 
     @DynamicPropertySource
     static void traceStorage(DynamicPropertyRegistry registry) {
-        registry.add("easy.observability.trace.diagnostic-trace-file",
-                () -> STORAGE_DIRECTORY.resolve("diagnostic-traces.jsonl").toString());
+        registry.add("easy.observability.storage.directory", STORAGE_DIRECTORY::toString);
     }
 
     @AfterAll

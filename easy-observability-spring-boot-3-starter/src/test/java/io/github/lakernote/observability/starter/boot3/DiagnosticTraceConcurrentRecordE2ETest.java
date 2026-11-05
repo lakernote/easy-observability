@@ -18,6 +18,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.util.FileSystemUtils;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
@@ -48,7 +49,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         })
 class DiagnosticTraceConcurrentRecordE2ETest {
     private static final Path STORAGE_DIRECTORY = createStorageDirectory();
-    private static final Path HISTORY_FILE = STORAGE_DIRECTORY.resolve("diagnostic-traces.jsonl");
+    private static final Path HISTORY_FILE = STORAGE_DIRECTORY.resolve("traces.jsonl");
     private static final CountDownLatch SERIALIZATION_STARTED = new CountDownLatch(1);
     private static final CountDownLatch RELEASE_SERIALIZATION = new CountDownLatch(1);
     private static final CountDownLatch SERIALIZATION_FINISHED = new CountDownLatch(1);
@@ -65,7 +66,7 @@ class DiagnosticTraceConcurrentRecordE2ETest {
 
     @DynamicPropertySource
     static void traceStorage(DynamicPropertyRegistry registry) {
-        registry.add("easy.observability.trace.diagnostic-trace-file", HISTORY_FILE::toString);
+        registry.add("easy.observability.storage.directory", STORAGE_DIRECTORY::toString);
     }
 
     @AfterEach
@@ -76,9 +77,7 @@ class DiagnosticTraceConcurrentRecordE2ETest {
 
     @AfterAll
     static void deleteStorage() throws IOException {
-        Files.deleteIfExists(HISTORY_FILE.resolveSibling(HISTORY_FILE.getFileName() + ".tmp"));
-        Files.deleteIfExists(HISTORY_FILE);
-        Files.deleteIfExists(STORAGE_DIRECTORY);
+        FileSystemUtils.deleteRecursively(STORAGE_DIRECTORY);
     }
 
     @Test
@@ -142,7 +141,7 @@ class DiagnosticTraceConcurrentRecordE2ETest {
                 @Override
                 public Object postProcessAfterInitialization(Object bean, String beanName) {
                     if (!(bean instanceof DiagnosticTraceStore)) return bean;
-                    return DiagnosticTraceStoreTestSupport.storeWithWriteHook(HISTORY_FILE.toString(), 1000,
+                    return DiagnosticTraceStoreTestSupport.storeWithWriteHook(HISTORY_FILE, 1000,
                             4 * 1024 * 1024, writer.getObject(),
                             DiagnosticTraceConcurrentRecordE2ETest::blockFirstSerialization);
                 }

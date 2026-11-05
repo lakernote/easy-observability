@@ -17,7 +17,7 @@ class ObservabilityWebAutoConfigurationTest {
     private WebApplicationContextRunner contextRunner() {
         return new WebApplicationContextRunner()
                 .withPropertyValues("easy.observability.metrics.enabled=false",
-                        "easy.observability.trace.diagnostic-trace-file=" + storage.resolve("traces.jsonl"))
+                        "easy.observability.storage.directory=" + storage)
                 .withConfiguration(AutoConfigurations.of(ObservabilityAutoConfiguration.class,
                         ObservabilityWebAutoConfiguration.class));
     }

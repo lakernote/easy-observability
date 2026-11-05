@@ -40,7 +40,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         })
 class DiagnosticTraceArchiveFormatE2ETest {
     private static final Path STORAGE_DIRECTORY = createStorageDirectory();
-    private static final Path HISTORY_FILE = STORAGE_DIRECTORY.resolve("diagnostic-traces.jsonl");
+    private static final Path HISTORY_FILE = STORAGE_DIRECTORY.resolve("traces.jsonl");
     private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(5))
             .build();
@@ -53,7 +53,7 @@ class DiagnosticTraceArchiveFormatE2ETest {
 
     @DynamicPropertySource
     static void traceStorage(DynamicPropertyRegistry registry) {
-        registry.add("easy.observability.trace.diagnostic-trace-file", HISTORY_FILE::toString);
+        registry.add("easy.observability.storage.directory", STORAGE_DIRECTORY::toString);
     }
 
     @AfterAll
@@ -74,7 +74,7 @@ class DiagnosticTraceArchiveFormatE2ETest {
                 .contains("\"finishedAt\":\"2026-10-21T10:00:00Z\"", "\"errorMessage\":\"boom 中文\"")
                 .doesNotContain("trace_id", "finished_at");
 
-        DiagnosticTraceStore restored = new DiagnosticTraceStore(HISTORY_FILE.toString(), 100, 4 * 1024 * 1024);
+        DiagnosticTraceStore restored = new DiagnosticTraceStore(HISTORY_FILE, 100, 4 * 1024 * 1024);
         restored.restoreHistory();
         assertThat(restored.findByTraceId("archive-format-trace", "HTTP").errorMessage()).isEqualTo("boom 中文");
 

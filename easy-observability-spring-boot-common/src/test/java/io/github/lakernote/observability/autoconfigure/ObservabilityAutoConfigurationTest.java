@@ -1,6 +1,7 @@
 package io.github.lakernote.observability.autoconfigure;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.lakernote.observability.storage.internal.StorageDirectory;
 import io.github.lakernote.observability.trace.internal.TraceSpanAspect;
 import io.github.lakernote.observability.trace.internal.store.DiagnosticTraceStore;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -8,10 +9,12 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.FilteredClassLoader;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
+import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -20,6 +23,39 @@ class ObservabilityAutoConfigurationTest {
             .withConfiguration(AutoConfigurations.of(ObservabilityAutoConfiguration.class,
                     TraceSpanAutoConfiguration.class))
             .withBean(MeterRegistry.class, SimpleMeterRegistry::new);
+
+    @Test
+    void defaultStorageDirectoryIsSeparatedByApplicationName() {
+        Path base = Path.of("data", "easy-observability");
+        assertThat(ObservabilityAutoConfiguration.storageDirectory(null, "order-service"))
+                .isEqualTo(base.resolve("order-service"));
+        assertThat(ObservabilityAutoConfiguration.storageDirectory(" ", null)).isEqualTo(base.resolve("application"));
+        assertThat(ObservabilityAutoConfiguration.storageDirectory(null, "a/../b c")).isEqualTo(base.resolve("a_.._b_c"));
+        assertThat(ObservabilityAutoConfiguration.storageDirectory(null, "..")).isEqualTo(base.resolve("application"));
+        assertThat(ObservabilityAutoConfiguration.storageDirectory("/var/lib/eo", "order-service"))
+                .isEqualTo(Path.of("/var/lib/eo"));
+    }
+
+    @Test
+    void storesTraceHistoryInTheOwnedStorageDirectory(@TempDir Path storage) {
+        contextRunner.withPropertyValues("easy.observability.storage.directory=" + storage).run(context -> {
+            assertThat(context.getBean(StorageDirectory.class).available()).isTrue();
+            assertThat(context.getBean(DiagnosticTraceStore.class).storageStatus().persistenceEnabled()).isTrue();
+        });
+    }
+
+    @Test
+    void secondContextOnTheSameDirectoryKeepsHistoryInMemory(@TempDir Path storage) {
+        contextRunner.withPropertyValues("easy.observability.storage.directory=" + storage).run(first ->
+                contextRunner.withPropertyValues("easy.observability.storage.directory=" + storage).run(second -> {
+                    assertThat(second).hasNotFailed();
+                    assertThat(second.getBean(StorageDirectory.class).available()).isFalse();
+                    assertThat(second.getBean(DiagnosticTraceStore.class).storageStatus().persistenceEnabled())
+                            .isFalse();
+                    assertThat(first.getBean(DiagnosticTraceStore.class).storageStatus().persistenceEnabled())
+                            .isTrue();
+                }));
+    }
 
     @Test
     void createsExplicitTraceAspectByDefault() {
