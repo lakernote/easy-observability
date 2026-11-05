@@ -211,7 +211,7 @@ class ObservationTraceHandlerTest {
     @Test
     void recordsHttpObservationWhenContextualNameIsNotAvailableAtStart() throws Exception {
         EasyObservabilityProperties properties = new EasyObservabilityProperties();
-        properties.getTrace().setHttpSlowThresholdMs(1);
+        properties.getTrace().setHttpSlowThreshold(java.time.Duration.ofMillis(1));
         RecentTraceStore history = new RecentTraceStore(10);
         ObservationRegistry registry = ObservationRegistry.create();
         registry.observationConfig().observationHandler(new ObservationTraceHandler(history, null, properties, java.util.List.of()));
@@ -232,7 +232,7 @@ class ObservationTraceHandlerTest {
     @Test
     void asyncSlowStopFinishesItsTraceWithoutEndingAnotherThreadsTrace() throws Exception {
         EasyObservabilityProperties properties = new EasyObservabilityProperties();
-        properties.getTrace().setHttpSlowThresholdMs(1);
+        properties.getTrace().setHttpSlowThreshold(java.time.Duration.ofMillis(1));
         RecentTraceStore history = new RecentTraceStore(10);
         ObservationRegistry registry = ObservationRegistry.create();
         registry.observationConfig().observationHandler(new ObservationTraceHandler(history, null, properties, java.util.List.of()));

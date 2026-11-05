@@ -51,18 +51,19 @@ public final class Rrd4jMetricsStore {
         this.directory = directory == null ? null : directory.toAbsolutePath().normalize();
         this.seriesMapFile = this.directory == null ? null : this.directory.resolve("common-metrics-series.properties");
         this.stepSeconds = validateStep(properties.getStep());
-        this.retentionSeconds = Duration.ofDays(validateRetention(properties.getRetentionDays())).toSeconds();
-        if (properties.getMaxStorageBytes() == null) {
-            throw new IllegalArgumentException("easy.observability.metrics.max-storage-bytes must not be null");
+        long retentionDays = validateRetention(properties.getRetention());
+        this.retentionSeconds = Duration.ofDays(retentionDays).toSeconds();
+        if (properties.getMaxStorageSize() == null) {
+            throw new IllegalArgumentException("easy.observability.metrics.max-storage-size must not be null");
         }
-        this.maxStorageBytes = properties.getMaxStorageBytes().toBytes();
+        this.maxStorageBytes = properties.getMaxStorageSize().toBytes();
         long expectedBytes = definition("metrics.rrd", 0, stepSeconds, retentionSeconds).getEstimatedSize();
         if (maxStorageBytes < expectedBytes) {
-            throw new IllegalArgumentException("easy.observability.metrics.max-storage-bytes must be at least "
+            throw new IllegalArgumentException("easy.observability.metrics.max-storage-size must be at least "
                     + expectedBytes + " bytes for the configured step, retention and fixed metric set");
         }
         this.file = this.directory == null ? null
-                : this.directory.resolve(FILE_PREFIX + stepSeconds + "s-" + properties.getRetentionDays() + "d.rrd");
+                : this.directory.resolve(FILE_PREFIX + stepSeconds + "s-" + retentionDays + "d.rrd");
         this.initialized = this.directory != null && initialize();
     }
 
@@ -167,7 +168,7 @@ public final class Rrd4jMetricsStore {
             if (Files.exists(file)) {
                 long existingBytes = Files.size(file);
                 if (existingBytes > maxStorageBytes) {
-                    throw new IOException("Existing RRD history exceeds easy.observability.metrics.max-storage-bytes: "
+                    throw new IOException("Existing RRD history exceeds easy.observability.metrics.max-storage-size: "
                             + file);
                 }
                 try (RrdDb ignored = open()) { }
@@ -336,11 +337,13 @@ public final class Rrd4jMetricsStore {
         return step.toSeconds();
     }
 
-    private static int validateRetention(int days) {
-        if (days < 7 || days > 365) {
-            throw new IllegalArgumentException("easy.observability.metrics.retention-days must be between 7 and 365");
+    private static long validateRetention(Duration retention) {
+        if (retention == null || !retention.equals(Duration.ofDays(retention.toDays()))
+                || retention.toDays() < 7 || retention.toDays() > 365) {
+            throw new IllegalArgumentException(
+                    "easy.observability.metrics.retention must be a whole number of days between 7d and 365d");
         }
-        return days;
+        return retention.toDays();
     }
 
     private static long periodSeconds(String period) {

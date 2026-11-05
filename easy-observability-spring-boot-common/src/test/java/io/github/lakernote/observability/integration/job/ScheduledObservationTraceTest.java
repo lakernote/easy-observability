@@ -15,7 +15,7 @@ class ScheduledObservationTraceTest {
     void recordsSlowSpringScheduledObservationWithoutAStarterWrapper() {
         ObservationRegistry registry = ObservationRegistry.create();
         EasyObservabilityProperties properties = new EasyObservabilityProperties();
-        properties.getTrace().setJobSlowThresholdMs(1);
+        properties.getTrace().setJobSlowThreshold(java.time.Duration.ofMillis(1));
         RecentTraceStore history = new RecentTraceStore(10);
         registry.observationConfig().observationHandler(new ObservationTraceHandler(history, null, properties, java.util.List.of()));
 

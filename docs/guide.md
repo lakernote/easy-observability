@@ -28,17 +28,17 @@ JDBC 采集会使用保留原数据源具体类型的代理，因此按 `HikariD
 | `easy.observability.storage.directory` | `./data/easy-observability/{spring.application.name}` | 本地存储目录，存放诊断 Trace 归档 `traces.jsonl` 和指标历史 `metrics/`；相对路径基于工作目录，未设置应用名时使用 `application` |
 | `easy.observability.trace.enabled` | `true` | Trace 采集及上下文传播 |
 | `easy.observability.trace.header-name` | `X-Trace-Id` | HTTP 与受支持消息/客户端使用的 Trace ID 名称 |
-| `easy.observability.trace.http-slow-threshold-ms` | `500` | HTTP 入口慢阈值 |
-| `easy.observability.trace.job-slow-threshold-ms` | `1000` | 定时任务入口慢阈值 |
-| `easy.observability.trace.kafka-consumer-slow-threshold-ms` | `1000` | Kafka 消费入口慢阈值 |
-| `easy.observability.trace.cpu-threshold-ms` | `500` | 入口线程 CPU 时间资源告警阈值；设为 `0` 或负数可关闭此类触发 |
-| `easy.observability.trace.allocated-memory-threshold` | `50MB` | 入口线程累计内存分配量资源告警阈值；设为 `0B` 可关闭此类触发 |
+| `easy.observability.trace.http-slow-threshold` | `500ms` | HTTP 入口慢阈值 |
+| `easy.observability.trace.job-slow-threshold` | `1s` | 定时任务入口慢阈值 |
+| `easy.observability.trace.kafka-consumer-slow-threshold` | `1s` | Kafka 消费入口慢阈值 |
+| `easy.observability.trace.cpu-threshold` | `500ms` | 入口线程 CPU 时间资源告警阈值 |
+| `easy.observability.trace.allocated-memory-threshold` | `50MB` | 入口线程累计内存分配量资源告警阈值 |
 | `easy.observability.trace.diagnostic-history-limit` | `1000` | 归档索引的最大记录数 |
-| `easy.observability.trace.diagnostic-max-bytes` | `8MB` | 诊断归档大小上限 |
+| `easy.observability.trace.diagnostic-max-size` | `8MB` | 诊断归档大小上限 |
 | `easy.observability.metrics.enabled` | `true` | 公共 Metrics 与本地历史总开关 |
 | `easy.observability.metrics.step` | `60s` | 指标采样周期，范围 10 秒至 1 小时 |
-| `easy.observability.metrics.retention-days` | `30` | 历史保留天数，范围 7 至 365 天 |
-| `easy.observability.metrics.max-storage-bytes` | `64MB` | RRD 历史存储上限 |
+| `easy.observability.metrics.retention` | `30d` | 历史保留时长，须为整天数，范围 `7d` 至 `365d` |
+| `easy.observability.metrics.max-storage-size` | `64MB` | RRD 历史存储上限 |
 | `easy.observability.web.enabled` | `true` | 页面和查询 API 开关 |
 | `easy.observability.web.trace-limit` | `500` | 最近 Trace 的内存窗口容量 |
 
@@ -49,23 +49,25 @@ easy:
   observability:
     metrics:
       step: 60s
-      retention-days: 30
-      max-storage-bytes: 64MB
+      retention: 30d
+      max-storage-size: 64MB
     trace:
-      http-slow-threshold-ms: 500
-      job-slow-threshold-ms: 1000
-      kafka-consumer-slow-threshold-ms: 1000
-      cpu-threshold-ms: 500
+      http-slow-threshold: 500ms
+      job-slow-threshold: 1s
+      kafka-consumer-slow-threshold: 1s
+      cpu-threshold: 500ms
       allocated-memory-threshold: 50MB
 ```
+
+时长配置使用 Spring Boot 的 `Duration` 格式（如 `500ms`、`2s`、`30d`）；阈值写纯数字时按毫秒解析，`retention` 写纯数字时按天解析。四个时长阈值设为 `0` 或负数、`allocated-memory-threshold` 设为 `0B`，可关闭对应的慢操作或资源告警触发。
 
 存储目录由一个实例独占：启动时会在目录中创建 `.lock` 并持有操作系统文件锁，应用关闭时释放。同一台机器上第二个指向同一目录的实例（包括同一应用的多个副本）不会写入该目录，而是记录警告，并把诊断 Trace 和指标历史只保存在内存中，宿主应用照常启动。目录无法创建或不可写时同样降级为仅内存。同机部署多个副本时，请为每个实例配置不同的 `storage.directory`，例如在路径中加入实例编号。
 
 RRD 历史使用独立的 Micrometer `StepMeterRegistry`。采样周期或保留期变化会重建固定大小的 RRD 文件并清除旧的本地指标历史。历史只属于当前实例，不会跨实例汇总。采样与长周期归档的统计口径会显示在 Metrics 页面说明中。
 
-诊断 Trace 归档超过 `diagnostic-max-bytes` 后会流式裁剪到约一半容量，只保留最新的有界记录，不会把异常增大的文件整体载入内存。单条记录编码后若超过 `diagnostic-max-bytes` 或 16MB（取较小值），仍保留在内存窗口中，但不会写入本地归档。后台序列化、裁剪和文件 I/O 不持有业务记录入口的状态锁，慢磁盘不会让请求、Kafka 消费或任务线程等待归档 I/O。若运行时存储 I/O 失败，归档会降级到仅内存模式直到应用重启，`/api/easy-observability/traces/storage` 的 `diagnosticPersistenceEnabled` 会返回 `false`。
+诊断 Trace 归档超过 `diagnostic-max-size` 后会流式裁剪到约一半容量，只保留最新的有界记录，不会把异常增大的文件整体载入内存。单条记录编码后若超过 `diagnostic-max-size` 或 16MB（取较小值），仍保留在内存窗口中，但不会写入本地归档。后台序列化、裁剪和文件 I/O 不持有业务记录入口的状态锁，慢磁盘不会让请求、Kafka 消费或任务线程等待归档 I/O。若运行时存储 I/O 失败，归档会降级到仅内存模式直到应用重启，`/api/easy-observability/traces/storage` 的 `diagnosticPersistenceEnabled` 会返回 `false`。
 
-`step`、`retention-days`、`max-storage-bytes` 等无效配置仍会阻止应用启动，以便尽早暴露配置错误。若已有 RRD 文件超过当前容量上限，或运行时因目录权限、只读文件系统、磁盘 I/O 导致 RRD 历史不可用，组件会记录警告并停用本地历史，但不会中断宿主应用；Metrics 页面会显示“存储降级”。修复存储问题后需要重启应用以恢复历史采集。
+`step`、`retention`、`max-storage-size` 等无效配置仍会阻止应用启动，以便尽早暴露配置错误。若已有 RRD 文件超过当前容量上限，或运行时因目录权限、只读文件系统、磁盘 I/O 导致 RRD 历史不可用，组件会记录警告并停用本地历史，但不会中断宿主应用；Metrics 页面会显示“存储降级”。修复存储问题后需要重启应用以恢复历史采集。
 
 ## 页面和 API 访问
 

@@ -1,14 +1,15 @@
 package io.github.lakernote.observability.autoconfigure;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.lakernote.observability.config.EasyObservabilityProperties;
 import io.github.lakernote.observability.storage.internal.StorageDirectory;
+import io.github.lakernote.observability.trace.TraceContextTaskDecorator;
 import io.github.lakernote.observability.trace.internal.TraceSpanAspect;
 import io.github.lakernote.observability.trace.internal.store.DiagnosticTraceStore;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
-import io.github.lakernote.observability.trace.TraceContextTaskDecorator;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.support.AbstractBeanDefinition;
@@ -17,10 +18,11 @@ import org.springframework.beans.factory.support.RootBeanDefinition;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.FilteredClassLoader;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
-
 import org.springframework.core.task.TaskDecorator;
+import org.springframework.util.unit.DataSize;
 
 import java.nio.file.Path;
+import java.time.Duration;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -61,6 +63,27 @@ class ObservabilityAutoConfigurationTest {
                     assertThat(first.getBean(DiagnosticTraceStore.class).storageStatus().persistenceEnabled())
                             .isTrue();
                 }));
+    }
+
+    @Test
+    void bindsDurationsAndSizesWithUnits() {
+        contextRunner.withPropertyValues(
+                "easy.observability.trace.http-slow-threshold=2s",
+                "easy.observability.trace.job-slow-threshold=1500",
+                "easy.observability.trace.kafka-consumer-slow-threshold=1m",
+                "easy.observability.trace.cpu-threshold=0",
+                "easy.observability.trace.diagnostic-max-size=1MB",
+                "easy.observability.metrics.retention=14",
+                "easy.observability.metrics.max-storage-size=32MB").run(context -> {
+            EasyObservabilityProperties properties = context.getBean(EasyObservabilityProperties.class);
+            assertThat(properties.getTrace().getHttpSlowThreshold()).isEqualTo(Duration.ofSeconds(2));
+            assertThat(properties.getTrace().getJobSlowThreshold()).isEqualTo(Duration.ofMillis(1500));
+            assertThat(properties.getTrace().getKafkaConsumerSlowThreshold()).isEqualTo(Duration.ofMinutes(1));
+            assertThat(properties.getTrace().getCpuThreshold()).isZero();
+            assertThat(properties.getTrace().getDiagnosticMaxSize()).isEqualTo(DataSize.ofMegabytes(1));
+            assertThat(properties.getMetrics().getRetention()).isEqualTo(Duration.ofDays(14));
+            assertThat(properties.getMetrics().getMaxStorageSize()).isEqualTo(DataSize.ofMegabytes(32));
+        });
     }
 
     @Test

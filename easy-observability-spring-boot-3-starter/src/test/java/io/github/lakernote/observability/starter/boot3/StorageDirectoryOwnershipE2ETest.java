@@ -69,7 +69,7 @@ class StorageDirectoryOwnershipE2ETest {
         return new SpringApplicationBuilder(TestApplication.class)
                 .properties("server.port=0",
                         "easy.observability.storage.directory=" + STORAGE_DIRECTORY,
-                        "easy.observability.trace.http-slow-threshold-ms=1")
+                        "easy.observability.trace.http-slow-threshold=1")
                 .run();
     }
 

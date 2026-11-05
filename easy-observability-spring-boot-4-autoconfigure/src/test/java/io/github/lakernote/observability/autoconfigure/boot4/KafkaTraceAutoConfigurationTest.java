@@ -82,7 +82,7 @@ class KafkaTraceAutoConfigurationTest {
     @Test
     void slowConsumerObservationUsesTraceIdFromKafkaRecordHeader() throws Exception {
         EasyObservabilityProperties properties = new EasyObservabilityProperties();
-        properties.getTrace().setKafkaConsumerSlowThresholdMs(1);
+        properties.getTrace().setKafkaConsumerSlowThreshold(java.time.Duration.ofMillis(1));
         RecentTraceStore history = new RecentTraceStore(10);
         new ApplicationContextRunner()
                 .withConfiguration(AutoConfigurations.of(KafkaTraceAutoConfiguration.class))

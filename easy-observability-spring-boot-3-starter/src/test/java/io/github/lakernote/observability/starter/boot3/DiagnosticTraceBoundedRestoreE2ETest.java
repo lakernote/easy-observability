@@ -56,7 +56,7 @@ class DiagnosticTraceBoundedRestoreE2ETest {
     static void diagnosticStorage(DynamicPropertyRegistry registry) {
         registry.add("easy.observability.storage.directory", () -> HISTORY.directory().toString());
         registry.add("easy.observability.trace.diagnostic-history-limit", () -> Integer.toString(HISTORY_LIMIT));
-        registry.add("easy.observability.trace.diagnostic-max-bytes", () -> "1MB");
+        registry.add("easy.observability.trace.diagnostic-max-size", () -> "1MB");
     }
 
     @AfterAll

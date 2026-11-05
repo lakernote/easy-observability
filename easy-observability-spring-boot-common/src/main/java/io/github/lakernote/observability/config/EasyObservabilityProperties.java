@@ -1,9 +1,11 @@
 package io.github.lakernote.observability.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.convert.DurationUnit;
 import org.springframework.util.unit.DataSize;
 
 import java.time.Duration;
+import java.time.temporal.ChronoUnit;
 
 /**
  * Public configuration for the Easy Observability Spring Boot Starter.
@@ -55,17 +57,19 @@ public class EasyObservabilityProperties {
     public static class Metrics {
         private boolean enabled = true;
         private Duration step = Duration.ofSeconds(60);
-        private int retentionDays = 30;
-        private DataSize maxStorageBytes = DataSize.ofMegabytes(64);
+        /** History retention in whole days, between 7 and 365 days. A bare number is read as days. */
+        @DurationUnit(ChronoUnit.DAYS)
+        private Duration retention = Duration.ofDays(30);
+        private DataSize maxStorageSize = DataSize.ofMegabytes(64);
 
         public boolean isEnabled() { return enabled; }
         public void setEnabled(boolean enabled) { this.enabled = enabled; }
         public Duration getStep() { return step; }
         public void setStep(Duration step) { this.step = step; }
-        public int getRetentionDays() { return retentionDays; }
-        public void setRetentionDays(int retentionDays) { this.retentionDays = retentionDays; }
-        public DataSize getMaxStorageBytes() { return maxStorageBytes; }
-        public void setMaxStorageBytes(DataSize maxStorageBytes) { this.maxStorageBytes = maxStorageBytes; }
+        public Duration getRetention() { return retention; }
+        public void setRetention(Duration retention) { this.retention = retention; }
+        public DataSize getMaxStorageSize() { return maxStorageSize; }
+        public void setMaxStorageSize(DataSize maxStorageSize) { this.maxStorageSize = maxStorageSize; }
     }
 
     public static class Web {
@@ -93,13 +97,14 @@ public class EasyObservabilityProperties {
     public static class Trace {
         private boolean enabled = true;
         private String headerName = "X-Trace-Id";
-        private long jobSlowThresholdMs = 1_000;
-        private long httpSlowThresholdMs = 500;
-        private long kafkaConsumerSlowThresholdMs = 1_000;
-        private long cpuThresholdMs = 500;
+        // Thresholds of zero or below disable the corresponding trigger. A bare number is read as milliseconds.
+        private Duration jobSlowThreshold = Duration.ofSeconds(1);
+        private Duration httpSlowThreshold = Duration.ofMillis(500);
+        private Duration kafkaConsumerSlowThreshold = Duration.ofSeconds(1);
+        private Duration cpuThreshold = Duration.ofMillis(500);
         private DataSize allocatedMemoryThreshold = DataSize.ofMegabytes(50);
         private int diagnosticHistoryLimit = 1_000;
-        private DataSize diagnosticMaxBytes = DataSize.ofMegabytes(8);
+        private DataSize diagnosticMaxSize = DataSize.ofMegabytes(8);
 
         public boolean isEnabled() {
             return enabled;
@@ -117,36 +122,36 @@ public class EasyObservabilityProperties {
             this.headerName = headerName == null || headerName.isBlank() ? "X-Trace-Id" : headerName;
         }
 
-        public long getJobSlowThresholdMs() {
-            return jobSlowThresholdMs;
+        public Duration getJobSlowThreshold() {
+            return jobSlowThreshold;
         }
 
-        public void setJobSlowThresholdMs(long jobSlowThresholdMs) {
-            this.jobSlowThresholdMs = jobSlowThresholdMs;
+        public void setJobSlowThreshold(Duration jobSlowThreshold) {
+            this.jobSlowThreshold = jobSlowThreshold == null ? Duration.ZERO : jobSlowThreshold;
         }
 
-        public long getHttpSlowThresholdMs() {
-            return httpSlowThresholdMs;
+        public Duration getHttpSlowThreshold() {
+            return httpSlowThreshold;
         }
 
-        public void setHttpSlowThresholdMs(long httpSlowThresholdMs) {
-            this.httpSlowThresholdMs = httpSlowThresholdMs;
+        public void setHttpSlowThreshold(Duration httpSlowThreshold) {
+            this.httpSlowThreshold = httpSlowThreshold == null ? Duration.ZERO : httpSlowThreshold;
         }
 
-        public long getKafkaConsumerSlowThresholdMs() {
-            return kafkaConsumerSlowThresholdMs;
+        public Duration getKafkaConsumerSlowThreshold() {
+            return kafkaConsumerSlowThreshold;
         }
 
-        public void setKafkaConsumerSlowThresholdMs(long kafkaConsumerSlowThresholdMs) {
-            this.kafkaConsumerSlowThresholdMs = kafkaConsumerSlowThresholdMs;
+        public void setKafkaConsumerSlowThreshold(Duration kafkaConsumerSlowThreshold) {
+            this.kafkaConsumerSlowThreshold = kafkaConsumerSlowThreshold == null ? Duration.ZERO : kafkaConsumerSlowThreshold;
         }
 
-        public long getCpuThresholdMs() {
-            return cpuThresholdMs;
+        public Duration getCpuThreshold() {
+            return cpuThreshold;
         }
 
-        public void setCpuThresholdMs(long cpuThresholdMs) {
-            this.cpuThresholdMs = cpuThresholdMs;
+        public void setCpuThreshold(Duration cpuThreshold) {
+            this.cpuThreshold = cpuThreshold == null ? Duration.ZERO : cpuThreshold;
         }
 
         public DataSize getAllocatedMemoryThreshold() {
@@ -154,7 +159,8 @@ public class EasyObservabilityProperties {
         }
 
         public void setAllocatedMemoryThreshold(DataSize allocatedMemoryThreshold) {
-            this.allocatedMemoryThreshold = allocatedMemoryThreshold;
+            this.allocatedMemoryThreshold = allocatedMemoryThreshold == null ? DataSize.ofBytes(0)
+                    : allocatedMemoryThreshold;
         }
 
         public int getDiagnosticHistoryLimit() {
@@ -165,12 +171,12 @@ public class EasyObservabilityProperties {
             this.diagnosticHistoryLimit = diagnosticHistoryLimit;
         }
 
-        public DataSize getDiagnosticMaxBytes() {
-            return diagnosticMaxBytes;
+        public DataSize getDiagnosticMaxSize() {
+            return diagnosticMaxSize;
         }
 
-        public void setDiagnosticMaxBytes(DataSize diagnosticMaxBytes) {
-            this.diagnosticMaxBytes = diagnosticMaxBytes;
+        public void setDiagnosticMaxSize(DataSize diagnosticMaxSize) {
+            this.diagnosticMaxSize = diagnosticMaxSize;
         }
 
     }

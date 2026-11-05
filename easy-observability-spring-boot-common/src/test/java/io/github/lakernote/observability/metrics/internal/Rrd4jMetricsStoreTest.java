@@ -220,7 +220,7 @@ class Rrd4jMetricsStoreTest {
     @Test
     void disablesLocalHistoryWithoutFailingWhenExistingRrdExceedsConfiguredLimit() throws Exception {
         EasyObservabilityProperties.Metrics settings = properties();
-        long maxStorageBytes = settings.getMaxStorageBytes().toBytes();
+        long maxStorageBytes = settings.getMaxStorageSize().toBytes();
         Path rrdFile = directory.resolve("common-metrics-v7-10s-30d.rrd");
         try (FileChannel channel = FileChannel.open(rrdFile, StandardOpenOption.CREATE_NEW,
                 StandardOpenOption.WRITE)) {
@@ -244,11 +244,15 @@ class Rrd4jMetricsStoreTest {
         assertThrows(IllegalArgumentException.class, () -> new Rrd4jMetricsStore(invalidStep, directory));
 
         EasyObservabilityProperties.Metrics invalidRetention = properties();
-        invalidRetention.setRetentionDays(6);
+        invalidRetention.setRetention(Duration.ofDays(6));
+        assertThrows(IllegalArgumentException.class, () -> new Rrd4jMetricsStore(invalidRetention, directory));
+        invalidRetention.setRetention(Duration.ofDays(366));
+        assertThrows(IllegalArgumentException.class, () -> new Rrd4jMetricsStore(invalidRetention, directory));
+        invalidRetention.setRetention(Duration.ofDays(7).plusHours(12));
         assertThrows(IllegalArgumentException.class, () -> new Rrd4jMetricsStore(invalidRetention, directory));
 
         EasyObservabilityProperties.Metrics insufficientStorage = properties();
-        insufficientStorage.setMaxStorageBytes(DataSize.ofBytes(1));
+        insufficientStorage.setMaxStorageSize(DataSize.ofBytes(1));
         assertThrows(IllegalArgumentException.class, () -> new Rrd4jMetricsStore(insufficientStorage, directory));
     }
 
@@ -265,7 +269,7 @@ class Rrd4jMetricsStoreTest {
     private EasyObservabilityProperties.Metrics properties() {
         EasyObservabilityProperties.Metrics properties = new EasyObservabilityProperties.Metrics();
         properties.setStep(Duration.ofSeconds(10));
-        properties.setMaxStorageBytes(DataSize.ofMegabytes(64));
+        properties.setMaxStorageSize(DataSize.ofMegabytes(64));
         return properties;
     }
 }

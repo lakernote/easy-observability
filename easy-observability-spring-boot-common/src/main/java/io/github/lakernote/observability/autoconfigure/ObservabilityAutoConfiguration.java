@@ -79,7 +79,7 @@ public class ObservabilityAutoConfiguration {
                                               BoundedHistoryWriter writer) {
         EasyObservabilityProperties.Trace trace = properties.getTrace();
         return new DiagnosticTraceStore(storage.traceFile(), trace.getDiagnosticHistoryLimit(),
-                trace.getDiagnosticMaxBytes().toBytes(), writer);
+                trace.getDiagnosticMaxSize().toBytes(), writer);
     }
 
     /**

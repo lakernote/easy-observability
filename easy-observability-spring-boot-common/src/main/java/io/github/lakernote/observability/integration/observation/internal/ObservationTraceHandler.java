@@ -207,8 +207,8 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
                     : resourcesAfter.cpuTimeMsSince(state.resourcesAtStart);
             long allocatedBytes = resourcesAfter == null || state.resourcesAtStart == null ? -1
                     : resourcesAfter.allocatedBytesSince(state.resourcesAtStart);
-            boolean highCpu = properties.getTrace().getCpuThresholdMs() > 0
-                    && cpuTimeMs >= properties.getTrace().getCpuThresholdMs();
+            long cpuThresholdMs = properties.getTrace().getCpuThreshold().toMillis();
+            boolean highCpu = cpuThresholdMs > 0 && cpuTimeMs >= cpuThresholdMs;
             long allocationThresholdBytes = properties.getTrace().getAllocatedMemoryThreshold().toBytes();
             boolean highAllocation = allocationThresholdBytes > 0 && allocatedBytes >= allocationThresholdBytes;
             completeRootTrace(state, threshold, error, displayName, detail, status, durationMs, slow, failed,
@@ -530,9 +530,9 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
 
         private long slowThresholdMs(EasyObservabilityProperties properties) {
             return switch (this) {
-                case JOB -> properties.getTrace().getJobSlowThresholdMs();
-                case HTTP -> properties.getTrace().getHttpSlowThresholdMs();
-                case KAFKA_CONSUMER -> properties.getTrace().getKafkaConsumerSlowThresholdMs();
+                case JOB -> properties.getTrace().getJobSlowThreshold().toMillis();
+                case HTTP -> properties.getTrace().getHttpSlowThreshold().toMillis();
+                case KAFKA_CONSUMER -> properties.getTrace().getKafkaConsumerSlowThreshold().toMillis();
                 default -> 0;
             };
         }
