@@ -51,7 +51,8 @@ class ObservabilityDashboardResourceTest {
         assertThat(new String(metricsScript.readAllBytes(), StandardCharsets.UTF_8))
                 .contains("request(`metrics/operations/trends?period=${period}`)",
                         "request(`metrics/resources?period=${period}`)", "request('metrics/storage')",
-                        "历史存储不可用", "$('instance').classList.toggle('degraded', !storage.persistent)")
+                        "历史存储不可用", "$('instance').classList.toggle('degraded', !storage.persistent)",
+                        "OPEN_STATE_KEY", "buildSections()", "fillSection(")
                 .doesNotContain("innerHTML", "const api = '/api/");
         page.close();
         metricsPage.close();

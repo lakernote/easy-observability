@@ -1,45 +1,106 @@
 import {
   $, DISABLED_MESSAGE, categoryNames, countsSince, formatValue, initializeEmbeddedAuth, lineChart, request
-} from './metrics-common.js?v=20261106.2'
+} from './metrics-common.js?v=20261106.3'
 
 const PERIODS = new Set(['1h', '24h', '7d', '30d'])
 const REFRESH_MS = 60000
 /** Each chart lists series keys; a key ending in ':' matches every pool, executor or area of that meter. */
 const RESOURCE_CHARTS = [
-  { title: 'CPU 使用率', unit: 'percent', series: [
+  { group: 'cpu-memory', title: 'CPU 使用率', unit: 'percent', series: [
     { key: 'process.cpu.usage', label: '进程', scale: 100 }, { key: 'system.cpu.usage', label: '系统', scale: 100 }] },
-  { title: '系统负载（1 分钟）', unit: 'count', series: [{ key: 'system.load.average.1m', label: '负载' }] },
-  { title: '堆内存', unit: 'bytes', series: [
+  { group: 'cpu-memory', title: '系统负载（1 分钟）', unit: 'count', series: [{ key: 'system.load.average.1m', label: '负载' }] },
+  { group: 'cpu-memory', title: '堆内存', unit: 'bytes', series: [
     { key: 'jvm.memory.used:heap', label: '已用' }, { key: 'jvm.memory.committed:heap', label: '已提交' },
     { key: 'jvm.memory.max:heap', label: '上限' }] },
-  { title: '非堆内存', unit: 'bytes', series: [
+  { group: 'cpu-memory', title: '非堆内存', unit: 'bytes', series: [
     { key: 'jvm.memory.used:nonheap', label: '已用' }, { key: 'jvm.memory.committed:nonheap', label: '已提交' }] },
-  { title: 'GC 次数（每分钟）', unit: 'count', series: [{ key: 'jvm.gc.pause.count', label: 'GC 次数' }] },
-  { title: 'GC 停顿时间（每分钟）', unit: 'ms', series: [{ key: 'jvm.gc.pause.time', label: '停顿时间' }] },
-  { title: '内存分配速率（每分钟）', unit: 'bytes', series: [{ key: 'jvm.gc.memory.allocated', label: '分配量' }] },
-  { title: '线程', unit: 'count', series: [
+  { group: 'gc', title: 'GC 次数（每分钟）', unit: 'count', series: [{ key: 'jvm.gc.pause.count', label: 'GC 次数' }] },
+  { group: 'gc', title: 'GC 停顿时间（每分钟）', unit: 'ms', series: [{ key: 'jvm.gc.pause.time', label: '停顿时间' }] },
+  { group: 'gc', title: '内存分配速率（每分钟）', unit: 'bytes', series: [{ key: 'jvm.gc.memory.allocated', label: '分配量' }] },
+  { group: 'threads', title: '线程', unit: 'count', series: [
     { key: 'jvm.threads.live', label: 'JVM 活跃' }, { key: 'jvm.threads.daemon', label: 'JVM 守护' },
     { key: 'tomcat.threads.busy', label: 'Tomcat 忙碌' }, { key: 'tomcat.threads.current', label: 'Tomcat 当前' },
     { key: 'tomcat.threads.config.max', label: 'Tomcat 上限' }, { key: 'jetty.threads.busy', label: 'Jetty 忙碌' },
     { key: 'jetty.threads.current', label: 'Jetty 当前' }, { key: 'jetty.threads.config.max', label: 'Jetty 上限' }] },
-  { title: '数据库连接池', unit: 'count', series: [
+  { group: 'database', title: '数据库连接池', unit: 'count', series: [
     { key: 'hikaricp.connections.active:', label: '活跃' }, { key: 'hikaricp.connections.idle:', label: '空闲' },
     { key: 'hikaricp.connections.pending:', label: '等待' }, { key: 'hikaricp.connections.max:', label: '上限' }] },
-  { title: '获取连接超时（每分钟）', unit: 'count', series: [{ key: 'hikaricp.connections.timeout:', label: '超时' }] },
-  { title: '线程池', unit: 'count', series: [
+  { group: 'database', title: '获取连接超时（每分钟）', unit: 'count', series: [{ key: 'hikaricp.connections.timeout:', label: '超时' }] },
+  { group: 'threads', title: '线程池', unit: 'count', series: [
     { key: 'executor.active:', label: '活跃' }, { key: 'executor.queued:', label: '排队' },
     { key: 'executor.pool.size:', label: '线程数' }, { key: 'executor.pool.max:', label: '上限' }] },
-  { title: '线程池完成任务（每分钟）', unit: 'count', series: [{ key: 'executor.completed:', label: '完成' }] },
-  { title: 'HTTP 会话', unit: 'count', series: [{ key: 'tomcat.sessions.active.current', label: '活跃会话' }] },
-  { title: '文件句柄', unit: 'count', series: [
+  { group: 'threads', title: '线程池完成任务（每分钟）', unit: 'count', series: [{ key: 'executor.completed:', label: '完成' }] },
+  { group: 'system', title: 'HTTP 会话', unit: 'count', series: [{ key: 'tomcat.sessions.active.current', label: '活跃会话' }] },
+  { group: 'system', title: '文件句柄', unit: 'count', series: [
     { key: 'process.files.open', label: '已打开' }, { key: 'process.files.max', label: '上限' }] },
-  { title: '已加载类', unit: 'count', series: [{ key: 'jvm.classes.loaded', label: '类' }] }
+  { group: 'system', title: '已加载类', unit: 'count', series: [{ key: 'jvm.classes.loaded', label: '类' }] }
 ]
 const KNOWN_KEYS = new Set(['jvm.memory.used:', 'jvm.memory.committed:', 'jvm.memory.max:', 'jvm.gc.pause.count',
   'jvm.gc.pause.time', 'hikaricp.connections.acquire.count:', 'hikaricp.connections.acquire.time:',
   'jvm.threads.peak', ...RESOURCE_CHARTS.flatMap(chart => chart.series.map(item => item.key))])
+/** Sections of the page in display order; collapsed by default unless {@code open}. The choice is remembered per browser. */
+const GROUPS = [
+  { id: 'calls', title: '调用', note: '调用次数、错误和耗时', open: true },
+  { id: 'cpu-memory', title: 'CPU 与内存', note: 'CPU 使用率、系统负载、堆和非堆内存', open: true },
+  { id: 'gc', title: 'GC 与内存分配', note: 'GC 次数、停顿时间和分配速率', open: true },
+  { id: 'threads', title: '线程与线程池', note: 'JVM 和 Web 容器线程、应用线程池' },
+  { id: 'database', title: '数据库连接池', note: '活跃、空闲、等待连接和获取超时' },
+  { id: 'system', title: 'Web 与系统', note: 'HTTP 会话、文件句柄、已加载类' },
+  { id: 'custom', title: '自定义指标', note: '通过 easy.observability.metrics.include 追加' }
+]
+const OPEN_STATE_KEY = 'easy-observability:metrics:open-groups'
 let charts = []
 let timer
+const sections = new Map()
+
+function storedOpenGroups() {
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(OPEN_STATE_KEY) || 'null')
+    return Array.isArray(stored) ? new Set(stored) : null
+  } catch { return null }
+}
+
+function rememberOpenGroups() {
+  const open = [...sections].filter(([, section]) => section.details.open).map(([id]) => id)
+  try { window.localStorage.setItem(OPEN_STATE_KEY, JSON.stringify(open)) } catch { /* storage unavailable: keep in memory only */ }
+}
+
+function buildSections() {
+  const stored = storedOpenGroups()
+  for (const group of GROUPS) {
+    const details = document.createElement('details')
+    details.className = 'metric-group'
+    details.open = stored ? stored.has(group.id) : Boolean(group.open)
+    const summary = document.createElement('summary')
+    const title = document.createElement('span')
+    title.className = 'metric-group-title'
+    title.textContent = group.title
+    const note = document.createElement('span')
+    note.className = 'metric-group-note'
+    note.textContent = group.note
+    const count = document.createElement('span')
+    count.className = 'metric-group-count'
+    summary.append(title, note, count)
+    const grid = document.createElement('div')
+    grid.className = 'metric-grid'
+    details.append(summary, grid)
+    details.addEventListener('toggle', rememberOpenGroups)
+    $('metric-groups').append(details)
+    sections.set(group.id, { details, grid, count })
+  }
+}
+
+function fillSection(id, list) {
+  const section = sections.get(id)
+  section.grid.replaceChildren(...list.map(chart => chart.card))
+  section.count.textContent = `${list.length} 个图表`
+  section.details.hidden = list.length === 0
+}
+
+function setAllOpen(open) {
+  for (const section of sections.values()) section.details.open = open
+  rememberOpenGroups()
+}
 
 function matches(spec, key) {
   return spec.key.endsWith(':') ? key.startsWith(spec.key) : key === spec.key
@@ -91,7 +152,10 @@ function resourceCharts(resources) {
         })
       }
     }
-    if (series.length) result.push(lineChart({ ...chart, timestamps: resources.timestamps, stepMillis: resources.stepMillis, series }))
+    if (series.length) {
+      const rendered = lineChart({ ...chart, timestamps: resources.timestamps, stepMillis: resources.stepMillis, series })
+      result.push({ ...rendered, group: chart.group })
+    }
   }
   // Meters added through easy.observability.metrics.include get one chart per meter name.
   const custom = new Map()
@@ -101,9 +165,9 @@ function resourceCharts(resources) {
     custom.get(meter).push(key)
   }
   for (const [meter, meterKeys] of custom) {
-    result.push(lineChart({ title: meter, hint: '自定义指标', unit: 'count', timestamps: resources.timestamps,
+    result.push({ group: 'custom', ...lineChart({ title: meter, unit: 'count', timestamps: resources.timestamps,
       stepMillis: resources.stepMillis,
-      series: meterKeys.map(key => ({ label: key.slice(meter.length).replace(/^[.:]/, '') || meter, values: resources.series[key] })) }))
+      series: meterKeys.map(key => ({ label: key.slice(meter.length).replace(/^[.:]/, '') || meter, values: resources.series[key] })) }) })
   }
   return result
 }
@@ -125,8 +189,10 @@ async function refresh() {
     const operations = operationCharts(trends)
     const resourceList = resourceCharts(resources)
     charts = [...operations, ...resourceList]
-    $('operation-grid').replaceChildren(...operations.map(chart => chart.card))
-    $('resource-grid').replaceChildren(...resourceList.map(chart => chart.card))
+    fillSection('calls', operations)
+    for (const group of GROUPS.filter(item => item.id !== 'calls')) {
+      fillSection(group.id, resourceList.filter(chart => chart.group === group.id))
+    }
     $('empty').hidden = resourceList.length > 0
     $('empty').textContent = '还没有资源指标：指标每分钟采样一次，请稍后刷新'
     $('storage').textContent = storageText(storage)
@@ -152,6 +218,9 @@ $('period').addEventListener('change', () => {
   refresh()
 })
 $('refresh').addEventListener('click', refresh)
+$('expand-all').addEventListener('click', () => setAllOpen(true))
+$('collapse-all').addEventListener('click', () => setAllOpen(false))
+buildSections()
 await initializeEmbeddedAuth()
 await refresh()
 timer = window.setInterval(refresh, REFRESH_MS)
