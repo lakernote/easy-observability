@@ -8,11 +8,17 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
+import io.github.lakernote.observability.trace.TraceContextTaskDecorator;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.beans.factory.support.AbstractBeanDefinition;
+import org.springframework.beans.factory.support.DefaultListableBeanFactory;
+import org.springframework.beans.factory.support.RootBeanDefinition;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.FilteredClassLoader;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+
+import org.springframework.core.task.TaskDecorator;
 
 import java.nio.file.Path;
 
@@ -55,6 +61,58 @@ class ObservabilityAutoConfigurationTest {
                     assertThat(first.getBean(DiagnosticTraceStore.class).storageStatus().persistenceEnabled())
                             .isTrue();
                 }));
+    }
+
+    @Test
+    void registersTheTraceTaskDecoratorAsTheOnlyDefaultDecorator() {
+        contextRunner.run(context -> {
+            assertThat(context).hasSingleBean(TaskDecorator.class);
+            assertThat(context.getBeanProvider(TaskDecorator.class).getIfUnique())
+                    .isInstanceOf(TraceContextTaskDecorator.class);
+        });
+    }
+
+    @Test
+    void keepsTheApplicationDecoratorAsTheDefaultOnSpringBoot3() {
+        TaskDecorator application = task -> task;
+        contextRunner.withBean("applicationDecorator", TaskDecorator.class, () -> application)
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(context.getBeanProvider(TaskDecorator.class).getIfUnique()).isSameAs(application);
+                    assertThat(context.getBeansOfType(TaskDecorator.class)).hasSize(2);
+                });
+    }
+
+    @Test
+    void leavesDecoratorCompositionToSpringBoot4() {
+        DefaultListableBeanFactory beanFactory = new DefaultListableBeanFactory();
+        beanFactory.registerBeanDefinition(ObservabilityAutoConfiguration.TASK_DECORATOR_BEAN,
+                new RootBeanDefinition(TraceContextTaskDecorator.class));
+        beanFactory.registerBeanDefinition("applicationDecorator",
+                new RootBeanDefinition(TaskDecorator.class, () -> task -> task));
+
+        ObservabilityAutoConfiguration.yieldTaskDecoratorToApplication(beanFactory, "4.1.1");
+        assertThat(((AbstractBeanDefinition) beanFactory.getBeanDefinition(
+                ObservabilityAutoConfiguration.TASK_DECORATOR_BEAN)).isDefaultCandidate()).isTrue();
+
+        ObservabilityAutoConfiguration.yieldTaskDecoratorToApplication(beanFactory, "3.5.16");
+        assertThat(((AbstractBeanDefinition) beanFactory.getBeanDefinition(
+                ObservabilityAutoConfiguration.TASK_DECORATOR_BEAN)).isDefaultCandidate()).isFalse();
+    }
+
+    @Test
+    void detectsSpringBootVersionsThatComposeDecorators() {
+        assertThat(ObservabilityAutoConfiguration.composesTaskDecorators("4.0.0")).isTrue();
+        assertThat(ObservabilityAutoConfiguration.composesTaskDecorators("5")).isTrue();
+        assertThat(ObservabilityAutoConfiguration.composesTaskDecorators("3.5.16")).isFalse();
+        assertThat(ObservabilityAutoConfiguration.composesTaskDecorators(null)).isFalse();
+        assertThat(ObservabilityAutoConfiguration.composesTaskDecorators("dev")).isFalse();
+    }
+
+    @Test
+    void doesNotRegisterTheTaskDecoratorWhenTraceIsDisabled() {
+        contextRunner.withPropertyValues("easy.observability.trace.enabled=false")
+                .run(context -> assertThat(context).doesNotHaveBean(TaskDecorator.class));
     }
 
     @Test

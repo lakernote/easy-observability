@@ -11,7 +11,7 @@
 | JDBC、事务、MyBatis | SQL 模板、事务范围、耗时和错误 | SQL 会清理字面量和注释，不记录绑定参数 |
 | Redis | Lettuce Observation 命令 Span；Spring Data Redis 经 Redisson `RedisConnectionFactory` 执行的命令 Span | 直接调用 Redisson `RLock`、`RMap` 等 API 不属于这组连接工厂命令采集 |
 | 远程 HTTP | 已接入的客户端调用 Span；支持的客户端可传播 Trace ID | Spring 管理的 `RestClient.Builder` 自动接入；自行创建并绕过 Spring Builder 的客户端需自行配置 |
-| 异步线程池 | 任务耗时、异常及活动 Trace 上下文传播 | 配置 `TraceContextTaskDecorator` 后，才会记录该线程池的任务边界；请求已返回后继续运行的后台任务不会延长已完成的入口 Trace |
+| 异步线程池 | 任务耗时、异常及活动 Trace 上下文传播 | Spring Boot 默认线程池自动接入；自定义线程池设置 `TraceContextTaskDecorator` 后才会记录任务边界；请求已返回后继续运行的后台任务不会延长已完成的入口 Trace |
 | Metrics | HTTP 入口/出口、定时任务、Kafka、Redis、JVM 内存与 GC、CPU、线程池等固定公共指标 | 标签维度拆分为独立曲线并设有上限；每个应用实例独立保存本地历史 |
 
 自定义业务边界可使用 `TraceBlock` 或 `@TraceSpan`。组件不会扫描所有业务 Service 自动创建 Span。
@@ -130,16 +130,22 @@ logging:
 
 Spring Kafka 的 Listener/Template Observation 需要启用，才能记录相应入口/发送指标和 Trace Span。默认 Listener Factory 会自动接入 Trace ID 拦截器；应用使用自定义 `RecordInterceptor` 或 Listener Factory 时，需要按应用现有配置组合/注册 `TraceIdRecordInterceptor`。自定义消费者、Kafka Streams 不会被默认 Listener 集成自动覆盖。
 
-Spring 管理的线程池可设置 Starter 提供的 `TraceContextTaskDecorator`，例如：
+Spring Boot 自动配置的默认线程池（`applicationTaskExecutor`，`@Async` 默认使用）和调度器会自动应用 Starter 注册的 `TraceContextTaskDecorator`。应用自己定义的线程池需要显式设置，直接创建实例即可，不依赖 Starter 是否启用：
 
 ```java
 @Bean("billingExecutor")
-ThreadPoolTaskExecutor billingExecutor(TraceContextTaskDecorator decorator) {
+ThreadPoolTaskExecutor billingExecutor() {
     ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
     executor.setCorePoolSize(4);
-    executor.setTaskDecorator(decorator);
+    executor.setTaskDecorator(new TraceContextTaskDecorator());
     return executor;
 }
+```
+
+应用已定义自己的 `TaskDecorator` Bean 时：Spring Boot 4 会把它与 Starter 的装饰器组合后应用到默认线程池；Spring Boot 3 只在装饰器唯一时才应用，为了不让宿主的装饰器失效，Starter 的装饰器会让出默认线程池，启动日志会给出提示。此时如需传播 Trace，请自行组合：
+
+```java
+executor.setTaskDecorator(new CompositeTaskDecorator(List.of(applicationDecorator, new TraceContextTaskDecorator())));
 ```
 
 装饰器在线程池执行任务时传播活动 Trace 上下文并记录任务边界；无父 Trace 时不会创建 Trace。若 HTTP 请求先结束，Trace 时间线会在入口结束处停止，仍在运行的子任务标记为未完成，之后发生的调用不再补写到该 Trace。
