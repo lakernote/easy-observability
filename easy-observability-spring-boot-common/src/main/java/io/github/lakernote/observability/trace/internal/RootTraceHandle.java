@@ -1,0 +1,54 @@
+package io.github.lakernote.observability.trace.internal;
+
+import io.github.lakernote.observability.trace.SpanKind;
+
+import java.util.function.Consumer;
+
+/** A root-tree reference retained by an Observation so the request can be finished on another thread. */
+public final class RootTraceHandle {
+    private final TraceTree trace;
+
+    RootTraceHandle(TraceTree trace) {
+        this.trace = trace;
+    }
+
+    TraceTree trace() {
+        return trace;
+    }
+
+    public void updateRootIdentity(String name, String tag) {
+        trace.updateRootIdentity(name, tag);
+    }
+
+    public void markSlow(String reason) {
+        trace.markSlow(reason);
+    }
+
+    public void markError(String reason, BoundedThrowableFormatter.FailureEvidence failure) {
+        trace.markError(reason, failure);
+    }
+
+    /** Ensures a retained diagnostic trace has its bounded tree even when it is not slow or failed. */
+    public void requireTree() {
+        trace.requireExplicitTree();
+    }
+
+    public void rememberOwnedTraceId(String traceId) {
+        trace.rememberOwnedTraceId(traceId);
+    }
+
+    /** Adds a dependency span when a framework Observation resumes on another thread. */
+    public DetachedSpan startDetachedSpan(String name, SpanKind kind, String tag) {
+        return DetachedSpan.of(trace, trace.addChild(trace.rootSpan(), 1, name, kind, tag));
+    }
+
+    public void stop(long slowThresholdMs, String description, Throwable failure,
+                     Consumer<TraceCompletion> completion) {
+        TraceContext.completeRoot(trace, slowThresholdMs, description, failure, completion);
+    }
+
+    public void discard() {
+        trace.discard();
+        TraceContext.detach(this);
+    }
+}

@@ -10,7 +10,6 @@ import org.slf4j.LoggerFactory;
 
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -23,10 +22,9 @@ class TraceContextTest {
 
     @Test
     void shouldSkipRenderingForNormalOperationBelowThreshold() {
-        TraceContext.startRoot("GET /api/users", SpanKind.HTTP, "", 8, 0);
-        TraceContext.addSpan("UserService#list", SpanKind.SERVICE);
-        TraceContext.stopSpan();
-        AtomicReference<TraceContext.Completion> result = new AtomicReference<>();
+        TraceContext.startRoot("GET /api/users", SpanKind.HTTP);
+        TraceContext.startScopedSpan("UserService#list", SpanKind.SERVICE, "").close();
+        AtomicReference<TraceCompletion> result = new AtomicReference<>();
 
         TraceContext.stopRoot(Long.MAX_VALUE, "test", null, result::set);
 
@@ -37,10 +35,9 @@ class TraceContextTest {
 
     @Test
     void shouldRetainSuccessfulTreeWhenUserExplicitlyAddsCodeSpan() {
-        TraceContext.startRoot("GET /api/real-flow", SpanKind.HTTP, "", 8, 0);
-        TraceContext.addExplicitSpan("Redis SET/GET", SpanKind.REDIS, "order cache");
-        TraceContext.stopSpan();
-        AtomicReference<TraceContext.Completion> result = new AtomicReference<>();
+        TraceContext.startRoot("GET /api/real-flow", SpanKind.HTTP);
+        TraceContext.startExplicitScopedSpan("Redis SET/GET", SpanKind.REDIS, "order cache").close();
+        AtomicReference<TraceCompletion> result = new AtomicReference<>();
 
         TraceContext.stopRoot(Long.MAX_VALUE, "test", null, result::set);
 
@@ -51,11 +48,10 @@ class TraceContextTest {
 
     @Test
     void shouldRenderTreeWhenChildMarksTraceSlow() {
-        TraceContext.startRoot("GET /api/users", SpanKind.HTTP, "", 8, 0);
-        TraceContext.addSpan("UserService#list", SpanKind.SERVICE);
-        TraceContext.stopSpan();
+        TraceContext.startRoot("GET /api/users", SpanKind.HTTP);
+        TraceContext.startScopedSpan("UserService#list", SpanKind.SERVICE, "").close();
         TraceContext.markSlow("SLOW_SQL");
-        AtomicReference<TraceContext.Completion> result = new AtomicReference<>();
+        AtomicReference<TraceCompletion> result = new AtomicReference<>();
 
         TraceContext.stopRoot(Long.MAX_VALUE, "test", null, result::set);
 
@@ -66,12 +62,11 @@ class TraceContextTest {
 
     @Test
     void shouldRenderTreeWhenChildMarksTraceAsError() {
-        TraceContext.startRoot("GET /api/users", SpanKind.HTTP, "", 8, 0);
+        TraceContext.startRoot("GET /api/users", SpanKind.HTTP);
         IllegalStateException failure = new IllegalStateException("boom");
-        TraceContext.addSpan("UserRepository#list", SpanKind.DATABASE);
-        TraceContext.stopSpan();
+        TraceContext.startScopedSpan("UserRepository#list", SpanKind.DATABASE, "").close();
         TraceContext.markError("SQL_ERROR", failure);
-        AtomicReference<TraceContext.Completion> result = new AtomicReference<>();
+        AtomicReference<TraceCompletion> result = new AtomicReference<>();
 
         TraceContext.stopRoot(Long.MAX_VALUE, "test", null, result::set);
 
@@ -83,8 +78,8 @@ class TraceContextTest {
 
     @Test
     void shouldTreatZeroThresholdAsDisabledForNormalOperations() {
-        TraceContext.startRoot("diagnostic", SpanKind.HTTP, "", 8, 0);
-        AtomicReference<TraceContext.Completion> result = new AtomicReference<>();
+        TraceContext.startRoot("diagnostic", SpanKind.HTTP);
+        AtomicReference<TraceCompletion> result = new AtomicReference<>();
 
         TraceContext.stopRoot(0, "test", null, result::set);
 
@@ -93,30 +88,31 @@ class TraceContextTest {
     }
 
     @Test
-    void shouldRetainAsyncTreeWithoutMaterializingItUntilRequested() {
-        TraceContext.startRoot("GET /api/stream", SpanKind.HTTP, "", 8, 0);
-        TraceContext.addSpan("StreamService#open", SpanKind.SERVICE);
-        TraceContext.stopSpan();
-        AtomicReference<TraceContext.DeferredCompletion> result = new AtomicReference<>();
+    void startRootMustNotReplaceAnActiveTrace() {
+        assertThat(TraceContext.startRoot("GET /outer", SpanKind.HTTP)).isTrue();
+        assertThat(TraceContext.startRoot("GET /inner", SpanKind.HTTP)).isFalse();
+        AtomicReference<TraceCompletion> result = new AtomicReference<>();
 
-        TraceContext.stopRootDeferred(null, result::set);
+        TraceContext.currentRootTraceHandle().requireTree();
+        TraceContext.stopRoot(Long.MAX_VALUE, "test", null, result::set);
 
-        assertThat(result.get().slow()).isFalse();
-        assertThat(result.get().error()).isFalse();
-        assertThat(result.get().tree()).contains("GET /api/stream", "StreamService#open");
+        assertThat(result.get().tree()).contains("GET /outer").doesNotContain("GET /inner");
+        assertThat(TraceContext.active()).isFalse();
     }
 
     @Test
-    void deferredCompletionMustKeepTheDomainErrorReasonWithoutAddingRootFallback() {
-        IllegalStateException failure = new IllegalStateException("async boom");
-        TraceContext.startRoot("GET /api/stream", SpanKind.HTTP, "", 8, 0);
-        TraceContext.markError("HTTP_ERROR", failure);
-        AtomicReference<TraceContext.DeferredCompletion> result = new AtomicReference<>();
+    void scopedSpanCloseMustRestoreItsParentEvenWhenTheSpanWasDropped() {
+        TraceContext.startRoot("GET /deep", SpanKind.HTTP);
+        String rootId = TraceContext.currentSpanId();
+        ScopedSpan[] spans = new ScopedSpan[TraceTree.DEFAULT_MAX_DEPTH + 2];
+        for (int i = 0; i < spans.length; i++) {
+            spans[i] = TraceContext.startScopedSpan("level-" + i, SpanKind.SERVICE, "");
+        }
+        assertThat(spans[spans.length - 1].spanId()).as("beyond max depth").isEmpty();
 
-        TraceContext.stopRootDeferred(failure, result::set);
+        for (int i = spans.length - 1; i >= 0; i--) spans[i].close();
 
-        assertThat(result.get().error()).isTrue();
-        assertThat(result.get().reasons()).containsExactly("HTTP_ERROR");
+        assertThat(TraceContext.currentSpanId()).isEqualTo(rootId);
     }
 
     @Test
@@ -129,10 +125,9 @@ class TraceContextTest {
         appender.start();
         try {
             IllegalStateException failure = new IllegalStateException("raw-error-message");
-            TraceContext.startRoot("POST /orders", SpanKind.HTTP, "", 8, 0);
-            TraceContext.addSpan("OrderService#create", SpanKind.SERVICE);
-            TraceContext.stopSpan();
-            AtomicReference<TraceContext.Completion> result = new AtomicReference<>();
+            TraceContext.startRoot("POST /orders", SpanKind.HTTP);
+            TraceContext.startScopedSpan("OrderService#create", SpanKind.SERVICE, "").close();
+            AtomicReference<TraceCompletion> result = new AtomicReference<>();
 
             TraceContext.stopRoot(Long.MAX_VALUE, "root\nerror", failure, result::set);
 
@@ -161,9 +156,8 @@ class TraceContextTest {
         logger.addAppender(appender);
         appender.start();
         try {
-            TraceContext.startRoot("GET /slow", SpanKind.HTTP, "", 8, 0);
-            TraceContext.addSpan("http.client.requests", SpanKind.REMOTE, "/catalog");
-            TraceContext.stopSpan();
+            TraceContext.startRoot("GET /slow", SpanKind.HTTP);
+            TraceContext.startScopedSpan("http.client.requests", SpanKind.REMOTE, "/catalog").close();
             Thread.sleep(5);
 
             TraceContext.stopRoot(1, "HTTP observation");
@@ -180,7 +174,7 @@ class TraceContextTest {
 
     @Test
     void shouldRateLimitTraceSummariesAndReportPreviousSuppression() {
-        TraceContext.DiagnosticLogLimiter limiter = new TraceContext.DiagnosticLogLimiter(2, 100);
+        TraceDiagnosticLog.Limiter limiter = new TraceDiagnosticLog.Limiter(2, 100);
 
         assertThat(limiter.tryAcquire(0)).isZero();
         assertThat(limiter.tryAcquire(1)).isZero();
@@ -196,42 +190,15 @@ class TraceContextTest {
     @Test
     void preformattedFailureEvidenceMustNotWalkTheThrowableStackAgain() {
         CountingFailure failure = new CountingFailure("boom");
-        TraceContext.startRoot("POST /orders", SpanKind.HTTP, "", 8, 0);
+        TraceContext.startRoot("POST /orders", SpanKind.HTTP);
         BoundedThrowableFormatter.FailureEvidence evidence = BoundedThrowableFormatter.capture(failure);
         TraceContext.markError("HTTP_ERROR", evidence);
-        AtomicReference<TraceContext.Completion> result = new AtomicReference<>();
+        AtomicReference<TraceCompletion> result = new AtomicReference<>();
 
         TraceContext.stopRoot(Long.MAX_VALUE, "test", failure, result::set);
 
         assertThat(failure.stackReads).hasValue(1);
         assertThat(result.get().stackTrace()).contains("CountingFailure");
-    }
-
-    @Test
-    void frozenRootBoundaryMustExcludeMonitoringFinalizationFromSlowDecision() {
-        TraceContext.startRoot("GET /fast", SpanKind.HTTP, "", 8, 0);
-        TraceContext.freezeRootBoundary();
-        java.util.concurrent.locks.LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(75));
-        AtomicReference<TraceContext.Completion> result = new AtomicReference<>();
-
-        TraceContext.stopRoot(50, "test", null, result::set);
-
-        assertThat(result.get().costMs()).isLessThan(50);
-        assertThat(result.get().slow()).isFalse();
-    }
-
-    @Test
-    void explicitStartBoundaryMustExcludeMonitoringSetupFromSlowDecision() {
-        TraceContext.startRoot("GET /fast", SpanKind.HTTP, "", 8, 0);
-        java.util.concurrent.locks.LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(75));
-        TraceContext.beginCurrentSpanBoundary();
-        TraceContext.freezeRootBoundary();
-        AtomicReference<TraceContext.Completion> result = new AtomicReference<>();
-
-        TraceContext.stopRoot(50, "test", null, result::set);
-
-        assertThat(result.get().costMs()).isLessThan(50);
-        assertThat(result.get().slow()).isFalse();
     }
 
     private static final class CountingFailure extends RuntimeException {

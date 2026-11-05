@@ -55,7 +55,7 @@ class TraceSpanAspectTest {
         ProceedingJoinPoint joinPoint = mock(ProceedingJoinPoint.class);
         when(joinPoint.getSignature()).thenThrow(new AssertionError("trace metadata unavailable"));
         when(joinPoint.proceed()).thenReturn("loaded");
-        TraceContext.startRoot("GET /api/users", SpanKind.HTTP, "", 8, 0);
+        TraceContext.startRoot("GET /api/users", SpanKind.HTTP);
 
         assertThat(aspect.around(joinPoint)).isEqualTo("loaded");
 
@@ -71,16 +71,17 @@ class TraceSpanAspectTest {
         ProceedingJoinPoint joinPoint = joinPoint(target, method, "unused");
         IOException failure = new IOException("directory unavailable");
         when(joinPoint.proceed()).thenThrow(failure);
-        AtomicReference<TraceContext.DeferredCompletion> completion = new AtomicReference<>();
-        TraceContext.startRoot("GET /api/users", SpanKind.HTTP, "", 8, 0);
+        AtomicReference<TraceCompletion> completion = new AtomicReference<>();
+        TraceContext.startRoot("GET /api/users", SpanKind.HTTP);
         String rootSpanId = TraceContext.currentSpanId();
 
         Throwable thrown = catchThrowable(() -> aspect.around(joinPoint));
 
         assertThat(thrown).isSameAs(failure);
         assertThat(TraceContext.currentSpanId()).isEqualTo(rootSpanId);
-        TraceContext.stopRootDeferred(null, completion::set);
-        TraceContext.DeferredCompletion result = completion.get();
+        TraceContext.currentRootTraceHandle().requireTree();
+        TraceContext.stopRoot(0, "test", null, completion::set);
+        TraceCompletion result = completion.get();
         assertThat(result.error()).isTrue();
         assertThat(result.reasons()).containsExactly(TraceContext.CODE_ERROR_REASON);
         assertThat(result.errorType()).isEqualTo(IOException.class.getName());
@@ -97,10 +98,11 @@ class TraceSpanAspectTest {
     }
 
     private static String traceOnce(TraceSpanAspect aspect, ProceedingJoinPoint joinPoint) throws Throwable {
-        TraceContext.startRoot("GET /api/users", SpanKind.HTTP, "", 8, 0);
+        TraceContext.startRoot("GET /api/users", SpanKind.HTTP);
         aspect.around(joinPoint);
-        AtomicReference<TraceContext.DeferredCompletion> completion = new AtomicReference<>();
-        TraceContext.stopRootDeferred(null, completion::set);
+        AtomicReference<TraceCompletion> completion = new AtomicReference<>();
+        TraceContext.currentRootTraceHandle().requireTree();
+        TraceContext.stopRoot(0, "test", null, completion::set);
         return completion.get().tree();
     }
 
@@ -119,12 +121,13 @@ class TraceSpanAspectTest {
         AspectJProxyFactory factory = new AspectJProxyFactory(new PointcutService());
         factory.addAspect(new TraceSpanAspect(new io.github.lakernote.observability.config.EasyObservabilityProperties()));
         PointcutService proxy = factory.getProxy();
-        AtomicReference<TraceContext.DeferredCompletion> completion = new AtomicReference<>();
-        TraceContext.startRoot("GET /pointcut", SpanKind.HTTP, "", 8, 0);
+        AtomicReference<TraceCompletion> completion = new AtomicReference<>();
+        TraceContext.startRoot("GET /pointcut", SpanKind.HTTP);
 
         proxy.traced();
         proxy.disabled();
-        TraceContext.stopRootDeferred(null, completion::set);
+        TraceContext.currentRootTraceHandle().requireTree();
+        TraceContext.stopRoot(0, "test", null, completion::set);
 
         assertThat(completion.get().nodes().get(0).children())
                 .extracting(TraceNode::name)

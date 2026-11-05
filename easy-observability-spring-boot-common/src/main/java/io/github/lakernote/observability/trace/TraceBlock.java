@@ -1,6 +1,7 @@
 package io.github.lakernote.observability.trace;
 
 import io.github.lakernote.observability.trace.internal.TraceContext;
+import io.github.lakernote.observability.trace.internal.ScopedSpan;
 import java.util.function.Supplier;
 
 /** Adds a span around one explicitly selected code block. */
@@ -18,7 +19,7 @@ public final class TraceBlock {
     }
 
     public static <T> T call(String spanName, SpanKind kind, String tag, Supplier<T> supplier) {
-        TraceContext.ScopedSpan span = startSpan(spanName, kind, tag);
+        ScopedSpan span = startSpan(spanName, kind, tag);
         try {
             return supplier.get();
         } catch (Throwable failure) {
@@ -39,7 +40,7 @@ public final class TraceBlock {
     }
 
     public static void run(String spanName, SpanKind kind, String tag, Runnable runnable) {
-        TraceContext.ScopedSpan span = startSpan(spanName, kind, tag);
+        ScopedSpan span = startSpan(spanName, kind, tag);
         try {
             runnable.run();
         } catch (Throwable failure) {
@@ -50,7 +51,7 @@ public final class TraceBlock {
         }
     }
 
-    private static TraceContext.ScopedSpan startSpan(String spanName, SpanKind kind, String tag) {
+    private static ScopedSpan startSpan(String spanName, SpanKind kind, String tag) {
         try {
             return TraceContext.startExplicitScopedSpan(spanName, kind, tag);
         } catch (Throwable monitoringFailure) {
@@ -59,7 +60,7 @@ public final class TraceBlock {
         }
     }
 
-    private static void markFailure(TraceContext.ScopedSpan span, Throwable failure) {
+    private static void markFailure(ScopedSpan span, Throwable failure) {
         if (span == null) return;
         try {
             span.markTraceError(TraceContext.CODE_ERROR_REASON, failure);
@@ -68,7 +69,7 @@ public final class TraceBlock {
         }
     }
 
-    private static void closeSpan(TraceContext.ScopedSpan span) {
+    private static void closeSpan(ScopedSpan span) {
         if (span == null) return;
         try {
             span.close();

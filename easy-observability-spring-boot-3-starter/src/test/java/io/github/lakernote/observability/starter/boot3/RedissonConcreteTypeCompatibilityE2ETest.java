@@ -1,6 +1,7 @@
 package io.github.lakernote.observability.starter.boot3;
 
 import io.github.lakernote.observability.trace.SpanKind;
+import io.github.lakernote.observability.trace.internal.TraceCompletion;
 import io.github.lakernote.observability.trace.internal.TraceContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -55,14 +56,15 @@ class RedissonConcreteTypeCompatibilityE2ETest {
         connectionFactory.setFilterOkResponses(false);
         assertThat(fixture.target().isFilterOkResponses()).isFalse();
 
-        AtomicReference<TraceContext.DeferredCompletion> completion = new AtomicReference<>();
+        AtomicReference<TraceCompletion> completion = new AtomicReference<>();
         TraceContext.startRoot("redisson-compatibility-e2e", SpanKind.HTTP);
         try {
             RedisConnection connection = connectionFactory.getConnection();
             assertThat(connection).isNotSameAs(fixture.connection());
             assertThat(connection.ping()).isEqualTo("PONG");
         } finally {
-            TraceContext.stopRootDeferred(null, completion::set);
+            TraceContext.currentRootTraceHandle().requireTree();
+            TraceContext.stopRoot(0, "test", null, completion::set);
         }
 
         assertThat(completion.get()).isNotNull();

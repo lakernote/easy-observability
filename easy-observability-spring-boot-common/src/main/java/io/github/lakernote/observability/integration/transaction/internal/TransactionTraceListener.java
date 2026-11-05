@@ -115,7 +115,7 @@ public final class TransactionTraceListener implements TransactionExecutionListe
         private final boolean readOnly;
         private final boolean tracing;
         private long threadId;
-        private TraceContext.ScopedSpan span;
+        private ScopedSpan span;
 
         private State(String traceId, boolean ownsTraceId, boolean tracing, String name, boolean readOnly,
                       long threadId) {

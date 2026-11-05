@@ -1,6 +1,7 @@
 package io.github.lakernote.observability.starter.boot4;
 
 import io.github.lakernote.observability.trace.SpanKind;
+import io.github.lakernote.observability.trace.internal.TraceCompletion;
 import io.github.lakernote.observability.trace.TraceBlock;
 import io.github.lakernote.observability.trace.internal.TraceContext;
 import io.github.lakernote.observability.trace.internal.TraceNode;
@@ -38,14 +39,15 @@ class ExplicitSpanErrorE2ETest {
     @Test
     void realTraceSpanProxyMarksHandledFailureAsAnError() {
         assertThat(AopUtils.isAopProxy(service)).isTrue();
-        AtomicReference<TraceContext.DeferredCompletion> completion = new AtomicReference<>();
+        AtomicReference<TraceCompletion> completion = new AtomicReference<>();
         TraceContext.startRoot("explicit-span-e2e", SpanKind.HTTP);
 
         Throwable thrown = catchThrowable(service::failAnnotated);
 
         assertThat(thrown).isSameAs(service.annotatedFailure());
-        TraceContext.stopRootDeferred(null, completion::set);
-        TraceContext.DeferredCompletion result = completion.get();
+        TraceContext.currentRootTraceHandle().requireTree();
+        TraceContext.stopRoot(0, "test", null, completion::set);
+        TraceCompletion result = completion.get();
         TraceNode root = result.nodes().get(0);
         TraceNode annotated = root.children().get(0);
         assertThat(result.error()).isTrue();
@@ -60,14 +62,15 @@ class ExplicitSpanErrorE2ETest {
 
     @Test
     void traceBlockAndAnnotatedWrapperBothRecordThePropagatedFailure() {
-        AtomicReference<TraceContext.DeferredCompletion> completion = new AtomicReference<>();
+        AtomicReference<TraceCompletion> completion = new AtomicReference<>();
         TraceContext.startRoot("explicit-block-e2e", SpanKind.HTTP);
 
         Throwable thrown = catchThrowable(service::failThroughBlock);
 
         assertThat(thrown).isSameAs(service.blockFailure());
-        TraceContext.stopRootDeferred(null, completion::set);
-        TraceContext.DeferredCompletion result = completion.get();
+        TraceContext.currentRootTraceHandle().requireTree();
+        TraceContext.stopRoot(0, "test", null, completion::set);
+        TraceCompletion result = completion.get();
         TraceNode root = result.nodes().get(0);
         TraceNode wrapper = root.children().get(0);
         TraceNode block = wrapper.children().get(0);

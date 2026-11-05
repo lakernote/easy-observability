@@ -1,6 +1,7 @@
 package io.github.lakernote.observability.starter.boot3;
 
 import io.github.lakernote.observability.trace.internal.TraceIds;
+import io.github.lakernote.observability.trace.internal.TraceCompletion;
 import io.github.lakernote.observability.trace.SpanKind;
 import io.github.lakernote.observability.trace.internal.TraceContext;
 import io.micrometer.observation.Observation;
@@ -40,7 +41,7 @@ class JdbcObservationRedactionE2ETest {
         SQLException failure = new SQLException(
                 "Syntax error in SQL SELECT '" + sqlSecret + "'",
                 new IllegalArgumentException(causeSecret));
-        AtomicReference<TraceContext.DeferredCompletion> completion = new AtomicReference<>();
+        AtomicReference<TraceCompletion> completion = new AtomicReference<>();
 
         TraceContext.startRoot("jdbc-observation-e2e", SpanKind.HTTP);
         Observation observation = Observation.createNotStarted("spring.jdbc", observationRegistry)
@@ -52,9 +53,10 @@ class JdbcObservationRedactionE2ETest {
         observation.start();
         observation.error(failure);
         observation.stop();
-        TraceContext.stopRootDeferred(null, completion::set);
+        TraceContext.currentRootTraceHandle().requireTree();
+        TraceContext.stopRoot(0, "test", null, completion::set);
 
-        TraceContext.DeferredCompletion result = completion.get();
+        TraceCompletion result = completion.get();
         assertThat(result.error()).isTrue();
         assertThat(result.reasons()).containsExactly("DATABASE_ERROR");
         assertThat(result.errorType()).isEqualTo(SQLException.class.getName());

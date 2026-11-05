@@ -1,6 +1,7 @@
 package io.github.lakernote.observability.integration.transaction.internal;
 
 import io.github.lakernote.observability.trace.internal.TraceIds;
+import io.github.lakernote.observability.trace.internal.TraceCompletion;
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -22,7 +23,7 @@ class TransactionTraceListenerTest {
         TransactionTraceListener listener = new TransactionTraceListener(properties);
         TransactionExecution execution = execution("OrderService#create", true);
         io.github.lakernote.observability.trace.internal.TraceContext.startRoot("POST /orders",
-                io.github.lakernote.observability.trace.SpanKind.HTTP, "", 8, 0);
+                io.github.lakernote.observability.trace.SpanKind.HTTP);
 
         listener.beforeBegin(execution);
         String transactionSpanId = io.github.lakernote.observability.trace.internal.TraceContext.currentSpanId();
@@ -36,7 +37,7 @@ class TransactionTraceListenerTest {
         assertThat(query.parentSpanId()).isEqualTo(transactionSpanId);
         query.close();
         listener.afterCommit(execution, null);
-        java.util.concurrent.atomic.AtomicReference<io.github.lakernote.observability.trace.internal.TraceContext.Completion> completion =
+        java.util.concurrent.atomic.AtomicReference<io.github.lakernote.observability.trace.internal.TraceCompletion> completion =
                 new java.util.concurrent.atomic.AtomicReference<>();
         io.github.lakernote.observability.trace.internal.TraceContext.markSlow("TEST_CAPTURE");
         io.github.lakernote.observability.trace.internal.TraceContext.stopRoot(0, "test", null, completion::set);
@@ -54,7 +55,7 @@ class TransactionTraceListenerTest {
         TransactionTraceListener listener = new TransactionTraceListener(properties);
         TransactionExecution execution = execution("OrderService#create", false);
         io.github.lakernote.observability.trace.internal.TraceContext.startRoot("POST /orders",
-                io.github.lakernote.observability.trace.SpanKind.HTTP, "", 8, 0);
+                io.github.lakernote.observability.trace.SpanKind.HTTP);
         String rootSpanId = io.github.lakernote.observability.trace.internal.TraceContext.currentSpanId();
 
         listener.beforeBegin(execution);
@@ -62,7 +63,7 @@ class TransactionTraceListenerTest {
         listener.afterBegin(execution, new IllegalStateException("connection unavailable"));
 
         assertThat(io.github.lakernote.observability.trace.internal.TraceContext.currentSpanId()).isEqualTo(rootSpanId);
-        java.util.concurrent.atomic.AtomicReference<io.github.lakernote.observability.trace.internal.TraceContext.Completion> completion =
+        java.util.concurrent.atomic.AtomicReference<io.github.lakernote.observability.trace.internal.TraceCompletion> completion =
                 new java.util.concurrent.atomic.AtomicReference<>();
         io.github.lakernote.observability.trace.internal.TraceContext.stopRoot(0, "test", null, completion::set);
         assertThat(completion.get().tree()).contains("OrderService#create");

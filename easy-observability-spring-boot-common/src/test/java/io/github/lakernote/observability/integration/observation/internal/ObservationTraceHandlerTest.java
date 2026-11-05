@@ -4,6 +4,7 @@ import io.github.lakernote.observability.trace.internal.TraceIds;
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
 import io.github.lakernote.observability.trace.SpanKind;
 import io.github.lakernote.observability.trace.internal.TraceContext;
+import io.github.lakernote.observability.trace.internal.TraceCompletion;
 import io.github.lakernote.observability.trace.internal.store.RecentTraceStore;
 import io.github.lakernote.observability.trace.internal.TraceNodeFixtures;
 import io.micrometer.observation.Observation;
@@ -40,7 +41,7 @@ class ObservationTraceHandlerTest {
         observation.stop();
 
         TraceContext.currentRootTraceHandle().requireTree();
-        TraceContext.Completion[] completion = new TraceContext.Completion[1];
+        TraceCompletion[] completion = new TraceCompletion[1];
         TraceContext.stopRoot(Long.MAX_VALUE, "test", null, result -> completion[0] = result);
         assertThat(completion[0].tree()).contains("[Redis] GET");
         assertThat(completion[0].slow()).isFalse();
@@ -60,7 +61,7 @@ class ObservationTraceHandlerTest {
         SQLException failure = new SQLException(
                 "Syntax error in SQL SELECT '" + sqlSecret + "'",
                 new IllegalArgumentException(causeSecret));
-        AtomicReference<TraceContext.DeferredCompletion> completion = new AtomicReference<>();
+        AtomicReference<TraceCompletion> completion = new AtomicReference<>();
 
         TraceContext.startRoot("jdbc-observation", SpanKind.HTTP);
         Observation observation = Observation.createNotStarted("spring.jdbc", registry)
@@ -72,9 +73,10 @@ class ObservationTraceHandlerTest {
         observation.start();
         observation.error(failure);
         observation.stop();
-        TraceContext.stopRootDeferred(null, completion::set);
+        TraceContext.currentRootTraceHandle().requireTree();
+        TraceContext.stopRoot(0, "test", null, completion::set);
 
-        TraceContext.DeferredCompletion result = completion.get();
+        TraceCompletion result = completion.get();
         assertThat(result.error()).isTrue();
         assertThat(result.reasons()).containsExactly("DATABASE_ERROR");
         assertThat(result.errorType()).isEqualTo(SQLException.class.getName());
@@ -104,13 +106,14 @@ class ObservationTraceHandlerTest {
         context.addHighCardinalityKeyValue(io.micrometer.common.KeyValue.of(
                 "jdbc.query[0]", "SELECT 'stop-secret--tail'"));
         SQLException failure = new SQLException("driver-stop-secret");
-        AtomicReference<TraceContext.DeferredCompletion> completion = new AtomicReference<>();
+        AtomicReference<TraceCompletion> completion = new AtomicReference<>();
 
         TraceContext.startRoot("jdbc-observation-stop", SpanKind.HTTP);
         handler.onStart(context);
         context.setError(failure);
         handler.onStop(context);
-        TraceContext.stopRootDeferred(null, completion::set);
+        TraceContext.currentRootTraceHandle().requireTree();
+        TraceContext.stopRoot(0, "test", null, completion::set);
 
         assertThat(completion.get().error()).isTrue();
         assertThat(completion.get().reasons()).containsExactly("DATABASE_ERROR");

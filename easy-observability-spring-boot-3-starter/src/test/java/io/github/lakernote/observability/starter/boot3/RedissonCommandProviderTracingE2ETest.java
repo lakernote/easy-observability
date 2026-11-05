@@ -1,6 +1,7 @@
 package io.github.lakernote.observability.starter.boot3;
 
 import io.github.lakernote.observability.trace.SpanKind;
+import io.github.lakernote.observability.trace.internal.TraceCompletion;
 import io.github.lakernote.observability.trace.internal.TraceContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -53,7 +54,7 @@ class RedissonCommandProviderTracingE2ETest {
         assertThat(connectionFactory).isInstanceOf(RedissonConnectionFactory.class);
         assertThat(AopUtils.isCglibProxy(connectionFactory)).isTrue();
 
-        AtomicReference<TraceContext.DeferredCompletion> completion = new AtomicReference<>();
+        AtomicReference<TraceCompletion> completion = new AtomicReference<>();
         TraceContext.startRoot("redisson-command-provider-success", SpanKind.HTTP);
         try {
             RedissonConnection connection = fixture.connection();
@@ -62,7 +63,8 @@ class RedissonCommandProviderTracingE2ETest {
             assertThat(commands).isSameAs(tracedConnection).isNotSameAs(connection);
             assertThat(commands.get(KEY)).containsExactly(VALUE);
         } finally {
-            TraceContext.stopRootDeferred(null, completion::set);
+            TraceContext.currentRootTraceHandle().requireTree();
+            TraceContext.stopRoot(0, "test", null, completion::set);
         }
 
         assertThat(completion.get()).isNotNull();
@@ -79,13 +81,14 @@ class RedissonCommandProviderTracingE2ETest {
 
     @Test
     void preservesProviderCommandFailureAndRecordsItsTrace() {
-        AtomicReference<TraceContext.DeferredCompletion> completion = new AtomicReference<>();
+        AtomicReference<TraceCompletion> completion = new AtomicReference<>();
         TraceContext.startRoot("redisson-command-provider-failure", SpanKind.HTTP);
         try {
             RedisStringCommands commands = connectionFactory.getConnection().stringCommands();
             assertThatThrownBy(() -> commands.set(KEY, VALUE)).isSameAs(fixture.failure());
         } finally {
-            TraceContext.stopRootDeferred(null, completion::set);
+            TraceContext.currentRootTraceHandle().requireTree();
+            TraceContext.stopRoot(0, "test", null, completion::set);
         }
 
         assertThat(completion.get()).isNotNull();

@@ -1,6 +1,7 @@
 package io.github.lakernote.observability.integration.redis.internal;
 
 import io.github.lakernote.observability.trace.SpanKind;
+import io.github.lakernote.observability.trace.internal.TraceCompletion;
 import io.github.lakernote.observability.trace.internal.TraceContext;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
@@ -155,13 +156,14 @@ class RedissonTraceConnectionFactoryPostProcessorTest {
         var processor = new RedissonTraceConnectionFactoryPostProcessor(() -> registry);
         RedisStringCommands delegate = stringCommands(null);
         RedisConnection wrapped = processor.wrap(connection(delegate, keyCommands(null)));
-        AtomicReference<TraceContext.DeferredCompletion> completion = new AtomicReference<>();
+        AtomicReference<TraceCompletion> completion = new AtomicReference<>();
 
         TraceContext.startRoot("redis-command-provider", SpanKind.HTTP);
         RedisStringCommands commands = wrapped.stringCommands();
         assertThat(commands).isNotSameAs(delegate);
         assertThat(commands.get(KEY)).isEqualTo(VALUE);
-        TraceContext.stopRootDeferred(null, completion::set);
+        TraceContext.currentRootTraceHandle().requireTree();
+        TraceContext.stopRoot(0, "test", null, completion::set);
 
         assertThat(completion.get().tree())
                 .contains("[Redis] Redis get", "tag=\"get\"")
@@ -179,13 +181,14 @@ class RedissonTraceConnectionFactoryPostProcessorTest {
         IllegalStateException failure = new IllegalStateException("Redis command failed");
         RedisKeyCommands delegate = keyCommands(failure);
         RedisConnection wrapped = processor.wrap(connection(stringCommands(null), delegate));
-        AtomicReference<TraceContext.DeferredCompletion> completion = new AtomicReference<>();
+        AtomicReference<TraceCompletion> completion = new AtomicReference<>();
 
         TraceContext.startRoot("redis-command-provider-failure", SpanKind.HTTP);
         RedisKeyCommands commands = wrapped.keyCommands();
         assertThat(commands).isNotSameAs(delegate);
         assertThatThrownBy(() -> commands.del(KEY)).isSameAs(failure);
-        TraceContext.stopRootDeferred(null, completion::set);
+        TraceContext.currentRootTraceHandle().requireTree();
+        TraceContext.stopRoot(0, "test", null, completion::set);
 
         assertThat(completion.get().error()).isTrue();
         assertThat(completion.get().reasons()).contains("REDIS_ERROR");
@@ -203,13 +206,14 @@ class RedissonTraceConnectionFactoryPostProcessorTest {
         SimpleMeterRegistry registry = new SimpleMeterRegistry();
         var processor = new RedissonTraceConnectionFactoryPostProcessor(() -> registry);
         RedisConnection wrapped = processor.wrap(selfProvidingConnection());
-        AtomicReference<TraceContext.DeferredCompletion> completion = new AtomicReference<>();
+        AtomicReference<TraceCompletion> completion = new AtomicReference<>();
 
         TraceContext.startRoot("redis-self-command-provider", SpanKind.HTTP);
         RedisStringCommands commands = wrapped.stringCommands();
         assertThat(commands).isSameAs(wrapped);
         assertThat(commands.get(KEY)).isEqualTo(VALUE);
-        TraceContext.stopRootDeferred(null, completion::set);
+        TraceContext.currentRootTraceHandle().requireTree();
+        TraceContext.stopRoot(0, "test", null, completion::set);
 
         assertThat(completion.get().tree())
                 .contains("[Redis] Redis get", "tag=\"get\"")

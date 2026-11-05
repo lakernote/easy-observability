@@ -14,11 +14,11 @@ class SpanRelationshipTest {
 
     @Test
     void detachedOperationsAttachToTheCurrentSpanAndExposeStableIds() {
-        String rootId = TraceContext.startRootSpan("GET /orders", SpanKind.HTTP, "", 8, 0);
-        TraceContext.addSpan("OrderService#load", SpanKind.SERVICE, "order");
-        String serviceId = TraceContext.currentSpanId();
+        TraceContext.startRoot("GET /orders", SpanKind.HTTP);
+        String rootId = TraceContext.currentSpanId();
+        String serviceId = TraceContext.startScopedSpan("OrderService#load", SpanKind.SERVICE, "order").spanId();
 
-        TraceContext.DetachedSpan sql = TraceContext.startDetachedSpan("OrderMapper#select", SpanKind.DATABASE, "SELECT");
+        DetachedSpan sql = TraceContext.startDetachedSpan("OrderMapper#select", SpanKind.DATABASE, "SELECT");
 
         assertThat(rootId).isEqualTo("1");
         assertThat(serviceId).isNotBlank().isNotEqualTo(rootId);
@@ -28,10 +28,11 @@ class SpanRelationshipTest {
 
     @Test
     void scopedOperationsNestAndRestoreTheirParentInCallOrder() {
-        String rootId = TraceContext.startRootSpan("GET /orders", SpanKind.HTTP, "", 8, 0);
-        TraceContext.ScopedSpan transaction = TraceContext.startScopedSpan(
+        TraceContext.startRoot("GET /orders", SpanKind.HTTP);
+        String rootId = TraceContext.currentSpanId();
+        ScopedSpan transaction = TraceContext.startScopedSpan(
                 "OrderService#create", SpanKind.TRANSACTION, "write");
-        TraceContext.ScopedSpan query = TraceContext.startScopedSpan(
+        ScopedSpan query = TraceContext.startScopedSpan(
                 "OrderMapper#insert", SpanKind.DATABASE, "INSERT");
 
         assertThat(transaction.parentSpanId()).isEqualTo(rootId);
@@ -43,7 +44,7 @@ class SpanRelationshipTest {
         assertThat(TraceContext.currentSpanId()).isEqualTo(rootId);
 
         TraceContext.markSlow("test");
-        var completion = new java.util.concurrent.atomic.AtomicReference<TraceContext.Completion>();
+        var completion = new java.util.concurrent.atomic.AtomicReference<TraceCompletion>();
         TraceContext.stopRoot(Long.MAX_VALUE, "test", null, completion::set);
         assertThat(completion.get().tree()).contains("OrderService#create", "OrderMapper#insert");
         assertThat(completion.get().tree().indexOf("OrderService#create"))

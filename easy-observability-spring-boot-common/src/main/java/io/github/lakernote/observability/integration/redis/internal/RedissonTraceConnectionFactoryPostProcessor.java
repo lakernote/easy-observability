@@ -2,6 +2,7 @@ package io.github.lakernote.observability.integration.redis.internal;
 
 import io.github.lakernote.observability.trace.SpanKind;
 import io.github.lakernote.observability.trace.internal.TraceContext;
+import io.github.lakernote.observability.trace.internal.DetachedSpan;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.aopalliance.intercept.MethodInterceptor;
 import org.slf4j.Logger;
@@ -159,7 +160,7 @@ public final class RedissonTraceConnectionFactoryPostProcessor implements BeanPo
         // Redis is always a dependency operation. Only an inbound HTTP, job, or Kafka
         // consumer observation may create a trace root.
         String name = method.getName();
-        TraceContext.DetachedSpan span = TraceContext.startDetachedSpan("Redis " + name, SpanKind.REDIS, name);
+        DetachedSpan span = TraceContext.startDetachedSpan("Redis " + name, SpanKind.REDIS, name);
         Throwable failure = null;
         boolean recordMetric = !isPipelined(connection);
         long startedAt = System.nanoTime();
@@ -210,7 +211,7 @@ public final class RedissonTraceConnectionFactoryPostProcessor implements BeanPo
         return metricsRegistry;
     }
 
-    private void finish(TraceContext.DetachedSpan span, Throwable failure) {
+    private void finish(DetachedSpan span, Throwable failure) {
         try {
             span.close();
             if (failure != null) TraceContext.markError("REDIS_ERROR", failure);

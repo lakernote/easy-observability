@@ -2,6 +2,7 @@ package io.github.lakernote.observability.integration.jdbc.internal;
 
 import io.github.lakernote.observability.trace.SpanKind;
 import io.github.lakernote.observability.trace.internal.TraceContext;
+import io.github.lakernote.observability.trace.internal.ScopedSpan;
 import net.ttddyy.dsproxy.ExecutionInfo;
 import net.ttddyy.dsproxy.QueryInfo;
 import net.ttddyy.dsproxy.listener.QueryExecutionListener;
@@ -20,7 +21,7 @@ public final class JdbcTraceQueryExecutionListener implements QueryExecutionList
             String sql = JdbcTraceSql.describe(queryInfoList);
             String dataSource = executionInfo.getDataSourceName();
             String detail = dataSource == null || dataSource.isBlank() ? sql : dataSource + " · " + sql;
-            TraceContext.ScopedSpan span = TraceContext.startScopedSpan(
+            ScopedSpan span = TraceContext.startScopedSpan(
                     "SQL " + JdbcTraceSql.command(queryInfoList), SpanKind.DATABASE, detail);
             try {
                 executionInfo.addCustomValue(TRACE_STATE_KEY, new TraceState(span));
@@ -57,5 +58,5 @@ public final class JdbcTraceQueryExecutionListener implements QueryExecutionList
         }
     }
 
-    private record TraceState(TraceContext.ScopedSpan span) { }
+    private record TraceState(ScopedSpan span) { }
 }

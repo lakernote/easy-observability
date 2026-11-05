@@ -4,6 +4,8 @@ import io.github.lakernote.observability.trace.internal.TraceIds;
 import io.github.lakernote.observability.trace.internal.BoundedThrowableFormatter;
 import io.github.lakernote.observability.trace.internal.MdcContext;
 import io.github.lakernote.observability.trace.internal.TraceContext;
+import io.github.lakernote.observability.trace.internal.ScopedSpan;
+import io.github.lakernote.observability.trace.internal.RootTraceHandle;
 import org.springframework.core.task.TaskDecorator;
 
 import java.util.Map;
@@ -45,8 +47,8 @@ public final class TraceContextTaskDecorator implements TaskDecorator {
             return;
         }
 
-        TraceContext.RootTraceHandle trace = TraceContext.currentRootTraceHandle();
-        TraceContext.ScopedSpan span;
+        RootTraceHandle trace = TraceContext.currentRootTraceHandle();
+        ScopedSpan span;
         try {
             // 装饰器无法获知业务任务名，统一使用稳定的边界名称。
             span = TraceContext.startScopedSpan("executor.task", SpanKind.CODE, Thread.currentThread().getName());

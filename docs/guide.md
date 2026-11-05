@@ -8,6 +8,7 @@
 - Web 应用须为 Servlet 栈（Spring MVC）。Trace 上下文绑定在线程上，与"一个请求由一个线程处理"的 Servlet 模型匹配。
 - **不支持 WebFlux 等响应式应用。** 引入 Starter 后应用仍可正常启动，但响应式 HTTP 请求不会生成入口 Trace，页面和查询 API 也不会注册；在响应式链路中切换线程的调用无法关联到同一 Trace。
 - 非 Web 应用（如只消费 Kafka 或只运行定时任务）可以采集 Trace 和本地指标历史，但没有页面可以查看。
+- 暂不支持 GraalVM Native Image；组件未提供 AOT 运行时提示，也未在 Native Image 下验证。
 
 ## 自动采集范围
 

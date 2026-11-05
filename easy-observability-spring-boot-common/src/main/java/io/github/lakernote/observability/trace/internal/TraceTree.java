@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Set;
 
 final class TraceTree {
+    static final int DEFAULT_MAX_DEPTH = 8;
     static final int DEFAULT_MAX_NODES = 512;
     /** 单棵调用树的文本上限；与节点数上限分开，防止超长名称或标签在渲染时额外占用大量内存。 */
     static final int MAX_RENDER_CHARS = 8_000;
@@ -16,7 +17,6 @@ final class TraceTree {
     private long nextSpanId = 1;
     private final int maxDepth;
     private final int maxNodes;
-    private final long minNodeCostMs;
     private final long ownerThreadId = Thread.currentThread().getId();
     /** 正常 Trace 完成后会丢弃；只有慢、错或截断时才分配事件原因集合。 */
     private Set<String> diagnosticReasons;
@@ -31,18 +31,13 @@ final class TraceTree {
     private boolean completed;
     private String ownedTraceId = "";
 
-    TraceTree(String rootName, SpanKind rootKind) {
-        this(rootName, rootKind, "", 8, 0, DEFAULT_MAX_NODES);
+    TraceTree(String rootName, SpanKind rootKind, String rootTag) {
+        this(rootName, rootKind, rootTag, DEFAULT_MAX_DEPTH, DEFAULT_MAX_NODES);
     }
 
-    TraceTree(String rootName, SpanKind rootKind, String rootTag, int maxDepth, long minNodeCostMs) {
-        this(rootName, rootKind, rootTag, maxDepth, minNodeCostMs, DEFAULT_MAX_NODES);
-    }
-
-    TraceTree(String rootName, SpanKind rootKind, String rootTag, int maxDepth, long minNodeCostMs, int maxNodes) {
+    TraceTree(String rootName, SpanKind rootKind, String rootTag, int maxDepth, int maxNodes) {
         this.root = new Span("1", rootName, rootKind, rootTag, null);
         this.maxDepth = Math.max(1, maxDepth);
-        this.minNodeCostMs = Math.max(0, minNodeCostMs);
         this.maxNodes = Math.max(1, maxNodes);
     }
 
@@ -89,25 +84,9 @@ final class TraceTree {
         if (completed) return;
         if (span == null || span == root) return;
         span.stop();
-        int subtreeSize = span.subtreeSize();
-        if (!span.diagnostic() && span.costMs() < minNodeCostMs && subtreeSize == 1) {
-            recordedNodes = Math.max(1, recordedNodes - subtreeSize);
-            span.removeFromParent();
-        }
     }
 
-    synchronized void beginBusinessBoundary(Span span) {
-        if (completed) return;
-        if (span != null) span.beginBusinessBoundary();
-    }
-
-    synchronized long freezeRoot() {
-        if (completed) return root.costMs();
-        return stopRoot();
-    }
-
-    synchronized long stopRoot() {
-        if (completed) return root.costMs();
+    private long stopRoot() {
         root.stopOpenDescendants();
         root.stop();
         return root.costMs();
@@ -122,10 +101,6 @@ final class TraceTree {
         if (throwable != null && !error) markError("ROOT_ERROR", throwable);
         completed = true;
         return costMs;
-    }
-
-    synchronized void markCompleted() {
-        completed = true;
     }
 
     synchronized void discard() {

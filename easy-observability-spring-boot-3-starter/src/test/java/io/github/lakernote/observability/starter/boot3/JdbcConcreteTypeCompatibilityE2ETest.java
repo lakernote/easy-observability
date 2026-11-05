@@ -1,6 +1,7 @@
 package io.github.lakernote.observability.starter.boot3;
 
 import com.zaxxer.hikari.HikariConfig;
+import io.github.lakernote.observability.trace.internal.TraceCompletion;
 import com.zaxxer.hikari.HikariDataSource;
 import io.github.lakernote.observability.trace.SpanKind;
 import io.github.lakernote.observability.trace.internal.TraceContext;
@@ -61,13 +62,14 @@ class JdbcConcreteTypeCompatibilityE2ETest {
             assertThat(connection).isInstanceOf(ProxyJdbcObject.class);
         }
 
-        AtomicReference<TraceContext.DeferredCompletion> trace = new AtomicReference<>();
+        AtomicReference<TraceCompletion> trace = new AtomicReference<>();
         TraceContext.startRoot("jdbc-e2e", SpanKind.HTTP);
         try {
             assertThat(new JdbcTemplate(dataSource)
                     .queryForObject("SELECT answer FROM jdbc_probe WHERE id = 1", Integer.class)).isEqualTo(42);
         } finally {
-            TraceContext.stopRootDeferred(null, trace::set);
+            TraceContext.currentRootTraceHandle().requireTree();
+            TraceContext.stopRoot(0, "test", null, trace::set);
         }
         assertThat(trace.get()).isNotNull();
         assertThat(trace.get().tree()).contains("SQL SELECT");
@@ -77,34 +79,36 @@ class JdbcConcreteTypeCompatibilityE2ETest {
     void redactsStatementParametersAndDriverErrorsFromRealSqlTraces() {
         JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
         String literalSecret = "literal-secret-8f3c--tail";
-        AtomicReference<TraceContext.DeferredCompletion> statementTrace = new AtomicReference<>();
+        AtomicReference<TraceCompletion> statementTrace = new AtomicReference<>();
 
         TraceContext.startRoot("jdbc-redaction-statement", SpanKind.HTTP);
         try {
             assertThat(jdbcTemplate.queryForObject("SELECT '" + literalSecret + "'", String.class))
                     .isEqualTo(literalSecret);
         } finally {
-            TraceContext.stopRootDeferred(null, statementTrace::set);
+            TraceContext.currentRootTraceHandle().requireTree();
+            TraceContext.stopRoot(0, "test", null, statementTrace::set);
         }
         assertThat(statementTrace.get().tree())
                 .contains("SQL SELECT", "SELECT ?")
                 .doesNotContain(literalSecret, "secret");
 
         String boundSecret = "bind-secret-4d2e";
-        AtomicReference<TraceContext.DeferredCompletion> preparedTrace = new AtomicReference<>();
+        AtomicReference<TraceCompletion> preparedTrace = new AtomicReference<>();
         TraceContext.startRoot("jdbc-redaction-prepared", SpanKind.HTTP);
         try {
             assertThat(jdbcTemplate.queryForObject(
                     "SELECT CAST(? AS VARCHAR)", String.class, boundSecret)).isEqualTo(boundSecret);
         } finally {
-            TraceContext.stopRootDeferred(null, preparedTrace::set);
+            TraceContext.currentRootTraceHandle().requireTree();
+            TraceContext.stopRoot(0, "test", null, preparedTrace::set);
         }
         assertThat(preparedTrace.get().tree())
                 .contains("SQL SELECT", "SELECT CAST(? AS VARCHAR)")
                 .doesNotContain(boundSecret, "secret");
 
         String driverSecret = "driver-secret-c91e";
-        AtomicReference<TraceContext.DeferredCompletion> failedTrace = new AtomicReference<>();
+        AtomicReference<TraceCompletion> failedTrace = new AtomicReference<>();
         Throwable failure = null;
         TraceContext.startRoot("jdbc-redaction-error", SpanKind.HTTP);
         try {
@@ -113,7 +117,8 @@ class JdbcConcreteTypeCompatibilityE2ETest {
         } catch (Throwable thrown) {
             failure = thrown;
         } finally {
-            TraceContext.stopRootDeferred(failure, failedTrace::set);
+            TraceContext.currentRootTraceHandle().requireTree();
+            TraceContext.stopRoot(0, "test", failure, failedTrace::set);
         }
 
         assertThat(failure).isNotNull();

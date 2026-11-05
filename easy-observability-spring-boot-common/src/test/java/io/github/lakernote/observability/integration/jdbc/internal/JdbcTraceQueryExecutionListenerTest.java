@@ -1,6 +1,7 @@
 package io.github.lakernote.observability.integration.jdbc.internal;
 
 import io.github.lakernote.observability.trace.SpanKind;
+import io.github.lakernote.observability.trace.internal.TraceCompletion;
 import io.github.lakernote.observability.trace.internal.TraceContext;
 import net.ttddyy.dsproxy.ExecutionInfo;
 import net.ttddyy.dsproxy.QueryInfo;
@@ -26,12 +27,13 @@ class JdbcTraceQueryExecutionListenerTest {
         ExecutionInfo execution = new ExecutionInfo();
         execution.setDataSourceName("primary");
         List<QueryInfo> queries = List.of(new QueryInfo("SELECT 'literal-secret--tail'"));
-        AtomicReference<TraceContext.DeferredCompletion> completion = new AtomicReference<>();
+        AtomicReference<TraceCompletion> completion = new AtomicReference<>();
 
         TraceContext.startRoot("jdbc-request", SpanKind.HTTP);
         listener.beforeQuery(execution, queries);
         listener.afterQuery(execution, queries);
-        TraceContext.stopRootDeferred(null, completion::set);
+        TraceContext.currentRootTraceHandle().requireTree();
+        TraceContext.stopRoot(0, "test", null, completion::set);
 
         assertThat(completion.get().tree())
                 .contains("SQL SELECT", "primary · SELECT ?")
@@ -48,14 +50,15 @@ class JdbcTraceQueryExecutionListenerTest {
         ExecutionInfo execution = new ExecutionInfo();
         execution.setThrowable(failure);
         List<QueryInfo> queries = List.of(new QueryInfo("SELECT '" + sqlSecret + "' FROM missing_table"));
-        AtomicReference<TraceContext.DeferredCompletion> completion = new AtomicReference<>();
+        AtomicReference<TraceCompletion> completion = new AtomicReference<>();
 
         TraceContext.startRoot("jdbc-request", SpanKind.HTTP);
         listener.beforeQuery(execution, queries);
         listener.afterQuery(execution, queries);
-        TraceContext.stopRootDeferred(null, completion::set);
+        TraceContext.currentRootTraceHandle().requireTree();
+        TraceContext.stopRoot(0, "test", null, completion::set);
 
-        TraceContext.DeferredCompletion result = completion.get();
+        TraceCompletion result = completion.get();
         assertThat(result.error()).isTrue();
         assertThat(result.reasons()).containsExactly("SQL_ERROR");
         assertThat(result.errorType()).isEqualTo(SQLException.class.getName());
@@ -74,12 +77,13 @@ class JdbcTraceQueryExecutionListenerTest {
         ExecutionInfo execution = new ExecutionInfo();
         execution.setThrowable(failure);
         List<QueryInfo> queries = List.of(new QueryInfo("SELECT 'driver-secret'"));
-        AtomicReference<TraceContext.DeferredCompletion> completion = new AtomicReference<>();
+        AtomicReference<TraceCompletion> completion = new AtomicReference<>();
 
         TraceContext.startRoot("jdbc-request", SpanKind.HTTP);
         listener.beforeQuery(execution, queries);
         listener.afterQuery(execution, queries);
-        TraceContext.stopRootDeferred(failure, completion::set);
+        TraceContext.currentRootTraceHandle().requireTree();
+        TraceContext.stopRoot(0, "test", failure, completion::set);
 
         assertThat(completion.get().error()).isTrue();
         assertThat(completion.get().errorMessage()).isEqualTo("JDBC query failed");

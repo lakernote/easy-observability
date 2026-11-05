@@ -12,7 +12,7 @@ final class Span {
     private final Span parent;
     private final String threadName;
     private final long threadId;
-    private long startNanos;
+    private final long startNanos;
     /** 大多数节点没有子节点；只有确实挂入下游调用时才分配子节点列表。 */
     private List<Span> children;
     private long endNanos;
@@ -53,16 +53,6 @@ final class Span {
         slow = true;
     }
 
-    boolean diagnostic() {
-        return error || slow;
-    }
-
-    void removeFromParent() {
-        if (parent != null && parent.children != null) {
-            parent.children.remove(this);
-        }
-    }
-
     String spanId() {
         return spanId;
     }
@@ -73,16 +63,6 @@ final class Span {
 
     long startNanos() {
         return startNanos;
-    }
-
-    int subtreeSize() {
-        int size = 1;
-        if (children != null) {
-            for (Span child : children) {
-                size += child.subtreeSize();
-            }
-        }
-        return size;
     }
 
     synchronized void stop() {
@@ -105,11 +85,6 @@ final class Span {
             unfinishedAtTraceEnd = true;
             endNanos = System.nanoTime();
         }
-    }
-
-    /** 在 Observation 等监控初始化结束、业务代码即将执行时重置计时起点。 */
-    void beginBusinessBoundary() {
-        if (endNanos == 0) startNanos = System.nanoTime();
     }
 
     synchronized long costMs() {

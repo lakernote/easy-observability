@@ -1,6 +1,7 @@
 package io.github.lakernote.observability.trace;
 
 import io.github.lakernote.observability.trace.internal.TraceContext;
+import io.github.lakernote.observability.trace.internal.TraceCompletion;
 import io.github.lakernote.observability.trace.internal.TraceNode;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -21,7 +22,7 @@ class TraceBlockTest {
     @Test
     void callFailureMarksTheExactSpanAndRethrowsTheSameException() {
         IllegalStateException failure = new IllegalStateException("inventory unavailable");
-        AtomicReference<TraceContext.DeferredCompletion> completion = new AtomicReference<>();
+        AtomicReference<TraceCompletion> completion = new AtomicReference<>();
         TraceContext.startRoot("POST /orders", SpanKind.HTTP);
         String rootSpanId = TraceContext.currentSpanId();
 
@@ -31,14 +32,15 @@ class TraceBlockTest {
 
         assertThat(thrown).isSameAs(failure);
         assertThat(TraceContext.currentSpanId()).isEqualTo(rootSpanId);
-        TraceContext.stopRootDeferred(null, completion::set);
+        TraceContext.currentRootTraceHandle().requireTree();
+        TraceContext.stopRoot(0, "test", null, completion::set);
         assertFailedSpan(completion.get(), "inventory.reserve", IllegalStateException.class, "inventory unavailable");
     }
 
     @Test
     void runFailureMarksErrorsAndRethrowsTheSameError() {
         AssertionError failure = new AssertionError("assertion failed");
-        AtomicReference<TraceContext.DeferredCompletion> completion = new AtomicReference<>();
+        AtomicReference<TraceCompletion> completion = new AtomicReference<>();
         TraceContext.startRoot("POST /orders", SpanKind.HTTP);
 
         Throwable thrown = catchThrowable(() -> TraceBlock.run("order.validate", () -> {
@@ -46,14 +48,15 @@ class TraceBlockTest {
         }));
 
         assertThat(thrown).isSameAs(failure);
-        TraceContext.stopRootDeferred(null, completion::set);
+        TraceContext.currentRootTraceHandle().requireTree();
+        TraceContext.stopRoot(0, "test", null, completion::set);
         assertFailedSpan(completion.get(), "order.validate", AssertionError.class, "assertion failed");
     }
 
     @Test
     void caughtInnerFailureLeavesTheSuccessfulOuterSpanUnmarked() {
         IllegalArgumentException failure = new IllegalArgumentException("invalid line item");
-        AtomicReference<TraceContext.DeferredCompletion> completion = new AtomicReference<>();
+        AtomicReference<TraceCompletion> completion = new AtomicReference<>();
         TraceContext.startRoot("POST /orders", SpanKind.HTTP);
 
         TraceBlock.run("order.create", () -> {
@@ -63,8 +66,9 @@ class TraceBlockTest {
             assertThat(thrown).isSameAs(failure);
         });
 
-        TraceContext.stopRootDeferred(null, completion::set);
-        TraceContext.DeferredCompletion result = completion.get();
+        TraceContext.currentRootTraceHandle().requireTree();
+        TraceContext.stopRoot(0, "test", null, completion::set);
+        TraceCompletion result = completion.get();
         TraceNode root = result.nodes().get(0);
         TraceNode outer = root.children().get(0);
         TraceNode inner = outer.children().get(0);
@@ -94,7 +98,7 @@ class TraceBlockTest {
     @Test
     void sneakyCheckedFailureIsMarkedAndRethrownUnchanged() {
         IOException failure = new IOException("checked failure");
-        AtomicReference<TraceContext.DeferredCompletion> completion = new AtomicReference<>();
+        AtomicReference<TraceCompletion> completion = new AtomicReference<>();
         TraceContext.startRoot("POST /orders", SpanKind.HTTP);
 
         Throwable thrown = catchThrowable(() -> TraceBlock.call("order.load", () -> {
@@ -103,38 +107,26 @@ class TraceBlockTest {
         }));
 
         assertThat(thrown).isSameAs(failure);
-        TraceContext.stopRootDeferred(null, completion::set);
+        TraceContext.currentRootTraceHandle().requireTree();
+        TraceContext.stopRoot(0, "test", null, completion::set);
         assertFailedSpan(completion.get(), "order.load", IOException.class, "checked failure");
     }
 
     @Test
-    void fastErrorSpanSurvivesTheNodeCostFilter() {
-        IllegalStateException failure = new IllegalStateException("fast failure");
-        AtomicReference<TraceContext.DeferredCompletion> completion = new AtomicReference<>();
-        TraceContext.startRoot("POST /orders", SpanKind.HTTP, "", 8, Long.MAX_VALUE);
-
-        catchThrowable(() -> TraceBlock.run("fast.failure", () -> {
-            throw failure;
-        }));
-
-        TraceContext.stopRootDeferred(null, completion::set);
-        assertFailedSpan(completion.get(), "fast.failure", IllegalStateException.class, "fast failure");
-    }
-
-    @Test
     void successfulBlockKeepsItsReturnValueAndExplicitTree() {
-        AtomicReference<TraceContext.DeferredCompletion> completion = new AtomicReference<>();
+        AtomicReference<TraceCompletion> completion = new AtomicReference<>();
         TraceContext.startRoot("POST /orders", SpanKind.HTTP);
 
         String result = TraceBlock.call("order.success", () -> "created");
 
-        TraceContext.stopRootDeferred(null, completion::set);
+        TraceContext.currentRootTraceHandle().requireTree();
+        TraceContext.stopRoot(0, "test", null, completion::set);
         assertThat(result).isEqualTo("created");
         assertThat(completion.get().error()).isFalse();
         assertThat(completion.get().tree()).contains("order.success");
     }
 
-    private static void assertFailedSpan(TraceContext.DeferredCompletion result, String name,
+    private static void assertFailedSpan(TraceCompletion result, String name,
                                          Class<? extends Throwable> failureType, String message) {
         assertThat(result.error()).isTrue();
         assertThat(result.reasons()).containsExactly(TraceContext.CODE_ERROR_REASON);

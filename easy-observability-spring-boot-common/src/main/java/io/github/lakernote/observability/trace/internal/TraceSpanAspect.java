@@ -53,7 +53,7 @@ public class TraceSpanAspect {
             TraceContext.clear();
             return joinPoint.proceed();
         }
-        TraceContext.ScopedSpan span = null;
+        ScopedSpan span = null;
         try {
             span = TraceContext.startExplicitScopedSpan(
                     descriptor.spanName(), descriptor.kind(), descriptor.tag());
@@ -76,7 +76,7 @@ public class TraceSpanAspect {
         }
     }
 
-    private static void markFailure(TraceContext.ScopedSpan span, Throwable failure) {
+    private static void markFailure(ScopedSpan span, Throwable failure) {
         if (span == null) return;
         try {
             span.markTraceError(TraceContext.CODE_ERROR_REASON, failure);
