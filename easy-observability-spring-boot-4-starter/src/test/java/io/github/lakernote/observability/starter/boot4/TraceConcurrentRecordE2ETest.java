@@ -159,7 +159,7 @@ class TraceConcurrentRecordE2ETest {
         @GetMapping("/record/{id}")
         String record(@PathVariable String id) {
             store.add(TraceRecord.builder()
-                    .id(1).traceId("trace-" + id).sourceType("HTTP").name("/record/" + id).method("GET")
+                    .id(1).traceId("trace-" + id).sourceType("HTTP").name("/record/" + id).tag("GET")
                     .status(200).durationMs(1).slow(true).finishedAt(Instant.now())
                     .threadId(Thread.currentThread().getId()).threadName(Thread.currentThread().getName())
                     .cpuTimeMs(0).allocatedBytes(0)

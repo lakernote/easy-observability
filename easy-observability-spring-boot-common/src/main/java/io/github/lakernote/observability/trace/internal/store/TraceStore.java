@@ -591,7 +591,7 @@ public final class TraceStore implements AutoCloseable {
     }
 
     private static boolean matchesSummary(TraceSummary summary, String text) {
-        return contains(summary.name(), text) || contains(summary.method(), text)
+        return contains(summary.name(), text) || contains(summary.tag(), text)
                 || contains(summary.traceId(), text) || contains(summary.errorType(), text)
                 || contains(summary.errorMessage(), text) || contains(summary.threadName(), text);
     }

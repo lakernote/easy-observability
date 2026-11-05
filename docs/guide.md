@@ -46,13 +46,13 @@ JDBC 采集会使用保留原数据源具体类型的代理，因此按 `HikariD
 | `easy.observability.trace.allocated-memory-threshold` | `50MB` | 入口线程累计内存分配量资源告警阈值 |
 | `easy.observability.trace.retention` | `7d` | 诊断 Trace 保留天数，整天，范围 `1d`～`365d` |
 | `easy.observability.trace.max-storage-size` | `128MB` | 诊断 Trace 磁盘占用上限，超出时删除最旧的分段文件 |
+| `easy.observability.trace.memory-cache-size` | `500` | 内存中保留完整调用树的最新 Trace 数量；更早的记录在打开详情时从磁盘读取 |
 | `easy.observability.metrics.enabled` | `true` | 运行指标（调用统计与资源指标）总开关 |
 | `easy.observability.metrics.max-operations` | `1000` | 所有类别合计最多统计的操作数，超出后新操作按类别并入“其他”行 |
 | `easy.observability.metrics.retention` | `30d` | 指标历史保留时长，须为整天数，范围 `1d` 至 `365d` |
 | `easy.observability.metrics.max-storage-size` | `64MB` | 指标历史文件的磁盘上限，超出后删除最早的日期 |
 | `easy.observability.metrics.include` | 空 | 额外记录的自定义 Micrometer 指标名或名称前缀，例如 `orders` 匹配 `orders` 和 `orders.*` |
 | `easy.observability.web.enabled` | `true` | 页面和查询 API 开关 |
-| `easy.observability.web.trace-limit` | `500` | 内存中保留完整调用树的最新 Trace 数量；更早的记录在打开详情时从磁盘读取 |
 
 示例：
 
@@ -158,7 +158,7 @@ API 授权由 `ObservabilityAccessPolicy` 决定，应用定义该类型的 Bean
 | 方法 | 控制范围 | 默认 |
 | --- | --- | --- |
 | `canView()` | 查询 Trace、Metrics、存储状态和当前权限 | `true`，允许所有请求 |
-| `canClear()` | 清空 Trace 历史（`POST /api/easy-observability/storage/clear`）和重置调用统计（`POST /api/easy-observability/metrics/operations/reset`），并且需要同时通过 `canView()` | `false`，拒绝所有请求；页面隐藏“清空历史”和“重置统计”按钮 |
+| `canClear()` | 清空 Trace 历史（`POST /api/easy-observability/traces/clear`）和重置调用统计（`POST /api/easy-observability/metrics/operations/reset`），并且需要同时通过 `canView()` | `false`，拒绝所有请求；页面隐藏“清空历史”和“重置统计”按钮 |
 
 `canClear()` 是默认方法，只需要限制查看时可以直接用 lambda，清空历史仍保持关闭：
 

@@ -63,7 +63,7 @@ class TraceArchiveFormatE2ETest {
     @Test
     void archiveKeepsItsOwnFormatWhileTheApiFollowsTheHostJsonSettings() throws Exception {
         traceStore.add(TraceRecord.builder()
-                .id(1).traceId("archive-format-trace").sourceType("HTTP").name("GET /archive").method("GET")
+                .id(1).traceId("archive-format-trace").sourceType("HTTP").name("GET /archive").tag("GET")
                 .status(500).durationMs(12).error(true)
                 .threadId(7).threadName("worker").cpuTimeMs(1).allocatedBytes(2)
                 .errorType("HTTP_5XX").errorMessage("boom 中文")

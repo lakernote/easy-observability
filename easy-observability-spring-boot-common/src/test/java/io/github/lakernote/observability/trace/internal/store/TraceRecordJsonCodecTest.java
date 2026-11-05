@@ -42,14 +42,14 @@ class TraceRecordJsonCodecTest {
     void archiveFormatIsStable() throws IOException {
         TraceNode node = new TraceNode("Database", "q\"1", "", 2, 7L, false, true, false, "", "w", 3, List.of());
         TraceRecord trace = TraceRecord.builder()
-                .id(1).traceId("t").sourceType("HTTP").name("n").method("GET").status(500).durationMs(9)
+                .id(1).traceId("t").sourceType("HTTP").name("n").tag("GET").status(500).durationMs(9)
                 .slow(true).highAllocation(true).treeNodes(List.of(node))
                 .finishedAt(Instant.parse("2026-10-21T10:00:00Z"))
                 .threadId(4).threadName("th").cpuTimeMs(5).allocatedBytes(6).errorType("E").errorMessage("m\n")
                 .build();
 
         assertThat(new String(encode(trace), StandardCharsets.UTF_8)).isEqualTo("{\"id\":1,\"traceId\":\"t\","
-                + "\"name\":\"n\",\"method\":\"GET\",\"status\":500,\"durationMs\":9,\"slow\":true,\"error\":false,"
+                + "\"name\":\"n\",\"tag\":\"GET\",\"status\":500,\"durationMs\":9,\"slow\":true,\"error\":false,"
                 + "\"treeNodes\":[{\"kind\":\"Database\",\"name\":\"q\\\"1\",\"tag\":\"\",\"durationMs\":2,"
                 + "\"startOffsetMs\":7,\"slow\":false,\"error\":true,\"unfinishedAtTraceEnd\":false,"
                 + "\"errorType\":\"\",\"threadName\":\"w\",\"threadId\":3,\"children\":[]}],"
@@ -128,7 +128,7 @@ class TraceRecordJsonCodecTest {
         TraceNode root = new TraceNode("Http", "HTTP GET", TRICKY, 845, 0L, true, true, false,
                 "HTTP_5XX", "http-nio-1", 77, List.of(child));
         return TraceRecord.builder()
-                .id(42).traceId("trace-1").sourceType("HTTP").name("GET /orders/{id}").method("GET")
+                .id(42).traceId("trace-1").sourceType("HTTP").name("GET /orders/{id}").tag("GET")
                 .status(500).durationMs(845).slow(true).error(true).highAllocation(true).treeNodes(List.of(root))
                 .finishedAt(Instant.parse("2026-10-21T10:00:00.123Z"))
                 .threadId(77).threadName("http-nio-1").cpuTimeMs(Long.MAX_VALUE).allocatedBytes(Long.MIN_VALUE)

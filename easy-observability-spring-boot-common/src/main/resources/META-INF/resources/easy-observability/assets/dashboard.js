@@ -12,6 +12,9 @@ let detailRequest = 0
 let resultFilter = 'all'
 
 const sourceNames = { HTTP: 'HTTP', JOB: '定时任务', KAFKA_CONSUMER: 'Kafka 消费' }
+const kindNames = { Http: 'HTTP', Database: 'SQL', Redis: 'Redis', Remote: '远程调用', Kafka: 'Kafka', Transaction: '事务',
+  Schedule: '定时任务', Service: '服务', Code: '代码', Other: '其他' }
+const kindName = kind => kindNames[kind] || kind || '调用'
 const escText = value => value == null || value === '' ? '—' : String(value)
 
 async function request(path, requestOptions = {}, deniedMessage = '没有查看 Trace 的权限，请登录或检查 ObservabilityAccessPolicy') {
@@ -81,10 +84,12 @@ function fullTime(value) {
 }
 
 const formatMs = value => `${Number(value || 0).toLocaleString()} ms`
+// Durations are whole milliseconds, so 0 means the call finished within the first millisecond.
+const formatDuration = value => Number(value) >= 1 ? formatMs(value) : '<1 ms'
 
 function formatCpu(value) {
   const cpu = value == null || value === '' ? NaN : Number(value)
-  return Number.isFinite(cpu) && cpu >= 0 ? formatMs(cpu) : '未采集'
+  return Number.isFinite(cpu) && cpu >= 0 ? formatDuration(cpu) : '未采集'
 }
 
 function threadInfo(item, entryThread) {
@@ -119,7 +124,7 @@ function render() {
     timeCell.title = fullTime(trace.finishedAt)
     const entryCell = node('td', 'entry')
     const entryLine = node('div', 'entry-line')
-    entryLine.append(sourceChip(trace.sourceType), node('span', 'entry-name', trace.name || trace.method || '入口'))
+    entryLine.append(sourceChip(trace.sourceType), node('span', 'entry-name', trace.name || trace.tag || '入口'))
     entryCell.append(entryLine)
     if (trace.error && (trace.errorType || trace.errorMessage)) {
       const reason = [trace.errorType, trace.errorMessage].filter(Boolean).join(': ')
@@ -138,7 +143,7 @@ function render() {
       resultCell.append(unfinishedBadge)
     }
     tr.append(timeCell, entryCell, resultCell)
-    tr.append(node('td', `numeric duration${trace.slow ? ' warn' : ''}`, formatMs(trace.durationMs)))
+    tr.append(node('td', `numeric duration${trace.slow ? ' warn' : ''}`, formatDuration(trace.durationMs)))
     tr.append(node('td', `numeric${trace.highCpu ? ' alert' : ''}`, formatCpu(trace.cpuTimeMs)))
     tr.append(node('td', `numeric allocated${trace.highAllocation ? ' alert' : ''}`, formatAllocatedBytes(trace.allocatedBytes)))
     tr.append(node('td', 'trace-id', trace.traceId))
@@ -278,7 +283,7 @@ function renderTraceTree(container, detailContainer, structuredNodes, totalMs) {
   scale.append(node('span', 'timeline-scale-label', ''))
   scale.append(node('span', 'timeline-thread-heading', '线程'))
   const ticks = node('span', 'timeline-ticks')
-  ticks.append(node('span', '', '0 ms'), node('span', '', `${Math.round(maxMs / 2)} ms`), node('span', '', `${maxMs} ms`))
+  ticks.append(node('span', '', '0 ms'), node('span', '', `${Number((maxMs / 2).toFixed(maxMs < 10 ? 1 : 0))} ms`), node('span', '', `${maxMs} ms`))
   scale.append(ticks, node('span', 'timeline-scale-duration', ''))
   container.append(scale)
   if (threadEntries.length > 1) {
@@ -304,9 +309,9 @@ function renderTraceTree(container, detailContainer, structuredNodes, totalMs) {
     const row = node('button', `timeline-row${item.error ? ' has-error' : item.slow ? ' is-slow' : item.unfinishedAtTraceEnd ? ' is-unfinished' : ''}`)
     row.type = 'button'
     row.style.setProperty('--depth', Math.min(depth, 8))
-    row.setAttribute('aria-label', `${item.kind || '调用'} ${item.name || '未命名'}，${repeat ? `重复 ${repeat.count} 次，合计 ` : ''}${spanCost(item)} 毫秒，${threadLabel}${item.error ? '，错误' : ''}${item.slow ? '，慢调用' : ''}${item.unfinishedAtTraceEnd ? '，请求结束时仍在运行' : ''}`)
+    row.setAttribute('aria-label', `${kindName(item.kind)} ${item.name || '未命名'}，${repeat ? `重复 ${repeat.count} 次，合计 ` : ''}${spanCost(item)} 毫秒，${threadLabel}${item.error ? '，错误' : ''}${item.slow ? '，慢调用' : ''}${item.unfinishedAtTraceEnd ? '，请求结束时仍在运行' : ''}`)
     const label = node('span', 'timeline-label')
-    label.append(node('small', `timeline-kind kind-${String(item.kind || 'other').toLowerCase()}`, item.kind || 'Trace'))
+    label.append(node('small', `timeline-kind kind-${String(item.kind || 'other').toLowerCase()}`, kindName(item.kind)))
     const name = node('span', 'timeline-name', shortName(item.name) || '未命名调用')
     name.title = item.name || ''
     label.append(name)
@@ -334,7 +339,7 @@ function renderTraceTree(container, detailContainer, structuredNodes, totalMs) {
     bar.style.width = `${Math.max(0.7, Math.min(100 - offset / maxMs * 100, duration / maxMs * 100))}%`
     bar.title = repeat ? `${offset} ms 起 ${repeat.count} 次调用，跨度 ${duration} ms` : `${offset} ms 开始 · ${duration} ms 持续`
     track.append(bar)
-    const cost = node('span', 'timeline-duration', formatMs(spanCost(item)))
+    const cost = node('span', 'timeline-duration', formatDuration(spanCost(item)))
     if (repeat) cost.title = '重复调用的合计耗时'
     row.append(label, threadMarker, track, cost)
     row.addEventListener('click', () => {
@@ -359,12 +364,12 @@ function renderSpanDetail(container, item, offset, entryThread) {
   const thread = threadInfo(item, entryThread)
   const repeat = item.repeat
   const timing = repeat
-    ? [['次数', `${repeat.count} 次`], ['合计', formatMs(repeat.totalMs)],
+    ? [['次数', `${repeat.count} 次`], ['合计', formatDuration(repeat.totalMs)],
       ['平均', `${(repeat.totalMs / repeat.count).toFixed(1)} ms`], ['最短 / 最长', `${repeat.minMs} / ${repeat.maxMs} ms`],
       ['首次开始', formatMs(offset)]]
-    : [['耗时', formatMs(item.durationMs)], ['开始偏移', formatMs(offset)]]
+    : [['耗时', formatDuration(item.durationMs)], ['开始偏移', formatMs(offset)]]
   for (const [label, value] of [
-    ['类型', item.kind || 'Trace'], ...timing,
+    ['类型', kindName(item.kind)], ...timing,
     ['线程', `${thread.label} · ${thread.id}`],
     ['状态', item.unfinishedAtTraceEnd ? '请求结束时仍在运行（时长按入口结束截取）'
       : item.error ? `错误${item.errorType ? ` · ${item.errorType}` : ''}` : item.slow ? '慢调用' : '已完成']
@@ -403,7 +408,7 @@ async function openTrace(summary) {
       .filter(Boolean).join(' · ') || '正常'
     addFact($('facts'), '结果', result, detail.error ? 'bad' : detail.slow || resourceAlerts.length ? 'warn' : '')
     addFact($('facts'), '状态', detail.status || '—')
-    addFact($('facts'), '总耗时', formatMs(detail.durationMs), detail.slow ? 'warn' : '')
+    addFact($('facts'), '总耗时', formatDuration(detail.durationMs), detail.slow ? 'warn' : '')
     addFact($('facts'), 'CPU 时间', formatCpu(detail.cpuTimeMs), detail.highCpu ? 'warn' : '',
       '入口线程在本次入口执行期间实际占用 CPU 的累计时间；不是 CPU 使用率，也不包含子线程')
     addFact($('facts'), '内存分配量', formatAllocatedBytes(detail.allocatedBytes), detail.highAllocation ? 'warn' : '',
@@ -504,7 +509,7 @@ function bind() {
   $('confirm-clear').addEventListener('click', async () => {
     $('confirm-clear').disabled = true
     try {
-      await request('/storage/clear', { method: 'POST' },
+      await request('/traces/clear', { method: 'POST' },
         '没有清空历史的权限，请检查 ObservabilityAccessPolicy#canClear 或 CSRF 配置')
       $('clear-dialog').close()
       await showPage(0)

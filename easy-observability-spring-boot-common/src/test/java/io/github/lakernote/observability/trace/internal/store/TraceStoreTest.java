@@ -353,7 +353,7 @@ class TraceStoreTest {
     }
 
     private static TraceRecord.Builder trace(String traceId) {
-        return TraceRecord.builder().traceId(traceId).sourceType("HTTP").name("GET /" + traceId).method("GET")
+        return TraceRecord.builder().traceId(traceId).sourceType("HTTP").name("GET /" + traceId).tag("GET")
                 .status(200).durationMs(900).slow(true);
     }
 

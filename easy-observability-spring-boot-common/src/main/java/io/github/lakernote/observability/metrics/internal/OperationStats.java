@@ -24,7 +24,7 @@ import java.util.function.LongSupplier;
  * Lock-free call statistics per operation (endpoint, SQL template, remote call, Redis command, ...).
  *
  * <p>Each operation keeps two rings in memory: one-minute counters for the last hour's curve, and two hours of
- * 10-minute slices holding a log-scale latency histogram from which P95 is estimated (within about ±20%). Completed
+ * 10-minute slices holding a log-scale latency histogram from which P95 is estimated (within one √2-wide bucket). Completed
  * slices are appended to the {@link MetricsArchive} once a minute and the current one on shutdown, so rankings and
  * trends over days survive restarts. Histograms merge exactly, so averages and P95 stay correct over any range.
  * The number of distinct operations is capped; later ones are merged into one overflow row per category.</p>
@@ -398,7 +398,7 @@ public final class OperationStats implements AutoCloseable {
 
     private static Point point(long timestamp, long[] cells, boolean histogram) {
         if (cells == null || cells[COUNT] == 0) return new Point(timestamp, 0, 0, null, null, null);
-        Double p95 = histogram ? millis(Math.min(percentile(cells, 0.95), cells[MAX])) : null;
+        Double p95 = histogram ? millis(percentile(cells, 0.95)) : null;
         return new Point(timestamp, cells[COUNT], cells[ERRORS], millis(cells[TOTAL] / (double) cells[COUNT]), p95,
                 millis(cells[MAX]));
     }
@@ -483,24 +483,30 @@ public final class OperationStats implements AutoCloseable {
         long count = cells[COUNT];
         long measured = cells[MEASURED];
         return new Row(name, count, cells[ERRORS], millis(cells[TOTAL] / (double) count),
-                millis(Math.min(percentile(cells, 0.95), cells[MAX])), millis(cells[MAX]), millis(cells[TOTAL]),
+                millis(percentile(cells, 0.95)), millis(cells[MAX]), millis(cells[TOTAL]),
                 measured == 0 ? null : millis(cells[CPU] / (double) measured),
                 measured == 0 ? null : Math.round(cells[ALLOCATED] / (double) measured));
     }
 
-    /** Estimates a percentile as the geometric midpoint of the histogram bucket containing its rank. */
+    /**
+     * Estimates a percentile by interpolating its rank linearly inside the histogram bucket that holds it. The
+     * recorded maximum caps the top of that bucket, so clustered latencies are not pushed up to the bucket bound.
+     */
     static long percentile(long[] cells, double quantile) {
+        long max = cells[MAX];
         long rank = Math.max(1, (long) Math.ceil(cells[COUNT] * quantile));
         long seen = 0;
         for (int bucket = 0; bucket < BUCKET_UPPER_NANOS.length; bucket++) {
-            seen += cells[FIRST_BUCKET + bucket];
-            if (seen >= rank) {
-                long upper = BUCKET_UPPER_NANOS[bucket];
+            long inBucket = cells[FIRST_BUCKET + bucket];
+            if (seen + inBucket >= rank) {
                 long lower = bucket == 0 ? 0 : BUCKET_UPPER_NANOS[bucket - 1];
-                return lower == 0 ? upper / 2 : (long) Math.sqrt((double) lower * upper);
+                long upper = Math.min(BUCKET_UPPER_NANOS[bucket], max);
+                if (upper <= lower) return max;
+                return lower + Math.round((upper - lower) * ((rank - seen) / (double) inBucket));
             }
+            seen += inBucket;
         }
-        return cells[MAX];
+        return max;
     }
 
     static int bucket(long nanos) {

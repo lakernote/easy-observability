@@ -76,6 +76,19 @@ class OperationStatsTest {
     }
 
     @Test
+    void p95OfClusteredLatenciesStaysBetweenMeanAndMax() {
+        // All calls land near the bottom of one √2-wide bucket; the bucket midpoint would fall below the mean.
+        for (int i = 0; i < 20; i++) stats.record(Category.SQL, "select ?", ms(18) + i * 50_000L, false);
+        stats.record(Category.HTTP, "/cpu · GET", 200_860_000L, false);
+        stats.record(Category.HTTP, "/cpu · GET", 200_965_000L, false);
+
+        Row sql = category(Window.TODAY, Category.SQL).rows().get(0);
+        assertThat(sql.p95Ms()).isBetween(sql.meanMs(), sql.maxMs());
+        Row cpu = category(Window.TODAY, Category.HTTP).rows().get(0);
+        assertThat(cpu.p95Ms()).isBetween(cpu.meanMs(), cpu.maxMs());
+    }
+
+    @Test
     void bucketsCoverSubMillisecondToTensOfSeconds() {
         assertThat(OperationStats.bucket(0)).isZero();
         assertThat(OperationStats.bucket(9_999)).isZero();

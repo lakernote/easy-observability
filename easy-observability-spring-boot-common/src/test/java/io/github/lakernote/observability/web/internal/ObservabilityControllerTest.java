@@ -16,9 +16,9 @@ class ObservabilityControllerTest {
     void listsStoredTraceSummariesWithoutTheirCallTrees() {
         TraceStore store = TraceStore.inMemory(10);
         store.add(trace().traceId("trace-1").sourceType("HTTP")
-                .name("OrdersController#create").method("POST /orders").status(201).durationMs(12).build());
+                .name("OrdersController#create").tag("POST /orders").status(201).durationMs(12).build());
         store.add(trace().traceId("trace-2").sourceType("HTTP")
-                .name("OrdersController#slow").method("GET /orders").status(200).durationMs(900)
+                .name("OrdersController#slow").tag("GET /orders").status(200).durationMs(900)
                 .slow(true).treeNodes(TraceNodeFixtures.named("tree")).build());
         ObservabilityController controller = new ObservabilityController(store, allowAll());
 
@@ -67,7 +67,7 @@ class ObservabilityControllerTest {
                 .build());
         ObservabilityController controller = new ObservabilityController(store, allowAll());
 
-        assertThat(controller.clearTraceHistory().clearedTraceCount()).isEqualTo(1);
+        assertThat(controller.clearTraces().clearedTraceCount()).isEqualTo(1);
         assertThat(controller.traces("all", "", "", "", 10).items()).isEmpty();
     }
 
@@ -75,7 +75,7 @@ class ObservabilityControllerTest {
     void deniesClearActionWhenThePolicyDeniesViewing() {
         ObservabilityController controller = new ObservabilityController(TraceStore.inMemory(10), denyView());
 
-        assertThatThrownBy(controller::clearTraceHistory)
+        assertThatThrownBy(controller::clearTraces)
                 .isInstanceOf(ResponseStatusException.class).hasMessageContaining("403 FORBIDDEN");
     }
 
@@ -86,7 +86,7 @@ class ObservabilityControllerTest {
                 .build());
         ObservabilityController controller = new ObservabilityController(store, () -> true);
 
-        assertThatThrownBy(controller::clearTraceHistory)
+        assertThatThrownBy(controller::clearTraces)
                 .isInstanceOf(ResponseStatusException.class).hasMessageContaining("403 FORBIDDEN");
         assertThat(controller.traces("all", "", "", "", 10).items()).extracting(TraceSummary::traceId)
                 .containsExactly("trace-1");

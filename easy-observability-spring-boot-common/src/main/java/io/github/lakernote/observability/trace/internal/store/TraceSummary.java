@@ -6,7 +6,7 @@ import java.time.Instant;
 import java.util.List;
 
 /** The list-row view of a stored trace; the call tree and stack trace are only loaded when a trace is opened. */
-public record TraceSummary(String traceId, String sourceType, String name, String method, int status,
+public record TraceSummary(String traceId, String sourceType, String name, String tag, int status,
                            long durationMs, boolean slow, boolean error, boolean highCpu, boolean highAllocation,
                            long cpuTimeMs, long allocatedBytes, int unfinishedSpanCount, String errorType,
                            String errorMessage, String threadName, Instant finishedAt) {
@@ -15,7 +15,7 @@ public record TraceSummary(String traceId, String sourceType, String name, Strin
     static TraceSummary of(TraceRecord trace) {
         String message = trace.errorMessage();
         if (message.length() > MAX_ERROR_MESSAGE_CHARS) message = message.substring(0, MAX_ERROR_MESSAGE_CHARS) + "…";
-        return new TraceSummary(trace.traceId(), trace.sourceType(), trace.name(), trace.method(), trace.status(),
+        return new TraceSummary(trace.traceId(), trace.sourceType(), trace.name(), trace.tag(), trace.status(),
                 trace.durationMs(), trace.slow(), trace.error(), trace.highCpu(), trace.highAllocation(),
                 trace.cpuTimeMs(), trace.allocatedBytes(), unfinished(trace.treeNodes()), trace.errorType(),
                 message, trace.threadName(), trace.finishedAt());

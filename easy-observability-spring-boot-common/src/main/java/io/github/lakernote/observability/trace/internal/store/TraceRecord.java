@@ -5,8 +5,11 @@ import io.github.lakernote.observability.trace.internal.TraceNode;
 import java.time.Instant;
 import java.util.List;
 
-/** One completed entry trace (HTTP request, scheduled job or Kafka message) with its call tree. */
-public record TraceRecord(long id, String traceId, String name, String method, int status,
+/**
+ * One completed entry trace (HTTP request, scheduled job or Kafka message) with its call tree. {@code tag} is the
+ * entry span's detail, such as the HTTP route or the Kafka topic, partition and offset.
+ */
+public record TraceRecord(long id, String traceId, String name, String tag, int status,
                           long durationMs, boolean slow, boolean error, List<TraceNode> treeNodes,
                           Instant finishedAt,
                           long threadId, long cpuTimeMs, long allocatedBytes, String sourceType,
@@ -27,7 +30,7 @@ public record TraceRecord(long id, String traceId, String name, String method, i
     }
 
     TraceRecord withIdentity(long id, Instant finishedAt) {
-        return new TraceRecord(id, traceId, name, method, status, durationMs, slow, error, treeNodes, finishedAt,
+        return new TraceRecord(id, traceId, name, tag, status, durationMs, slow, error, treeNodes, finishedAt,
                 threadId, cpuTimeMs, allocatedBytes, sourceType, errorType, errorMessage, threadName,
                 errorStackTrace, highCpu, highAllocation);
     }
@@ -37,7 +40,7 @@ public record TraceRecord(long id, String traceId, String name, String method, i
         private long id;
         private String traceId;
         private String name;
-        private String method;
+        private String tag;
         private int status;
         private long durationMs;
         private boolean slow;
@@ -73,8 +76,8 @@ public record TraceRecord(long id, String traceId, String name, String method, i
             return this;
         }
 
-        public Builder method(String method) {
-            this.method = method;
+        public Builder tag(String tag) {
+            this.tag = tag;
             return this;
         }
 
@@ -159,7 +162,7 @@ public record TraceRecord(long id, String traceId, String name, String method, i
         }
 
         public TraceRecord build() {
-            return new TraceRecord(id, traceId, name, method, status, durationMs, slow, error,
+            return new TraceRecord(id, traceId, name, tag, status, durationMs, slow, error,
                     treeNodes, finishedAt, threadId, cpuTimeMs, allocatedBytes, sourceType, errorType,
                     errorMessage, threadName, errorStackTrace, highCpu, highAllocation);
         }

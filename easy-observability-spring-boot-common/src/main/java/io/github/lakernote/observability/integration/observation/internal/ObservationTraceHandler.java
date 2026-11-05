@@ -239,7 +239,7 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
                 .traceId(state.traceId)
                 .sourceType(state.type.name())
                 .name(outcome.displayName)
-                .method(outcome.detail)
+                .tag(outcome.detail)
                 .status(outcome.status > 0 ? outcome.status : outcome.failed ? 500 : 200)
                 .durationMs(outcome.durationMs)
                 .slow(slow)

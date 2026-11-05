@@ -122,7 +122,7 @@ class DashboardContextPathE2ETest {
 
         traceStore.clear();
         traceStore.add(TraceRecord.builder()
-                .traceId("context-path-trace").sourceType("HTTP").name("GET /context-path").method("GET")
+                .traceId("context-path-trace").sourceType("HTTP").name("GET /context-path").tag("GET")
                 .status(503).durationMs(12).error(true)
                 .threadName("test-thread").threadId(Thread.currentThread().getId())
                 .errorType(IllegalStateException.class.getName()).errorMessage("context failure")

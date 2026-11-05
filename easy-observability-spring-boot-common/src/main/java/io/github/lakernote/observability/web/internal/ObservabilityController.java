@@ -63,11 +63,11 @@ public class ObservabilityController {
         return new Permissions(accessPolicy.canClear());
     }
 
-    @PostMapping("/storage/clear")
-    public ClearStorageResult clearTraceHistory() {
+    @PostMapping("/traces/clear")
+    public ClearTracesResult clearTraces() {
         requireAccess();
         if (!accessPolicy.canClear()) throw new ResponseStatusException(HttpStatus.FORBIDDEN);
-        return new ClearStorageResult(traceStore.clear());
+        return new ClearTracesResult(traceStore.clear());
     }
 
     private void requireAccess() {
@@ -76,5 +76,5 @@ public class ObservabilityController {
 
     public record Permissions(boolean canClear) { }
 
-    public record ClearStorageResult(int clearedTraceCount) { }
+    public record ClearTracesResult(int clearedTraceCount) { }
 }

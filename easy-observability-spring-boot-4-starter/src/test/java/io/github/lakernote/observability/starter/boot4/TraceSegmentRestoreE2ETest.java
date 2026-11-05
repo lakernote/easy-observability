@@ -142,7 +142,7 @@ class TraceSegmentRestoreE2ETest {
                             5, 1, false, false, false, "", "main", 1, List.of());
                     writer.write(TraceStoreTestSupport.json(TraceRecord.builder()
                             .id(index + 1L).traceId("restore-" + index).sourceType("HTTP")
-                            .name("GET /restore").method("GET").status(index % 2 == 0 ? 500 : 200).durationMs(900)
+                            .name("GET /restore").tag("GET").status(index % 2 == 0 ? 500 : 200).durationMs(900)
                             .slow(index % 2 == 1).error(index % 2 == 0).finishedAt(startedAt.plusSeconds(index))
                             .treeNodes(List.of(sql)).build()));
                     writer.newLine();

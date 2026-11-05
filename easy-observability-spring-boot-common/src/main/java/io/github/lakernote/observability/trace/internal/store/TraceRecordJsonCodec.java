@@ -40,7 +40,7 @@ class TraceRecordJsonCodec {
         field(out, "id", true); out.append(trace.id());
         field(out, "traceId", false); string(out, trace.traceId());
         field(out, "name", false); string(out, trace.name());
-        field(out, "method", false); string(out, trace.method());
+        field(out, "tag", false); string(out, trace.tag());
         field(out, "status", false); out.append(trace.status());
         field(out, "durationMs", false); out.append(trace.durationMs());
         field(out, "slow", false); out.append(trace.slow());
@@ -149,7 +149,7 @@ class TraceRecordJsonCodec {
             long id = 0;
             String traceId = "";
             String name = "";
-            String method = "";
+            String tag = "";
             int status = 0;
             long durationMs = 0;
             boolean slow = false;
@@ -176,7 +176,7 @@ class TraceRecordJsonCodec {
                         case "id" -> id = readLong();
                         case "traceId" -> traceId = readNullableString();
                         case "name" -> name = readNullableString();
-                        case "method" -> method = readNullableString();
+                        case "tag" -> tag = readNullableString();
                         case "status" -> status = Math.toIntExact(readLong());
                         case "durationMs" -> durationMs = readLong();
                         case "slow" -> slow = readBoolean();
@@ -198,7 +198,7 @@ class TraceRecordJsonCodec {
                 } while (consumeIf(','));
                 expect('}');
             }
-            return new TraceRecord(id, traceId, name, method, status, durationMs, slow, error,
+            return new TraceRecord(id, traceId, name, tag, status, durationMs, slow, error,
                     treeNodes, finishedAt, threadId, cpuTimeMs, allocatedBytes, sourceType, errorType, errorMessage,
                     threadName, errorStackTrace, highCpu, highAllocation);
         }

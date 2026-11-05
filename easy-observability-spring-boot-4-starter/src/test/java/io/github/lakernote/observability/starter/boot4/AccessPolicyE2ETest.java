@@ -57,7 +57,7 @@ class AccessPolicyE2ETest {
             assertThat(permissions.statusCode()).isEqualTo(200);
             assertThat(permissions.body()).isEqualTo("{\"canClear\":false}");
 
-            assertThat(send(port, "POST", "/api/easy-observability/storage/clear", null).statusCode())
+            assertThat(send(port, "POST", "/api/easy-observability/traces/clear", null).statusCode())
                     .isEqualTo(403);
         }
     }
@@ -84,19 +84,19 @@ class AccessPolicyE2ETest {
                     .isEqualTo(403);
             assertThat(send(port, "GET", "/api/easy-observability/permissions", null).statusCode())
                     .isEqualTo(403);
-            assertThat(send(port, "POST", "/api/easy-observability/storage/clear", null).statusCode())
+            assertThat(send(port, "POST", "/api/easy-observability/traces/clear", null).statusCode())
                     .isEqualTo(403);
 
             assertThat(send(port, "GET", "/api/easy-observability/traces", "developer").statusCode())
                     .isEqualTo(200);
             assertThat(send(port, "GET", "/api/easy-observability/permissions", "developer").body())
                     .isEqualTo("{\"canClear\":false}");
-            assertThat(send(port, "POST", "/api/easy-observability/storage/clear", "developer").statusCode())
+            assertThat(send(port, "POST", "/api/easy-observability/traces/clear", "developer").statusCode())
                     .isEqualTo(403);
 
             assertThat(send(port, "GET", "/api/easy-observability/permissions", "ops").body())
                     .isEqualTo("{\"canClear\":true}");
-            HttpResponse<String> cleared = send(port, "POST", "/api/easy-observability/storage/clear", "ops");
+            HttpResponse<String> cleared = send(port, "POST", "/api/easy-observability/traces/clear", "ops");
             assertThat(cleared.statusCode()).isEqualTo(200);
             assertThat(cleared.body()).contains("clearedTraceCount");
         }

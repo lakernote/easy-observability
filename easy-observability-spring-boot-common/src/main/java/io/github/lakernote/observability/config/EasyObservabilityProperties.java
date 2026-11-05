@@ -90,8 +90,6 @@ public class EasyObservabilityProperties {
 
     public static class Web {
         private boolean enabled = true;
-        /** Newest stored traces kept in memory with their full call tree; older ones are read from disk. */
-        private int traceLimit = 500;
 
         public boolean isEnabled() {
             return enabled;
@@ -99,14 +97,6 @@ public class EasyObservabilityProperties {
 
         public void setEnabled(boolean enabled) {
             this.enabled = enabled;
-        }
-
-        public int getTraceLimit() {
-            return traceLimit;
-        }
-
-        public void setTraceLimit(int traceLimit) {
-            this.traceLimit = traceLimit;
         }
 
     }
@@ -125,6 +115,8 @@ public class EasyObservabilityProperties {
         private Duration retention = Duration.ofDays(7);
         /** Disk budget for the trace files; the oldest files are deleted beyond it. */
         private DataSize maxStorageSize = DataSize.ofMegabytes(128);
+        /** Newest stored traces kept in memory with their full call tree; older ones are read from disk. */
+        private int memoryCacheSize = 500;
 
         public boolean isEnabled() {
             return enabled;
@@ -199,5 +191,12 @@ public class EasyObservabilityProperties {
             this.maxStorageSize = maxStorageSize;
         }
 
+        public int getMemoryCacheSize() {
+            return memoryCacheSize;
+        }
+
+        public void setMemoryCacheSize(int memoryCacheSize) {
+            this.memoryCacheSize = memoryCacheSize;
+        }
     }
 }
