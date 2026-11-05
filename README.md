@@ -37,7 +37,7 @@ Metrics 页面按指标类别查看历史曲线，点击图例可切换序列：
 <dependency>
     <groupId>io.github.lakernote</groupId>
     <artifactId>easy-observability-spring-boot-3-starter</artifactId>
-    <version>0.1.0-alpha.3</version>
+    <version>0.1.0-alpha.4</version>
 </dependency>
 ```
 
@@ -46,7 +46,7 @@ Metrics 页面按指标类别查看历史曲线，点击图例可切换序列：
 <dependency>
     <groupId>io.github.lakernote</groupId>
     <artifactId>easy-observability-spring-boot-4-starter</artifactId>
-    <version>0.1.0-alpha.3</version>
+    <version>0.1.0-alpha.4</version>
 </dependency>
 ```
 
@@ -64,7 +64,7 @@ Metrics 页面按指标类别查看历史曲线，点击图例可切换序列：
 ```bash
 docker compose -f examples/docker-compose.yml up -d --wait
 mvn -pl examples/easy-observability-example-spring-boot-3 -am package
-java -jar examples/easy-observability-example-spring-boot-3/target/easy-observability-example-spring-boot-3-0.1.0-alpha.3.jar
+java -jar examples/easy-observability-example-spring-boot-3/target/easy-observability-example-spring-boot-3-0.1.0-alpha.4.jar
 ```
 
 打开 `http://localhost:8083/` 查看示例入口。更多场景和 Boot 4 启动方式见[示例说明](examples/README.md)。
