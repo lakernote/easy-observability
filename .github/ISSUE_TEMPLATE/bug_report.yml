@@ -1,0 +1,41 @@
+name: 问题报告
+description: 报告缺陷或与文档不符的行为
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: 安全漏洞请不要在此公开，按 [SECURITY.md](https://github.com/lakernote/easy-observability/blob/main/SECURITY.md) 私下报告。
+  - type: input
+    id: version
+    attributes:
+      label: Easy Observability 版本
+      placeholder: 0.1.0-alpha.3
+    validations:
+      required: true
+  - type: input
+    id: runtime
+    attributes:
+      label: Spring Boot 与 JDK 版本
+      placeholder: Spring Boot 3.5.16，JDK 21
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为
+      description: 发生了什么？请附上相关日志或截图，注意脱敏。
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      description: 最好提供可运行的最小示例，以及相关的 `easy.observability.*` 配置。
+    validations:
+      required: true

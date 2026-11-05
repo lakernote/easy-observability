@@ -10,6 +10,8 @@
 mvn verify
 ```
 
+`mvn verify` 包含覆盖率门禁：`easy-observability-spring-boot-common` 的单元测试行覆盖率需不低于 80%、分支覆盖率不低于 62%，不达标会导致构建失败。阈值只随覆盖率提升而上调，不要为了让改动通过而下调。包含 E2E 的聚合报告位于 `easy-observability-spring-boot-{3,4}-starter/target/site/jacoco-aggregate/index.html`，CI 在 JDK 21 上会把它作为 `coverage-report` 制品上传。
+
 修改 Trace 采集路径时，请运行 [JMH 基准](benchmarks/README.md)，并更新 `docs/guide.md`「性能开销」一节中的参考结果。
 
 Pull Request 和 `main` 分支的推送会触发 CI，在 JDK 17、21、25 上运行同一套验证（每次都覆盖 Boot 3 和 Boot 4 模块），并用 `central-release` profile 检查 sources 和 Javadoc 打包。
