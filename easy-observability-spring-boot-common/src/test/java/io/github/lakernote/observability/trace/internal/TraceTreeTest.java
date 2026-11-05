@@ -118,6 +118,31 @@ class TraceTreeTest {
                 .doesNotContain("must-not-be-rendered-after-budget");
     }
 
+    @Test
+    void shouldMarkCrossThreadAndStillRunningSpansLikeTheTimeline() throws Exception {
+        TraceTree trace = new TraceTree("/api/flow · GET", SpanKind.HTTP, "/api/flow");
+        Span[] task = new Span[1];
+        Thread worker = new Thread(() -> {
+            task[0] = trace.addChild(trace.rootSpan(), 1, "executor.task", SpanKind.CODE, "");
+            Span child = trace.addChild(task[0], 2, "http.client.requests", SpanKind.REMOTE, "/child");
+            trace.stopSpan(child);
+        }, "demo-task-1");
+        worker.start();
+        worker.join();
+        Span entry = trace.addChild(trace.rootSpan(), 1, "http.client.requests", SpanKind.REMOTE, "/entry");
+        trace.stopSpan(entry);
+        trace.completeRoot(0, null);
+
+        String tree = trace.renderTree();
+
+        assertThat(tree)
+                .contains("[Code] executor.task [RUNNING_AT_END] thread=\"demo-task-1\" ")
+                .contains("[Remote] http.client.requests tag=\"/child\" ")
+                .contains("[Remote] http.client.requests tag=\"/entry\" ")
+                .doesNotContain("/child\" thread=")
+                .doesNotContain("/entry\" thread=");
+    }
+
     private static int occurrences(String text, String pattern) {
         return text.split(java.util.regex.Pattern.quote(pattern), -1).length - 1;
     }

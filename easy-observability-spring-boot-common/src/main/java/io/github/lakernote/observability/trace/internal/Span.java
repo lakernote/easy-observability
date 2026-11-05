@@ -134,6 +134,10 @@ final class Span {
         }
     }
 
+    private synchronized boolean unfinishedAtTraceEnd() {
+        return unfinishedAtTraceEnd;
+    }
+
     synchronized long costMs() {
         long end = endNanos == 0 ? System.nanoTime() : endNanos;
         return (end - startNanos) / 1_000_000;
@@ -178,8 +182,12 @@ final class Span {
                 .append(name);
         if (slow) builder.append(" [SLOW]");
         if (error) builder.append(errorType.isBlank() ? " [ERROR]" : " [ERROR ").append(errorType.isBlank() ? "" : errorType + "]");
+        if (unfinishedAtTraceEnd()) builder.append(" [RUNNING_AT_END]");
         if (!tag.isBlank()) {
             builder.append(" tag=\"").append(tag).append("\"");
+        }
+        if (parent != null && parent.threadId != threadId) {
+            builder.append(" thread=\"").append(threadName).append("\"");
         }
         builder
                 .append(" ")
@@ -219,6 +227,9 @@ final class Span {
         if (!first.tag.isBlank()) {
             builder.append(" tag=\"").append(first.tag).append("\"");
         }
+        if (first.parent != null && first.parent.threadId != first.threadId) {
+            builder.append(" thread=\"").append(first.threadName).append("\"");
+        }
         builder
                 .append(" [count=").append(spans.size())
                 .append(" total=").append(total).append("ms")
@@ -228,13 +239,14 @@ final class Span {
     }
 
     private boolean canAggregate() {
-        return !error && !slow && (children == null || children.isEmpty());
+        return !error && !slow && !unfinishedAtTraceEnd() && (children == null || children.isEmpty());
     }
 
     private boolean sameAggregateKey(Span other) {
         return other != null
                 && other.canAggregate()
                 && kind == other.kind
+                && threadId == other.threadId
                 && name.equals(other.name)
                 && tag.equals(other.tag);
     }
