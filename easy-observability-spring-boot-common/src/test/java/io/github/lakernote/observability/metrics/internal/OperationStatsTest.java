@@ -1,13 +1,17 @@
-package io.github.lakernote.observability.stats.internal;
+package io.github.lakernote.observability.metrics.internal;
 
-import io.github.lakernote.observability.stats.internal.OperationStats.Category;
-import io.github.lakernote.observability.stats.internal.OperationStats.Row;
-import io.github.lakernote.observability.stats.internal.OperationStats.Window;
+import io.github.lakernote.observability.metrics.internal.OperationStats.Category;
+import io.github.lakernote.observability.metrics.internal.OperationStats.Period;
+import io.github.lakernote.observability.metrics.internal.OperationStats.Point;
+import io.github.lakernote.observability.metrics.internal.OperationStats.Trend;
+import io.github.lakernote.observability.metrics.internal.OperationStats.Row;
+import io.github.lakernote.observability.metrics.internal.OperationStats.Window;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
@@ -95,9 +99,11 @@ class OperationStatsTest {
         var hour = stats.snapshot(Window.HOUR);
         assertThat(hour.since()).isAfter(Instant.ofEpochMilli(clock.get() - 61 * MINUTE))
                 .isBeforeOrEqualTo(Instant.ofEpochMilli(clock.get() - 50 * MINUTE));
-        // Without an archive the day windows cover only the two hours kept in memory.
-        assertThat(stats.snapshot(Window.TODAY).since())
-                .isEqualTo(Instant.ofEpochMilli(Math.floorDiv(clock.get(), 3_600_000L) * 3_600_000L - 3_600_000L));
+        // Without an archive the day windows cover only the two hours of slices kept in memory.
+        long oldestSlice = Math.floorDiv(clock.get(), 600_000L) * 600_000L - 110 * MINUTE;
+        long midnight = java.time.LocalDate.ofInstant(Instant.ofEpochMilli(clock.get()), java.time.ZoneOffset.UTC)
+                .atStartOfDay(java.time.ZoneOffset.UTC).toInstant().toEpochMilli();
+        assertThat(stats.snapshot(Window.TODAY).since()).isEqualTo(Instant.ofEpochMilli(Math.max(oldestSlice, midnight)));
         assertThat(stats.snapshot(Window.TODAY).persistent()).isFalse();
         assertThat(hour.generatedAt()).isEqualTo(Instant.ofEpochMilli(clock.get()));
     }
@@ -121,21 +127,6 @@ class OperationStatsTest {
                         org.assertj.core.groups.Tuple.tuple(OperationStats.OVERFLOW_NAME, 2L));
         assertThat(category(limited, Window.TODAY, Category.SQL).rows()).extracting(Row::name)
                 .containsExactlyInAnyOrder("b", OperationStats.OVERFLOW_NAME);
-        assertThat(category(limited, Window.TODAY, Category.SQL).rows())
-                .filteredOn(row -> row.name().equals(OperationStats.OVERFLOW_NAME))
-                .singleElement().extracting(Row::traceQuery).isEqualTo("");
-    }
-
-    @Test
-    void keepsTheFirstTraceQueryAndDefaultsItToTheName() {
-        stats.record(Category.REMOTE, "GET api /orders/{id}", "/orders/{id}", ms(1), false);
-        stats.record(Category.REMOTE, "GET api /orders/{id}", "ignored", ms(1), false);
-        stats.record(Category.HTTP, "/a · GET", ms(1), false);
-
-        assertThat(category(Window.TODAY, Category.REMOTE).rows()).singleElement()
-                .extracting(Row::traceQuery).isEqualTo("/orders/{id}");
-        assertThat(category(Window.TODAY, Category.HTTP).rows()).singleElement()
-                .extracting(Row::traceQuery).isEqualTo("/a · GET");
     }
 
     @Test
@@ -203,6 +194,78 @@ class OperationStatsTest {
         assertThat(Window.parse("30d")).isEqualTo(Window.MONTH);
         assertThatThrownBy(() -> Window.parse("all")).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> Window.parse("week")).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void hourTrendHasOneBucketPerMinuteWithoutP95() {
+        long start = Math.floorDiv(clock.get(), MINUTE) * MINUTE;
+        stats.record(Category.HTTP, "/a", ms(10), false);
+        stats.record(Category.HTTP, "/a", ms(30), true);
+        stats.record(Category.HTTP, "/b", ms(50), false);
+        clock.addAndGet(5 * MINUTE);
+        stats.record(Category.HTTP, "/a", ms(20), false);
+
+        Trend trend = stats.trend(Category.HTTP, "/a", Period.HOUR);
+        assertThat(trend.points()).hasSize(60);
+        assertThat(trend.stepMillis()).isEqualTo(MINUTE);
+        assertThat(trend.points().get(59).timestamp()).isEqualTo(start + 5 * MINUTE);
+        Point first = trend.points().get(54);
+        assertThat(first.timestamp()).isEqualTo(start);
+        assertThat(first).extracting(Point::count, Point::errors, Point::meanMs, Point::p95Ms, Point::maxMs)
+                .containsExactly(2L, 1L, 20.0, null, 30.0);
+        assertThat(trend.points().get(55)).extracting(Point::count, Point::meanMs).containsExactly(0L, null);
+        assertThat(trend.points().get(59).count()).isEqualTo(1);
+
+        Map<Category, Trend> all = stats.trends(Period.HOUR);
+        assertThat(all).containsOnlyKeys(Category.values());
+        assertThat(all.get(Category.HTTP).points().get(54).count()).isEqualTo(3);
+        assertThat(all.get(Category.SQL).points()).allSatisfy(point -> assertThat(point.count()).isZero());
+        assertThat(stats.trend(Category.HTTP, "missing", Period.HOUR).points())
+                .allSatisfy(point -> assertThat(point.count()).isZero());
+
+        clock.addAndGet(61 * MINUTE);
+        assertThat(stats.trend(Category.HTTP, "/a", Period.HOUR).points().stream().mapToLong(Point::count).sum())
+                .isZero();
+    }
+
+    @Test
+    void dayTrendUsesTenMinuteSlicesWithP95FromMemory() {
+        stats.record(Category.SQL, "select", ms(10), false);
+        stats.record(Category.SQL, "select", ms(100), false);
+        clock.addAndGet(30 * MINUTE);
+        stats.record(Category.SQL, "select", ms(5), true);
+
+        Trend day = stats.trend(Category.SQL, "select", Period.DAY);
+        assertThat(day.points()).hasSize(144);
+        assertThat(day.stepMillis()).isEqualTo(10 * MINUTE);
+        assertThat(day.persistent()).isFalse();
+        List<Point> busy = day.points().stream().filter(point -> point.count() > 0).toList();
+        assertThat(busy).extracting(Point::count, Point::errors).containsExactly(
+                org.assertj.core.groups.Tuple.tuple(2L, 0L), org.assertj.core.groups.Tuple.tuple(1L, 1L));
+        assertThat(busy.get(0).p95Ms()).isNotNull().isLessThanOrEqualTo(100.0);
+        assertThat(busy.get(1).timestamp() - busy.get(0).timestamp()).isEqualTo(30 * MINUTE);
+
+        Trend week = stats.trend(Category.SQL, "select", Period.WEEK);
+        assertThat(week.points()).hasSize(168);
+        assertThat(week.points().stream().mapToLong(Point::count).sum()).isEqualTo(3);
+        assertThat(stats.trend(Category.SQL, "select", Period.MONTH).points()).hasSize(720);
+    }
+
+    @Test
+    void snapshotReportsWhetherCallsAreCollected() {
+        assertThat(stats.snapshot(Window.HOUR).collecting()).isTrue();
+        stats.setCollecting(false);
+        assertThat(stats.snapshot(Window.HOUR).collecting()).isFalse();
+    }
+
+    @Test
+    void parsesPeriodNames() {
+        assertThat(Period.parse(null)).isEqualTo(Period.HOUR);
+        assertThat(Period.parse("24h")).isEqualTo(Period.DAY);
+        assertThat(Period.parse(" 7D ")).isEqualTo(Period.WEEK);
+        assertThat(Period.parse("30d")).isEqualTo(Period.MONTH);
+        assertThatThrownBy(() -> Period.parse("today")).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> stats.trend(null, "x", Period.HOUR)).isInstanceOf(IllegalArgumentException.class);
     }
 
     private OperationStats.CategorySnapshot category(Window window, Category category) {

@@ -1,7 +1,7 @@
 package io.github.lakernote.observability.integration.observation.internal;
 
 import io.github.lakernote.observability.integration.jdbc.internal.JdbcTraceSafety;
-import io.github.lakernote.observability.stats.internal.OperationStats;
+import io.github.lakernote.observability.metrics.internal.OperationStats;
 import io.micrometer.common.KeyValue;
 import io.micrometer.observation.Observation;
 
@@ -76,25 +76,6 @@ final class ObservationAttributes {
             case ELASTICSEARCH -> "Elasticsearch " + operation;
             case DATABASE, TRANSACTION -> operation;
         };
-    }
-
-    /**
-     * Returns the text the Trace Explorer can find for this operation when the statistics name joins values that
-     * traces store in separate fields, or null when the statistics name itself is searchable.
-     */
-    static String statsTraceQuery(Observation.Context context, ObservationType type) {
-        return switch (type) {
-            case REMOTE -> emptyToNull(meaningful(firstLowCardinality(context, "uri", "url.template", "http.route")));
-            case KAFKA_CONSUMER -> {
-                String listenerId = lowCardinality(context, "spring.kafka.listener.id");
-                yield emptyToNull(listenerId.isBlank() ? lowCardinality(context, "messaging.source.name") : listenerId);
-            }
-            default -> null;
-        };
-    }
-
-    private static String emptyToNull(String value) {
-        return value == null || value.isBlank() ? null : value;
     }
 
     /** Joins the non-blank parts; the last part is a fallback used only when every earlier part is blank. */

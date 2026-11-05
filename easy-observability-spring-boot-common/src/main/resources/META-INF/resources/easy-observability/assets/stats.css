@@ -18,4 +18,10 @@
 .stats-share-bar i { display:block; height:100%; border-radius:3px; background:#6c8fe0; }
 .stats-share span { min-width:44px; text-align:right; font-variant-numeric:tabular-nums; }
 @media(max-width:720px) { .stats-controls .storage-summary { margin-left:0; } .stats-search { max-width:none; width:100%; } }
-.stats-table tbody tr.static-row { cursor:default; }
+.stats-table tbody tr { cursor:pointer; }
+.stats-table tbody tr.is-expanded td { background:#f3f6fd; }
+.stats-table tbody tr.stats-detail { cursor:default; }
+.stats-table tbody tr.stats-detail > td { padding:12px; background:#f8faff; }
+.stats-detail-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+.stats-detail-status { margin:0; padding:18px; color:var(--muted); font-size:12px; text-align:center; }
+@media(max-width:920px) { .stats-detail-grid { grid-template-columns:1fr; } }

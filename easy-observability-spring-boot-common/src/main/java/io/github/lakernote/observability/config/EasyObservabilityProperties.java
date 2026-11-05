@@ -6,6 +6,8 @@ import org.springframework.util.unit.DataSize;
 
 import java.time.Duration;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Public configuration for the Easy Observability Spring Boot Starter.
@@ -17,7 +19,6 @@ public class EasyObservabilityProperties {
     private final Web web = new Web();
     private final Metrics metrics = new Metrics();
     private final Storage storage = new Storage();
-    private final Stats stats = new Stats();
 
     public boolean isEnabled() {
         return enabled;
@@ -43,29 +44,6 @@ public class EasyObservabilityProperties {
         return storage;
     }
 
-    public Stats getStats() {
-        return stats;
-    }
-
-    /**
-     * In-memory per-operation statistics (HTTP endpoints, SQL, remote calls, Redis commands, jobs, Kafka) shown on
-     * the statistics page. Requires {@code easy.observability.trace.enabled}; data resets on restart.
-     */
-    public static class Stats {
-        private boolean enabled = true;
-        /** Maximum number of distinct operations kept across all categories; later ones are merged per category. */
-        private int maxKeys = 1_000;
-        /** Disk budget for the daily statistics files; the oldest days are deleted beyond it. */
-        private DataSize maxStorageSize = DataSize.ofMegabytes(64);
-
-        public boolean isEnabled() { return enabled; }
-        public DataSize getMaxStorageSize() { return maxStorageSize; }
-        public void setMaxStorageSize(DataSize maxStorageSize) { this.maxStorageSize = maxStorageSize; }
-        public void setEnabled(boolean enabled) { this.enabled = enabled; }
-        public int getMaxKeys() { return maxKeys; }
-        public void setMaxKeys(int maxKeys) { this.maxKeys = maxKeys; }
-    }
-
     public static class Storage {
         /**
          * Directory for the trace archive and metric history. Defaults to
@@ -78,22 +56,36 @@ public class EasyObservabilityProperties {
         public void setDirectory(String directory) { this.directory = directory; }
     }
 
+    /**
+     * Runtime metrics: per-operation call statistics (HTTP endpoints, SQL, remote calls, Redis commands, jobs,
+     * Kafka), which require {@code easy.observability.trace.enabled}, and JVM and pool resource metrics read from
+     * Micrometer. History is kept in daily files under the storage directory.
+     */
     public static class Metrics {
         private boolean enabled = true;
-        private Duration step = Duration.ofSeconds(60);
-        /** History retention in whole days, between 7 and 365 days. A bare number is read as days. */
+        /** Maximum number of distinct operations kept across all categories; later ones are merged per category. */
+        private int maxOperations = 1_000;
+        /** History retention in whole days, between 1 and 365 days. A bare number is read as days. */
         @DurationUnit(ChronoUnit.DAYS)
         private Duration retention = Duration.ofDays(30);
+        /** Disk budget for the metric files; the oldest days are deleted beyond it. */
         private DataSize maxStorageSize = DataSize.ofMegabytes(64);
+        /**
+         * Additional Micrometer meter names, or name prefixes, recorded with the resource metrics, for example
+         * {@code order.created}. Values of a meter's tagged series are summed.
+         */
+        private List<String> include = new ArrayList<>();
 
         public boolean isEnabled() { return enabled; }
         public void setEnabled(boolean enabled) { this.enabled = enabled; }
-        public Duration getStep() { return step; }
-        public void setStep(Duration step) { this.step = step; }
+        public int getMaxOperations() { return maxOperations; }
+        public void setMaxOperations(int maxOperations) { this.maxOperations = maxOperations; }
         public Duration getRetention() { return retention; }
         public void setRetention(Duration retention) { this.retention = retention; }
         public DataSize getMaxStorageSize() { return maxStorageSize; }
         public void setMaxStorageSize(DataSize maxStorageSize) { this.maxStorageSize = maxStorageSize; }
+        public List<String> getInclude() { return include; }
+        public void setInclude(List<String> include) { this.include = include == null ? new ArrayList<>() : include; }
     }
 
     public static class Web {

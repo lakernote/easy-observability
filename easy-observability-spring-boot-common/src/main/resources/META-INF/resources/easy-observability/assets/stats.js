@@ -1,16 +1,13 @@
-const api = new URL('../../api/easy-observability/', import.meta.url)
-const $ = id => document.getElementById(id)
+import {
+  $, DISABLED_MESSAGE, categoryNames, countsSince, formatMs, initializeEmbeddedAuth, lineChart, node, request
+} from './metrics-common.js?v=20261105.4'
+
 const REFRESH_MS = 10000
 // Day ranges change slowly and read history files, so poll them less often.
 const LONG_RANGE_REFRESH_MS = 60000
 const WINDOWS = new Set(['1h', 'today', '7d', '30d'])
-const DISABLED_MESSAGE = '调用统计未启用：请确认 easy.observability.trace.enabled 和 easy.observability.stats.enabled 均为 true'
-const categoryNames = {
-  HTTP: 'HTTP 接口', SQL: 'SQL', REMOTE: '远程调用', REDIS: 'Redis',
-  JOB: '定时任务', KAFKA_CONSUMER: 'Kafka 消费', KAFKA_PRODUCER: 'Kafka 发送'
-}
-// Trace Explorer can filter by these entry types; dependency rows search inside Trace trees instead.
-const traceSources = new Set(['HTTP', 'JOB', 'KAFKA_CONSUMER'])
+const TREND_PERIOD = { '1h': '1h', today: '24h', '7d': '7d', '30d': '30d' }
+const NOT_COLLECTING_MESSAGE = '调用统计来自 Trace 采集点，当前 easy.observability.trace.enabled=false，不会记录新的调用'
 const columns = [
   { key: 'name', label: '名称' },
   { key: 'count', label: '次数', numeric: true },
@@ -27,60 +24,10 @@ let sortKey = 'totalMs'
 let sortDescending = true
 let timer
 let searchTimer
-
-async function request(path, options = {}, deniedMessage = '没有查看统计的权限，请登录或检查 ObservabilityAccessPolicy') {
-  const headers = new Headers(options.headers || {})
-  const token = typeof window.EasyObservabilityAuth?.token === 'function' ? window.EasyObservabilityAuth.token() : ''
-  if (token) headers.set('Authorization', `Bearer ${token}`)
-  const method = (options.method || 'GET').toUpperCase()
-  // Spring Security's CookieCsrfTokenRepository exposes XSRF-TOKEN; echo it on state-changing requests.
-  const csrf = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]+)/)
-  if (csrf && method !== 'GET' && method !== 'HEAD') headers.set('X-XSRF-TOKEN', decodeURIComponent(csrf[1]))
-  const response = await fetch(new URL(path.replace(/^\/+/, ''), api),
-    { credentials: 'same-origin', ...options, headers })
-  if (!response.ok) throw new Error(response.status === 401 || response.status === 403
-    ? deniedMessage
-    : response.status === 404 ? DISABLED_MESSAGE : `请求失败（HTTP ${response.status}）`)
-  return response.status === 204 ? null : response.json()
-}
-
-function initializeEmbeddedAuth() {
-  if (window.parent === window) return Promise.resolve()
-  return new Promise(resolve => {
-    let completed = false
-    const finish = token => {
-      if (completed) return
-      completed = true
-      clearTimeout(timeout)
-      window.removeEventListener('message', receiveAuth)
-      window.EasyObservabilityAuth = { token: () => token }
-      resolve()
-    }
-    const receiveAuth = event => {
-      if (event.origin !== window.location.origin || event.source !== window.parent
-        || event.data?.type !== 'easy-observability:auth-response') return
-      finish(typeof event.data.token === 'string' ? event.data.token : '')
-    }
-    const timeout = setTimeout(() => finish(''), 1500)
-    window.addEventListener('message', receiveAuth)
-    window.parent.postMessage({ type: 'easy-observability:auth-request' }, window.location.origin)
-  })
-}
-
-function node(tag, className, text) {
-  const element = document.createElement(tag)
-  if (className) element.className = className
-  if (text != null) element.textContent = text
-  return element
-}
-
-function formatMs(value) {
-  const ms = Number(value || 0)
-  if (ms >= 1000) return `${(ms / 1000).toLocaleString(undefined, { maximumFractionDigits: ms >= 100000 ? 0 : 2 })} s`
-  if (ms >= 100) return `${Math.round(ms).toLocaleString()} ms`
-  if (ms >= 1) return `${ms.toFixed(1)} ms`
-  return `${ms.toFixed(2)} ms`
-}
+// The expanded row survives re-renders; its chart is reloaded on every refresh.
+let expanded = null
+let detail = null
+let detailCharts = []
 
 function formatPercent(value) {
   if (!Number.isFinite(value) || value <= 0) return '0%'
@@ -100,7 +47,7 @@ function renderCategories() {
     button.append(categoryNames[category.category] || category.category,
       node('small', '', Number(category.count).toLocaleString()))
     button.setAttribute('aria-pressed', String(category.category === activeCategory))
-    button.addEventListener('click', () => { activeCategory = category.category; render() })
+    button.addEventListener('click', () => { activeCategory = category.category; collapse(); render() })
     nav.append(button)
   }
 }
@@ -140,20 +87,80 @@ function sortedRows(category) {
   })
 }
 
-function traceLink(row) {
-  const target = new URL('../', window.location.href)
-  // traceQuery matches the text traces store for this operation; the display name may join several fields.
-  target.searchParams.set('q', String(row.traceQuery).slice(0, 200))
-  if (traceSources.has(activeCategory)) target.searchParams.set('source', activeCategory)
-  return target
+function isExpanded(row) {
+  return expanded && expanded.category === activeCategory && expanded.name === row.name
+}
+
+function collapse() {
+  expanded = null
+  for (const chart of detailCharts) chart.destroy()
+  detailCharts = []
+  detail = null
+}
+
+function toggle(row) {
+  if (isExpanded(row)) collapse()
+  else {
+    collapse()
+    expanded = { category: activeCategory, name: row.name }
+  }
+  render()
+  if (expanded) loadTrend()
+}
+
+function detailRow() {
+  if (!detail) {
+    detail = document.createElement('tr')
+    detail.className = 'stats-detail'
+    const cell = node('td')
+    cell.colSpan = columns.length
+    cell.append(node('div', 'stats-detail-body'))
+    detail.append(cell)
+  }
+  return detail
+}
+
+async function loadTrend() {
+  if (!expanded) return
+  const target = expanded
+  const period = TREND_PERIOD[$('window').value] || '1h'
+  const body = detailRow().querySelector('.stats-detail-body')
+  if (!detailCharts.length) body.replaceChildren(node('p', 'stats-detail-status', '读取趋势中…'))
+  try {
+    const trend = await request(`metrics/operations/trend?category=${encodeURIComponent(target.category)}`
+      + `&name=${encodeURIComponent(target.name)}&period=${period}`)
+    if (expanded !== target) return
+    for (const chart of detailCharts) chart.destroy()
+    const timestamps = trend.points.map(point => point.timestamp)
+    const minute = trend.period === 'HOUR'
+    detailCharts = [
+      lineChart({ title: '调用次数', unit: 'count', timestamps, stepMillis: trend.stepMillis, height: 180, series: [
+        { label: '次数', values: countsSince(trend, point => point.count) },
+        ...(trend.points.some(point => point.errors > 0)
+          ? [{ label: '错误', values: countsSince(trend, point => point.errors) }] : [])] }),
+      lineChart({ title: '耗时', unit: 'ms', timestamps, stepMillis: trend.stepMillis, height: 180,
+        hint: minute ? '按分钟统计时不计算 P95' : 'P95 由直方图估算，误差约 ±20%', series: [
+          { label: '平均', values: trend.points.map(point => point.meanMs) },
+          ...(minute ? [] : [{ label: 'P95', values: trend.points.map(point => point.p95Ms) }]),
+          { label: '最大', values: trend.points.map(point => point.maxMs) }] })
+    ]
+    const grid = node('div', 'stats-detail-grid')
+    grid.append(...detailCharts.map(chart => chart.card))
+    body.replaceChildren(grid)
+  } catch (error) {
+    if (expanded === target) body.replaceChildren(node('p', 'stats-detail-status', error.message))
+  }
 }
 
 function renderRows(category) {
   const tbody = $('stats-rows')
+  // Detach the detail row first so replaceChildren keeps its charts alive.
+  if (detail) detail.remove()
   tbody.replaceChildren()
   const rows = sortedRows(category)
   for (const row of rows) {
     const tr = document.createElement('tr')
+    const open = isExpanded(row)
     const name = node('td', 'name', row.name)
     name.title = row.name
     const errorRate = row.count > 0 ? row.errors / row.count * 100 : 0
@@ -170,18 +177,16 @@ function renderRows(category) {
     tr.append(name, node('td', 'numeric strong', Number(row.count).toLocaleString()), errors,
       node('td', 'numeric', formatMs(row.meanMs)), node('td', 'numeric', `≈ ${formatMs(row.p95Ms)}`),
       node('td', 'numeric', formatMs(row.maxMs)), node('td', 'numeric strong', formatMs(row.totalMs)), share)
-    if (row.traceQuery) {
-      tr.tabIndex = 0
-      tr.setAttribute('role', 'link')
-      tr.setAttribute('aria-label', `查看 ${row.name} 相关的慢调用和错误 Trace`)
-      tr.title = '查看相关的慢调用和错误 Trace'
-      const open = () => { window.location.href = traceLink(row).toString() }
-      tr.addEventListener('click', open)
-      tr.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); open() } })
-    } else {
-      tr.classList.add('static-row')
-    }
+    tr.tabIndex = 0
+    tr.setAttribute('aria-expanded', String(open))
+    tr.title = open ? '收起趋势' : '查看趋势'
+    if (open) tr.classList.add('is-expanded')
+    tr.addEventListener('click', () => toggle(row))
+    tr.addEventListener('keydown', event => {
+      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggle(row) }
+    })
     tbody.append(tr)
+    if (open) tbody.append(detailRow())
   }
   const empty = $('empty')
   empty.hidden = rows.length > 0
@@ -209,20 +214,27 @@ function render() {
   if (category) renderRows(category)
 }
 
+function showNotice(message, warning = false) {
+  $('notice').textContent = message
+  $('notice').classList.toggle('warning', warning)
+  $('notice').hidden = false
+}
+
 async function refresh() {
   try {
-    const next = await request(`stats?window=${encodeURIComponent($('window').value)}`)
+    const next = await request(`metrics/operations?window=${encodeURIComponent($('window').value)}`)
     if (!activeCategory) activeCategory = next.categories.find(item => item.count > 0)?.category || 'HTTP'
     snapshot = next
     $('instance').classList.add('connected')
     $('instance').lastChild.textContent = '已连接'
-    $('notice').hidden = true
+    if (next.collecting) $('notice').hidden = true
+    else showNotice(NOT_COLLECTING_MESSAGE, true)
     render()
+    loadTrend()
   } catch (error) {
     $('instance').classList.remove('connected')
     $('instance').lastChild.textContent = '连接失败'
-    $('notice').textContent = error.message === DISABLED_MESSAGE ? error.message : `${error.message}。请检查应用权限和服务状态。`
-    $('notice').hidden = false
+    showNotice(error.message === DISABLED_MESSAGE ? error.message : `${error.message}。请检查应用权限和服务状态。`)
     if (error.message === DISABLED_MESSAGE) {
       window.clearInterval(timer)
       $('instance').lastChild.textContent = '未启用'
@@ -252,6 +264,8 @@ function bind() {
     const url = new URL(window.location.href)
     url.searchParams.set('window', $('window').value)
     window.history.replaceState(null, '', url)
+    for (const chart of detailCharts) chart.destroy()
+    detailCharts = []
     schedule()
     refresh()
   })
@@ -265,13 +279,13 @@ function bind() {
   $('confirm-reset').addEventListener('click', async () => {
     $('confirm-reset').disabled = true
     try {
-      await request('/stats/reset', { method: 'POST' },
+      await request('/metrics/operations/reset', { method: 'POST' },
         '没有重置统计的权限，请检查 ObservabilityAccessPolicy#canClear 或 CSRF 配置')
       $('reset-dialog').close()
+      collapse()
       await refresh()
     } catch (error) {
-      $('notice').textContent = error.message
-      $('notice').hidden = false
+      showNotice(error.message)
     } finally { $('confirm-reset').disabled = false }
   })
 }

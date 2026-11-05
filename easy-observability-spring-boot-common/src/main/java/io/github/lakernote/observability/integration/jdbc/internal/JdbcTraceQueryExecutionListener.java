@@ -1,6 +1,6 @@
 package io.github.lakernote.observability.integration.jdbc.internal;
 
-import io.github.lakernote.observability.stats.internal.OperationStats;
+import io.github.lakernote.observability.metrics.internal.OperationStats;
 import io.github.lakernote.observability.trace.SpanKind;
 import io.github.lakernote.observability.trace.internal.ScopedSpan;
 import io.github.lakernote.observability.trace.internal.TraceContext;
@@ -66,8 +66,7 @@ public final class JdbcTraceQueryExecutionListener implements QueryExecutionList
             }
             if (state.statsName != null) {
                 operationStats.record(OperationStats.Category.SQL, state.statsName,
-                        JdbcTraceSql.traceQuery(state.statsName), System.nanoTime() - state.startedAtNanos,
-                        failure != null);
+                        System.nanoTime() - state.startedAtNanos, failure != null);
             }
         } catch (Throwable ignored) {
             // Trace 回调不能替换 JDBC 结果或原始异常。

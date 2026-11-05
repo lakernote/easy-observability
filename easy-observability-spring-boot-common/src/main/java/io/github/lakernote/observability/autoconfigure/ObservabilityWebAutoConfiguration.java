@@ -3,9 +3,7 @@ package io.github.lakernote.observability.autoconfigure;
 import io.github.lakernote.observability.web.ObservabilityAccessPolicy;
 import io.github.lakernote.observability.web.internal.ObservabilityController;
 import io.github.lakernote.observability.web.internal.ObservabilityDashboardController;
-import io.github.lakernote.observability.web.internal.MetricsHistoryController;
-import io.github.lakernote.observability.web.internal.MetricsDashboardController;
-import io.github.lakernote.observability.web.internal.OperationStatsController;
+import io.github.lakernote.observability.web.internal.MetricsController;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -18,13 +16,12 @@ import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 /** Serves the bundled dashboard and its read-only API in Spring MVC applications. */
-@AutoConfiguration(after = ObservabilityAutoConfiguration.class)
+@AutoConfiguration(after = {ObservabilityAutoConfiguration.class, RuntimeMetricsAutoConfiguration.class})
 @ConditionalOnClass(DispatcherServlet.class)
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
 @ConditionalOnProperty(prefix = "easy.observability", name = "enabled", havingValue = "true", matchIfMissing = true)
 @ConditionalOnProperty(prefix = "easy.observability.web", name = "enabled", havingValue = "true", matchIfMissing = true)
-@Import({ObservabilityController.class, ObservabilityDashboardController.class,
-        MetricsHistoryController.class, MetricsDashboardController.class, OperationStatsController.class})
+@Import({ObservabilityController.class, ObservabilityDashboardController.class, MetricsController.class})
 public class ObservabilityWebAutoConfiguration implements WebMvcConfigurer {
     /**
      * Allows every request to view data and keeps clearing disabled. The host application is expected to protect

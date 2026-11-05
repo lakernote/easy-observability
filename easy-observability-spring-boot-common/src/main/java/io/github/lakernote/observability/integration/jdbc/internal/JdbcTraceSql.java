@@ -45,19 +45,6 @@ final class JdbcTraceSql {
         return IN_LIST.matcher(sql).replaceAll("$1 (?…)");
     }
 
-    /**
-     * Returns the longest prefix of {@code statsName} that also appears in the trace tag, i.e. the text before the
-     * first collapsed placeholder list or batch marker. Null when the statistics name is the trace text itself.
-     */
-    static String traceQuery(String statsName) {
-        int end = statsName.length();
-        for (String marker : new String[] {" (?…)", ", …", " [batch]"}) {
-            int index = statsName.indexOf(marker);
-            if (index >= 0) end = Math.min(end, index);
-        }
-        return end == statsName.length() ? null : statsName.substring(0, end).strip();
-    }
-
     static String command(List<QueryInfo> queries) {
         return commandOf(describe(queries));
     }

@@ -56,15 +56,19 @@ class MetricsStorageFailOpenE2ETest {
 
         HttpResponse<String> page = get("/easy-observability/metrics/");
         assertThat(page.statusCode()).isEqualTo(200);
-        assertThat(page.body()).contains("公共指标趋势");
+        assertThat(page.body()).contains("指标趋势");
 
         HttpResponse<String> storage = get("/api/easy-observability/metrics/storage");
         assertThat(storage.statusCode()).isEqualTo(200);
-        assertThat(storage.body()).contains("\"initialized\":false");
+        assertThat(storage.body()).contains("\"persistent\":false");
 
-        HttpResponse<String> history = get("/api/easy-observability/metrics?period=1h");
-        assertThat(history.statusCode()).isEqualTo(200);
-        assertThat(history.body()).contains("\"period\":\"1h\"", "\"points\":[]");
+        HttpResponse<String> resources = get("/api/easy-observability/metrics/resources?period=7d");
+        assertThat(resources.statusCode()).isEqualTo(200);
+        assertThat(resources.body()).contains("\"period\":\"WEEK\"", "\"persistent\":false");
+
+        HttpResponse<String> operations = get("/api/easy-observability/metrics/operations?window=30d");
+        assertThat(operations.statusCode()).isEqualTo(200);
+        assertThat(operations.body()).contains("\"persistent\":false", "\"collecting\":false");
     }
 
     private HttpResponse<String> get(String path) throws IOException, InterruptedException {

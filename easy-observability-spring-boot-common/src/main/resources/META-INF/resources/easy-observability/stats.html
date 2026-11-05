@@ -7,8 +7,9 @@
   <title>Easy Observability · 调用排行</title>
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="../assets/dashboard.css?v=20261105.1">
-  <link rel="stylesheet" href="../assets/metrics.css?v=20261104.3">
-  <link rel="stylesheet" href="../assets/stats.css?v=20261105.1">
+  <link rel="stylesheet" href="../assets/uplot.min.css?v=1.6.32">
+  <link rel="stylesheet" href="../assets/metrics.css?v=20261105.4">
+  <link rel="stylesheet" href="../assets/stats.css?v=20261105.4">
 </head>
 <body>
   <a class="skip-link" href="#main-content">跳到主要内容</a>
@@ -31,7 +32,7 @@
     <section class="intro">
       <p class="eyebrow">RUNTIME METRICS</p>
       <h1>调用排行</h1>
-      <p>按 HTTP 接口、SQL、远程调用、Redis 命令、定时任务和 Kafka 汇总每个操作的次数、耗时和错误，快速找出最耗时、最慢和最常出错的地方。点击一行可查看它相关的慢调用和错误 Trace。</p>
+      <p>按 HTTP 接口、SQL、远程调用、Redis 命令、定时任务和 Kafka 汇总每个操作的次数、耗时和错误，快速找出最耗时、最慢和最常出错的地方。点击一行可展开它的次数、错误和耗时趋势。</p>
     </section>
     <nav class="sub-nav" aria-label="运行指标视图">
       <a class="active" aria-current="page" href="./">调用排行</a>
@@ -47,19 +48,20 @@
     <section class="trace-list" aria-label="操作统计排行">
       <p class="scroll-hint">表格可横向滚动查看全部字段</p>
       <div class="table-scroll"><table class="stats-table">
-        <caption class="sr-only">按所选列排序的操作统计；选择一行查看相关的慢调用和错误 Trace</caption>
+        <caption class="sr-only">按所选列排序的操作统计；选择一行展开它的趋势</caption>
         <thead><tr id="stats-head"></tr></thead>
         <tbody id="stats-rows"></tbody>
       </table></div>
       <p id="empty" class="empty" hidden></p>
     </section>
-    <footer>每个实例各自统计，按小时保存到存储目录（stats/），重启后“今天”“最近 7 天”“最近 30 天”仍然保留，最多保存 31 天。“最近 1 小时”只看当前进程内存，按 10 分钟分片滚动，实际覆盖 50 到 60 分钟。P95 由对数分桶直方图估算，误差约 ±20%。SQL 已去除字面量，IN 列表和多行 VALUES 会合并为同一条。</footer>
+    <footer>每个实例各自统计，每 10 分钟保存到存储目录（metrics/），重启后“今天”“最近 7 天”“最近 30 天”仍然保留，保留天数由 easy.observability.metrics.retention 决定。“最近 1 小时”只看当前进程内存，按 10 分钟分片滚动，实际覆盖 50 到 60 分钟。P95 由对数分桶直方图估算，误差约 ±20%。SQL 已去除字面量，IN 列表和多行 VALUES 会合并为同一条。</footer>
   </main>
   <dialog id="reset-dialog" class="confirm-dialog">
     <h2>重置调用统计？</h2>
-    <p>将清空当前实例的全部调用统计，包括已保存的历史天数；Trace 历史和指标趋势不受影响。</p>
+    <p>将清空当前实例的全部调用统计，包括已保存的历史；Trace 历史和资源指标不受影响。</p>
     <div class="dialog-actions"><button id="cancel-reset" type="button">取消</button><button id="confirm-reset" class="danger" type="button">重置</button></div>
   </dialog>
-  <script type="module" src="../assets/stats.js?v=20261105.2"></script>
+  <script src="../assets/uplot.min.js?v=1.6.32"></script>
+  <script type="module" src="../assets/stats.js?v=20261105.4"></script>
 </body>
 </html>

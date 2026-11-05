@@ -45,11 +45,11 @@ class StorageDirectoryOwnershipE2ETest {
                 assertThat(get(owner, "/api/easy-observability/traces/storage").body())
                         .contains("\"diagnosticPersistenceEnabled\":true");
                 assertThat(get(owner, "/api/easy-observability/metrics/storage").body())
-                        .contains("\"initialized\":true");
+                        .contains("\"persistent\":true");
                 assertThat(get(contender, "/api/easy-observability/traces/storage").body())
                         .contains("\"diagnosticPersistenceEnabled\":false");
                 assertThat(get(contender, "/api/easy-observability/metrics/storage").body())
-                        .contains("\"initialized\":false");
+                        .contains("\"persistent\":false");
                 // The contender still serves its in-memory history.
                 assertThat(awaitTrace(contender, "contender")).isEqualTo(200);
 

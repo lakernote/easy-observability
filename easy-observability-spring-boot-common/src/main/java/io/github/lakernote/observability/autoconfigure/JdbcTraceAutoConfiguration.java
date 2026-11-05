@@ -2,7 +2,7 @@ package io.github.lakernote.observability.autoconfigure;
 
 import io.github.lakernote.observability.integration.jdbc.internal.JdbcTraceQueryExecutionListener;
 import io.github.lakernote.observability.integration.jdbc.internal.SpringAwareJdbcProxyFactory;
-import io.github.lakernote.observability.stats.internal.OperationStats;
+import io.github.lakernote.observability.metrics.internal.OperationStats;
 import net.ttddyy.dsproxy.proxy.ProxyJdbcObject;
 import net.ttddyy.dsproxy.support.ProxyDataSource;
 import net.ttddyy.dsproxy.support.ProxyDataSourceBuilder;

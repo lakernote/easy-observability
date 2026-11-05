@@ -89,7 +89,7 @@ class DashboardContextPathE2ETest {
 
         HttpResponse<String> metricsPage = get(metricsPageUri);
         assertThat(metricsPage.statusCode()).isEqualTo(200);
-        assertThat(metricsPage.body()).contains("公共指标趋势", "href=\"../\"");
+        assertThat(metricsPage.body()).contains("指标趋势", "href=\"../\"");
         assertThat(metricsPageUri.resolve("../")).isEqualTo(tracePageUri);
 
         URI metricsDashboardCss = referencedUri(metricsPageUri, metricsPage.body(), "href", "dashboard.css");
@@ -108,15 +108,17 @@ class DashboardContextPathE2ETest {
         assertThat(traces.statusCode()).isEqualTo(200);
         assertThat(traces.body()).isEqualTo("[]");
 
-        HttpResponse<String> metricsScriptResponse = get(metricsScript);
-        URI metricsApi = resolveApiBase(metricsScript, metricsScriptResponse.body());
+        URI metricsCommon = metricsScript.resolve("metrics-common.js");
+        HttpResponse<String> metricsCommonResponse = get(metricsCommon);
+        assertThat(metricsCommonResponse.statusCode()).isEqualTo(200);
+        URI metricsApi = resolveApiBase(metricsCommon, metricsCommonResponse.body());
         assertThat(metricsApi.getPath()).isEqualTo(APPLICATION_BASE + "/api/easy-observability/");
-        HttpResponse<String> history = get(metricsApi.resolve("metrics?period=1h"));
-        assertThat(history.statusCode()).isEqualTo(200);
-        assertThat(history.body()).contains("\"period\":\"1h\"", "\"points\":[]");
+        HttpResponse<String> resources = get(metricsApi.resolve("metrics/resources?period=1h"));
+        assertThat(resources.statusCode()).isEqualTo(200);
+        assertThat(resources.body()).contains("\"period\":\"HOUR\"", "\"persistent\":false");
         HttpResponse<String> storage = get(metricsApi.resolve("metrics/storage"));
         assertThat(storage.statusCode()).isEqualTo(200);
-        assertThat(storage.body()).contains("\"initialized\":false");
+        assertThat(storage.body()).contains("\"persistent\":false");
 
         assertThat(get("/api/easy-observability/traces").statusCode()).isEqualTo(404);
         assertThat(get("/tenant-app/api/easy-observability/traces").statusCode()).isEqualTo(404);

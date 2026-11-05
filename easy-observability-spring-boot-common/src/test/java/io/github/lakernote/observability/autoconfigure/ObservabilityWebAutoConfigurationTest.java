@@ -1,8 +1,8 @@
 package io.github.lakernote.observability.autoconfigure;
 
-import io.github.lakernote.observability.stats.internal.OperationStats;
+import io.github.lakernote.observability.metrics.internal.OperationStats;
 import io.github.lakernote.observability.web.ObservabilityAccessPolicy;
-import io.github.lakernote.observability.web.internal.OperationStatsController;
+import io.github.lakernote.observability.web.internal.MetricsController;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
@@ -21,10 +21,9 @@ class ObservabilityWebAutoConfigurationTest {
 
     private WebApplicationContextRunner contextRunner() {
         return new WebApplicationContextRunner()
-                .withPropertyValues("easy.observability.metrics.enabled=false",
-                        "easy.observability.storage.directory=" + storage)
+                .withPropertyValues("easy.observability.storage.directory=" + storage)
                 .withConfiguration(AutoConfigurations.of(ObservabilityAutoConfiguration.class,
-                        ObservabilityWebAutoConfiguration.class));
+                        RuntimeMetricsAutoConfiguration.class, ObservabilityWebAutoConfiguration.class));
     }
 
     @Test
@@ -44,20 +43,21 @@ class ObservabilityWebAutoConfigurationTest {
     }
 
     @Test
-    void servesStatisticsOnlyWhenStatisticsAreEnabled() {
+    void servesMetricsOnlyWhenMetricsAreEnabled() {
         contextRunner().run(context -> {
             assertThat(context).hasSingleBean(OperationStats.class);
-            assertThat(context).hasSingleBean(OperationStatsController.class);
+            assertThat(context).hasSingleBean(MetricsController.class);
+            assertThat(context.getBean(MetricsController.class).operations("1h").collecting()).isTrue();
         });
-        contextRunner().withPropertyValues("easy.observability.stats.enabled=false").run(context -> {
+        contextRunner().withPropertyValues("easy.observability.metrics.enabled=false").run(context -> {
             assertThat(context).doesNotHaveBean(OperationStats.class);
-            assertThatThrownBy(() -> context.getBean(OperationStatsController.class).stats("hour"))
+            assertThatThrownBy(() -> context.getBean(MetricsController.class).operations("1h"))
                     .isInstanceOfSatisfying(ResponseStatusException.class,
                             error -> assertThat(error.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND));
         });
         contextRunner().withPropertyValues("easy.observability.trace.enabled=false").run(context ->
-                assertThat(context).doesNotHaveBean(OperationStats.class));
-        contextRunner().withPropertyValues("easy.observability.stats.max-keys=7").run(context ->
+                assertThat(context.getBean(MetricsController.class).operations("1h").collecting()).isFalse());
+        contextRunner().withPropertyValues("easy.observability.metrics.max-operations=7").run(context ->
                 assertThat(context.getBean(OperationStats.class).snapshot(OperationStats.Window.TODAY).maxKeys())
                         .isEqualTo(7));
     }

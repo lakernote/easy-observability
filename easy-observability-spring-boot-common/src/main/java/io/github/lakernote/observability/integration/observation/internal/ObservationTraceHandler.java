@@ -3,7 +3,7 @@ package io.github.lakernote.observability.integration.observation.internal;
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
 import io.github.lakernote.observability.integration.jdbc.internal.JdbcTraceSafety;
 import io.github.lakernote.observability.integration.observation.ObservationTraceIdResolver;
-import io.github.lakernote.observability.stats.internal.OperationStats;
+import io.github.lakernote.observability.metrics.internal.OperationStats;
 import io.github.lakernote.observability.trace.TraceIdContext;
 import io.github.lakernote.observability.trace.internal.BoundedThrowableFormatter;
 import io.github.lakernote.observability.trace.internal.BoundedThrowableFormatter.FailureEvidence;
@@ -208,7 +208,7 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
         OperationStats.Category category = statsCategory(state.type);
         if (category == null) return;
         operationStats.record(category, statsName(context, state.type, state.operationName, detail),
-                statsTraceQuery(context, state.type), durationNanos, failed);
+                durationNanos, failed);
     }
 
     private void storeCompletedTrace(ObservationState state, TraceCompletion completion, RootOutcome outcome) {

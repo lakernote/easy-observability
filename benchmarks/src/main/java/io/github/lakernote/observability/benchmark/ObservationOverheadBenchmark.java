@@ -2,7 +2,7 @@ package io.github.lakernote.observability.benchmark;
 
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
 import io.github.lakernote.observability.integration.observation.internal.ObservationTraceHandler;
-import io.github.lakernote.observability.stats.internal.OperationStats;
+import io.github.lakernote.observability.metrics.internal.OperationStats;
 import io.github.lakernote.observability.trace.internal.TraceContext;
 import io.github.lakernote.observability.trace.internal.TraceIds;
 import io.github.lakernote.observability.trace.internal.store.RecentTraceStore;

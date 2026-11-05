@@ -24,7 +24,7 @@ class JdbcTraceQueryExecutionListenerTest {
 
     @Test
     void countsSqlStatisticsWithAndWithoutAnActiveTrace() {
-        var stats = new io.github.lakernote.observability.stats.internal.OperationStats(10);
+        var stats = new io.github.lakernote.observability.metrics.internal.OperationStats(10);
         var counting = new JdbcTraceQueryExecutionListener(stats);
         List<QueryInfo> queries = List.of(new QueryInfo("SELECT * FROM orders WHERE id IN (1, 2)"));
 
@@ -38,9 +38,9 @@ class JdbcTraceQueryExecutionListenerTest {
         counting.afterQuery(failed, queries);
         TraceContext.clear();
 
-        var sql = stats.snapshot(io.github.lakernote.observability.stats.internal.OperationStats.Window.TODAY)
+        var sql = stats.snapshot(io.github.lakernote.observability.metrics.internal.OperationStats.Window.TODAY)
                 .categories().stream()
-                .filter(c -> c.category() == io.github.lakernote.observability.stats.internal.OperationStats.Category.SQL)
+                .filter(c -> c.category() == io.github.lakernote.observability.metrics.internal.OperationStats.Category.SQL)
                 .findFirst().orElseThrow();
         assertThat(sql.rows()).singleElement().satisfies(row -> {
             assertThat(row.name()).isEqualTo("SELECT * FROM orders WHERE id IN (?…)");

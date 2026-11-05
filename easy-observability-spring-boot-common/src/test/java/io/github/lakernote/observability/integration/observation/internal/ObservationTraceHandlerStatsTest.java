@@ -1,9 +1,9 @@
 package io.github.lakernote.observability.integration.observation.internal;
 
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
-import io.github.lakernote.observability.stats.internal.OperationStats;
-import io.github.lakernote.observability.stats.internal.OperationStats.Category;
-import io.github.lakernote.observability.stats.internal.OperationStats.Row;
+import io.github.lakernote.observability.metrics.internal.OperationStats;
+import io.github.lakernote.observability.metrics.internal.OperationStats.Category;
+import io.github.lakernote.observability.metrics.internal.OperationStats.Row;
 import io.github.lakernote.observability.trace.internal.TraceContext;
 import io.github.lakernote.observability.trace.internal.TraceIds;
 import io.github.lakernote.observability.trace.internal.store.RecentTraceStore;
@@ -64,10 +64,10 @@ class ObservationTraceHandlerStatsTest {
         observation.error(new IllegalStateException("down"));
         observation.stop();
 
-        assertThat(rows(Category.REMOTE)).extracting(Row::name, Row::traceQuery, Row::errors)
+        assertThat(rows(Category.REMOTE)).extracting(Row::name, Row::errors)
                 .containsExactlyInAnyOrder(
-                        org.assertj.core.groups.Tuple.tuple("POST pay.example.com /charges/{id}", "/charges/{id}", 1L),
-                        org.assertj.core.groups.Tuple.tuple("GET cdn.example.com", "GET cdn.example.com", 0L));
+                        org.assertj.core.groups.Tuple.tuple("POST pay.example.com /charges/{id}", 1L),
+                        org.assertj.core.groups.Tuple.tuple("GET cdn.example.com", 0L));
         assertThat(rows(Category.REDIS)).singleElement().satisfies(row -> {
             assertThat(row.name()).isEqualTo("GET");
             assertThat(row.count()).isEqualTo(2);
@@ -89,8 +89,8 @@ class ObservationTraceHandlerStatsTest {
                 .lowCardinalityKeyValue("messaging.destination.name", "audit")
                 .start().stop();
 
-        assertThat(rows(Category.KAFKA_CONSUMER)).extracting(Row::name, Row::traceQuery, Row::count)
-                .containsExactly(org.assertj.core.groups.Tuple.tuple("orders · order-listener", "order-listener", 3L));
+        assertThat(rows(Category.KAFKA_CONSUMER)).extracting(Row::name, Row::count)
+                .containsExactly(org.assertj.core.groups.Tuple.tuple("orders · order-listener", 3L));
         assertThat(rows(Category.KAFKA_PRODUCER)).extracting(Row::name).containsExactly("audit");
     }
 

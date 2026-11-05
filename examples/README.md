@@ -3,7 +3,7 @@
 - `easy-observability-example-spring-boot-3`：Spring Boot 3，默认 `http://localhost:8083/`
 - `easy-observability-example-spring-boot-4`：Spring Boot 4，默认 `http://localhost:8084/`
 
-主页按 JDBC、Redis、远程 HTTP、Kafka 和异步线程池分组。每个依赖提供正常、慢、错误场景，便于在 Trace 页面核对耗时节点和异常堆栈。示例同时开启组件内置的公共 Metrics 历史，不添加应用专属的自定义指标。
+主页按 JDBC、Redis、远程 HTTP、Kafka 和异步线程池分组。每个依赖提供正常、慢、错误场景，便于在 Trace 页面核对耗时节点和异常堆栈。示例同时开启组件的运行指标（调用统计和资源指标），不添加应用专属的自定义指标。
 
 ## 启动
 

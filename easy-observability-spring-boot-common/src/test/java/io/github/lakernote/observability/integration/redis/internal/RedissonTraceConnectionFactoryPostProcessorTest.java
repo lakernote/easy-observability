@@ -3,7 +3,7 @@ package io.github.lakernote.observability.integration.redis.internal;
 import io.github.lakernote.observability.trace.SpanKind;
 import io.github.lakernote.observability.trace.internal.TraceCompletion;
 import io.github.lakernote.observability.trace.internal.TraceContext;
-import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.github.lakernote.observability.metrics.internal.OperationStats;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.redisson.spring.data.connection.RedissonConnectionFactoryTestDouble;
@@ -32,8 +32,8 @@ class RedissonTraceConnectionFactoryPostProcessorTest {
     @Test
     void preservesConcreteFactoryTypeStateAndLifecycleWhileWrappingConnections() throws Exception {
         RedissonConnectionFactoryTestDouble.resetConstructions();
-        SimpleMeterRegistry registry = new SimpleMeterRegistry();
-        var processor = new RedissonTraceConnectionFactoryPostProcessor(() -> registry);
+        OperationStats stats = new OperationStats(10);
+        var processor = new RedissonTraceConnectionFactoryPostProcessor(() -> stats);
         var target = new RedissonConnectionFactoryTestDouble(connection(false));
         target.afterPropertiesSet();
 
@@ -50,9 +50,7 @@ class RedissonTraceConnectionFactoryPostProcessorTest {
         typedFactory.destroy();
         assertThat(target.initializations()).isEqualTo(1);
         assertThat(target.destructions()).isEqualTo(1);
-        assertThat(registry.get("spring.data.redis")
-                .tags("client", "Redisson", "command", "PING", "operation", "ping", "result", "success")
-                .timer().count()).isEqualTo(1);
+        assertThat(redisRows(stats)).singleElement().satisfies(row -> assertThat(row.name() + "/" + row.count() + "/" + row.errors()).isEqualTo("PING/1/0"));
     }
 
     @Test
@@ -114,30 +112,24 @@ class RedissonTraceConnectionFactoryPostProcessorTest {
 
     @Test
     void recordsSuccessfulRedissonSpringDataCommand() {
-        SimpleMeterRegistry registry = new SimpleMeterRegistry();
-        var processor = new RedissonTraceConnectionFactoryPostProcessor(() -> registry);
+        OperationStats stats = new OperationStats(10);
+        var processor = new RedissonTraceConnectionFactoryPostProcessor(() -> stats);
         RedisConnection wrapped = processor.wrap(connection(false));
 
         assertThat(wrapped.ping()).isEqualTo("PONG");
 
-        assertThat(registry.get("spring.data.redis")
-                .tags("client", "Redisson", "command", "PING", "operation", "ping", "result", "success")
-                .timer().count()).isEqualTo(1);
+        assertThat(redisRows(stats)).singleElement().satisfies(row -> assertThat(row.name() + "/" + row.count() + "/" + row.errors()).isEqualTo("PING/1/0"));
     }
 
     @Test
-    void countsRedissonCommandsInOperationStatisticsWithoutMeterRegistry() {
-        var stats = new io.github.lakernote.observability.stats.internal.OperationStats(10);
-        var processor = new RedissonTraceConnectionFactoryPostProcessor(() -> null, () -> stats);
+    void countsRedissonCommandsInOperationStatistics() {
+        var stats = new OperationStats(10);
+        var processor = new RedissonTraceConnectionFactoryPostProcessor(() -> stats);
 
         assertThat(processor.wrap(connection(false)).ping()).isEqualTo("PONG");
         assertThatThrownBy(processor.wrap(connection(true))::ping).isInstanceOf(IllegalStateException.class);
 
-        var redis = stats.snapshot(io.github.lakernote.observability.stats.internal.OperationStats.Window.TODAY)
-                .categories().stream()
-                .filter(c -> c.category() == io.github.lakernote.observability.stats.internal.OperationStats.Category.REDIS)
-                .findFirst().orElseThrow();
-        assertThat(redis.rows()).singleElement().satisfies(row -> {
+        assertThat(redisRows(stats)).singleElement().satisfies(row -> {
             assertThat(row.name()).isEqualTo("PING");
             assertThat(row.count()).isEqualTo(2);
             assertThat(row.errors()).isEqualTo(1);
@@ -146,33 +138,31 @@ class RedissonTraceConnectionFactoryPostProcessorTest {
 
     @Test
     void recordsFailedRedissonSpringDataCommandWithoutChangingException() {
-        SimpleMeterRegistry registry = new SimpleMeterRegistry();
-        var processor = new RedissonTraceConnectionFactoryPostProcessor(() -> registry);
+        OperationStats stats = new OperationStats(10);
+        var processor = new RedissonTraceConnectionFactoryPostProcessor(() -> stats);
         RedisConnection wrapped = processor.wrap(connection(true));
 
         assertThatThrownBy(wrapped::ping).isInstanceOf(IllegalStateException.class)
                 .hasMessage("Redis unavailable");
 
-        assertThat(registry.get("spring.data.redis")
-                .tags("client", "Redisson", "command", "PING", "operation", "ping", "result", "error")
-                .timer().count()).isEqualTo(1);
+        assertThat(redisRows(stats)).singleElement().satisfies(row -> assertThat(row.name() + "/" + row.count() + "/" + row.errors()).isEqualTo("PING/1/1"));
     }
 
     @Test
     void skipsPerCommandLatencyForPipelinedConnection() {
-        SimpleMeterRegistry registry = new SimpleMeterRegistry();
-        var processor = new RedissonTraceConnectionFactoryPostProcessor(() -> registry);
+        OperationStats stats = new OperationStats(10);
+        var processor = new RedissonTraceConnectionFactoryPostProcessor(() -> stats);
         RedisConnection wrapped = processor.wrap(connection(false, true));
 
         assertThat(wrapped.ping()).isEqualTo("PONG");
 
-        assertThat(registry.getMeters()).isEmpty();
+        assertThat(redisRows(stats)).isEmpty();
     }
 
     @Test
     void tracesSuccessfulCommandInvokedThroughStringCommandsProvider() {
-        SimpleMeterRegistry registry = new SimpleMeterRegistry();
-        var processor = new RedissonTraceConnectionFactoryPostProcessor(() -> registry);
+        OperationStats stats = new OperationStats(10);
+        var processor = new RedissonTraceConnectionFactoryPostProcessor(() -> stats);
         RedisStringCommands delegate = stringCommands(null);
         RedisConnection wrapped = processor.wrap(connection(delegate, keyCommands(null)));
         AtomicReference<TraceCompletion> completion = new AtomicReference<>();
@@ -187,16 +177,13 @@ class RedissonTraceConnectionFactoryPostProcessorTest {
         assertThat(completion.get().tree())
                 .contains("[Redis] Redis get", "tag=\"get\"")
                 .doesNotContain("stringCommands");
-        assertThat(registry.get("spring.data.redis")
-                .tags("client", "Redisson", "command", "GET", "operation", "get", "result", "success")
-                .timer().count()).isEqualTo(1);
-        assertThat(registry.getMeters()).hasSize(1);
-    }
+        assertThat(redisRows(stats)).singleElement().satisfies(row -> assertThat(row.name() + "/" + row.count() + "/" + row.errors()).isEqualTo("GET/1/0"));
+            }
 
     @Test
     void tracesFailedCommandProviderInvocationWithoutChangingException() {
-        SimpleMeterRegistry registry = new SimpleMeterRegistry();
-        var processor = new RedissonTraceConnectionFactoryPostProcessor(() -> registry);
+        OperationStats stats = new OperationStats(10);
+        var processor = new RedissonTraceConnectionFactoryPostProcessor(() -> stats);
         IllegalStateException failure = new IllegalStateException("Redis command failed");
         RedisKeyCommands delegate = keyCommands(failure);
         RedisConnection wrapped = processor.wrap(connection(stringCommands(null), delegate));
@@ -214,16 +201,13 @@ class RedissonTraceConnectionFactoryPostProcessorTest {
         assertThat(completion.get().tree())
                 .contains("[Redis] Redis del", "tag=\"del\"")
                 .doesNotContain("keyCommands");
-        assertThat(registry.get("spring.data.redis")
-                .tags("client", "Redisson", "command", "DEL", "operation", "del", "result", "error")
-                .timer().count()).isEqualTo(1);
-        assertThat(registry.getMeters()).hasSize(1);
-    }
+        assertThat(redisRows(stats)).singleElement().satisfies(row -> assertThat(row.name() + "/" + row.count() + "/" + row.errors()).isEqualTo("DEL/1/1"));
+            }
 
     @Test
     void reusesConnectionProxyWhenCommandAccessorReturnsConnectionItself() {
-        SimpleMeterRegistry registry = new SimpleMeterRegistry();
-        var processor = new RedissonTraceConnectionFactoryPostProcessor(() -> registry);
+        OperationStats stats = new OperationStats(10);
+        var processor = new RedissonTraceConnectionFactoryPostProcessor(() -> stats);
         RedisConnection wrapped = processor.wrap(selfProvidingConnection());
         AtomicReference<TraceCompletion> completion = new AtomicReference<>();
 
@@ -240,16 +224,13 @@ class RedissonTraceConnectionFactoryPostProcessorTest {
         assertThat(completion.get().nodes()).singleElement().satisfies(root ->
                 assertThat(root.children()).singleElement().satisfies(redis ->
                         assertThat(redis.name()).isEqualTo("Redis get")));
-        assertThat(registry.get("spring.data.redis")
-                .tags("client", "Redisson", "command", "GET", "operation", "get", "result", "success")
-                .timer().count()).isEqualTo(1);
-        assertThat(registry.getMeters()).hasSize(1);
-    }
+        assertThat(redisRows(stats)).singleElement().satisfies(row -> assertThat(row.name() + "/" + row.count() + "/" + row.errors()).isEqualTo("GET/1/0"));
+            }
 
     @Test
-    void skipsMetricsForDistinctCommandProviderOnPipelinedConnection() {
-        SimpleMeterRegistry registry = new SimpleMeterRegistry();
-        var processor = new RedissonTraceConnectionFactoryPostProcessor(() -> registry);
+    void skipsStatisticsForDistinctCommandProviderOnPipelinedConnection() {
+        OperationStats stats = new OperationStats(10);
+        var processor = new RedissonTraceConnectionFactoryPostProcessor(() -> stats);
         RedisStringCommands delegate = stringCommands(null);
         RedisConnection wrapped = processor.wrap(connection(delegate, keyCommands(null), true));
 
@@ -257,7 +238,12 @@ class RedissonTraceConnectionFactoryPostProcessorTest {
         assertThat(commands).isNotSameAs(delegate);
         assertThat(commands.get(KEY)).isEqualTo(VALUE);
 
-        assertThat(registry.getMeters()).isEmpty();
+        assertThat(redisRows(stats)).isEmpty();
+    }
+
+    private static java.util.List<OperationStats.Row> redisRows(OperationStats stats) {
+        return stats.snapshot(OperationStats.Window.TODAY).categories().stream()
+                .filter(c -> c.category() == OperationStats.Category.REDIS).findFirst().orElseThrow().rows();
     }
 
     private static RedisConnection connection(boolean failPing) {

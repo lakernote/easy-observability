@@ -79,7 +79,7 @@ class DashboardContextPathE2ETest {
 
         HttpResponse<String> metricsPageResponse = get(metricsPage);
         assertThat(metricsPageResponse.statusCode()).isEqualTo(200);
-        assertThat(metricsPageResponse.body()).contains("公共指标趋势");
+        assertThat(metricsPageResponse.body()).contains("指标趋势");
         Set<URI> metricsReferences = assertPageReferencesAvailable(metricsPage, metricsPageResponse.body());
         assertThat(paths(metricsReferences)).containsExactlyInAnyOrder(
                 APPLICATION_PATH + "/easy-observability/",
@@ -97,7 +97,8 @@ class DashboardContextPathE2ETest {
         HttpResponse<String> metricsScript = get(metricsModule);
         assertThat(dashboardScript.body())
                 .contains("new URL('../../api/easy-observability/', import.meta.url)");
-        assertThat(metricsScript.body())
+        assertThat(metricsScript.body()).contains("from './metrics-common.js");
+        assertThat(get(metricsModule.resolve("metrics-common.js")).body())
                 .contains("new URL('../../api/easy-observability/', import.meta.url)");
 
         URI traceApi = dashboardModule.resolve("../../api/easy-observability/");
@@ -121,9 +122,9 @@ class DashboardContextPathE2ETest {
         assertThat(traceDetail.statusCode()).isEqualTo(200);
         assertThat(traceDetail.body()).contains("context-path-trace", "context failure");
 
-        HttpResponse<String> metricsHistory = get(traceApi.resolve("metrics?period=1h"));
-        assertThat(metricsHistory.statusCode()).isEqualTo(200);
-        assertThat(metricsHistory.body()).contains("\"period\":\"1h\"", "\"points\":[]");
+        HttpResponse<String> resources = get(traceApi.resolve("metrics/resources?period=1h"));
+        assertThat(resources.statusCode()).isEqualTo(200);
+        assertThat(resources.body()).contains("\"period\":\"HOUR\"", "\"persistent\":false");
 
         URI statsPage = assertCanonicalRedirect("/easy-observability/stats", "/easy-observability/stats/");
         HttpResponse<String> statsPageResponse = get(statsPage);
@@ -131,12 +132,14 @@ class DashboardContextPathE2ETest {
         assertThat(paths(assertPageReferencesAvailable(statsPage, statsPageResponse.body()))).contains(
                 APPLICATION_PATH + "/easy-observability/assets/stats.css",
                 APPLICATION_PATH + "/easy-observability/assets/stats.js");
-        // Trace is disabled here, so statistics are off: the page stays reachable and the API explains with 404.
-        assertThat(get(traceApi.resolve("stats")).statusCode()).isEqualTo(404);
+        // Trace is disabled here, so calls are not collected; the API says so instead of failing.
+        HttpResponse<String> operations = get(traceApi.resolve("metrics/operations"));
+        assertThat(operations.statusCode()).isEqualTo(200);
+        assertThat(operations.body()).contains("\"collecting\":false");
 
         HttpResponse<String> metricsStorage = get(traceApi.resolve("metrics/storage"));
         assertThat(metricsStorage.statusCode()).isEqualTo(200);
-        assertThat(metricsStorage.body()).contains("\"initialized\":false");
+        assertThat(metricsStorage.body()).contains("\"persistent\":false");
     }
 
     private URI assertCanonicalRedirect(String entryPath, String canonicalPath) throws Exception {

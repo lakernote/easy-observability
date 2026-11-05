@@ -8,7 +8,7 @@
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="../assets/dashboard.css?v=20261105.1">
   <link rel="stylesheet" href="../assets/uplot.min.css?v=1.6.32">
-  <link rel="stylesheet" href="../assets/metrics.css?v=20261104.3">
+  <link rel="stylesheet" href="../assets/metrics.css?v=20261105.4">
 </head>
 <body>
   <a class="skip-link" href="#main-content">跳到主要内容</a>
@@ -28,10 +28,10 @@
   </header>
   <main id="main-content" class="report">
     <section class="intro">
-      <p class="eyebrow">METRICS HISTORY</p>
-      <h1>公共指标趋势</h1>
-      <p>查看 HTTP、任务、Kafka、Redis、JVM 和线程池的实例级趋势；RRD 历史独立存储，不改变应用已有的指标后端。</p>
-      <p class="metric-semantics">请求、错误、执行、消费和发送数量按采样窗口计数，不是所选时间范围的累计量；平均耗时是该窗口内的均值。7 天和 30 天视图会把较短窗口的数据取平均，平均耗时不会按请求量加权；CPU、内存和线程池状态是采样值。HTTP 按方法和 URI、任务与 Kafka 按名称、Redis 按命令、JVM 内存按内存池、GC 按动作和原因、线程池按池名称拆分曲线。点击图例可开关曲线，拖动图表可缩放，双击或点“重置缩放”恢复范围。</p>
+      <p class="eyebrow">RUNTIME METRICS</p>
+      <h1>指标趋势</h1>
+      <p>按类别查看调用量、错误和耗时的走势，以及 JVM 内存、GC、CPU、线程、连接池和线程池等资源指标。资源指标直接读取 Spring Boot 已经配置好的 Micrometer 指标，不改变应用原有的指标导出。</p>
+      <p class="metric-semantics">调用次数和错误是每个时间点内的数量；平均耗时按调用次数加权，P95 由直方图估算（误差约 ±20%），按分钟显示时不计算 P95。资源指标是每分钟采样，较长范围取平均；GC 次数和停顿时间是每分钟的量。点击图例可开关曲线。</p>
     </section>
     <nav class="sub-nav" aria-label="运行指标视图">
       <a href="../stats/">调用排行</a>
@@ -42,12 +42,14 @@
       <label><span>时间范围</span><select id="period"><option value="1h" selected>最近 1 小时</option><option value="24h">最近 24 小时</option><option value="7d">最近 7 天</option><option value="30d">最近 30 天</option></select></label>
       <div id="storage" class="storage-summary" role="status">历史存储：读取中</div>
     </section>
-    <nav id="categories" class="metric-categories" aria-label="指标类别"></nav>
-    <section id="metric-grid" class="metric-grid" aria-live="polite"></section>
+    <h2 class="metric-section-title">调用</h2>
+    <section id="operation-grid" class="metric-grid" aria-live="polite"></section>
+    <h2 class="metric-section-title">资源</h2>
+    <section id="resource-grid" class="metric-grid" aria-live="polite"></section>
     <p id="empty" class="metrics-empty" hidden></p>
-    <footer>指标仅包含 Easy Observability 定义的公共指标。每个实例各自保存历史；可通过 easy.observability.metrics.storage-directory 调整目录。</footer>
+    <footer>每个实例各自保存历史，位于存储目录的 metrics/ 下：最近 2 天保留细粒度数据，更早的按小时（调用）或 10 分钟（资源）合并；保留天数和容量上限由 easy.observability.metrics.retention 和 max-storage-size 决定。可用 easy.observability.metrics.include 追加自定义 Micrometer 指标。</footer>
   </main>
   <script src="../assets/uplot.min.js?v=1.6.32"></script>
-  <script type="module" src="../assets/metrics.js?v=20261104.4"></script>
+  <script type="module" src="../assets/metrics.js?v=20261105.4"></script>
 </body>
 </html>

@@ -36,16 +36,6 @@ class JdbcTraceSqlTest {
         assertThat(JdbcTraceSql.commandOf("delete from a")).isEqualTo("DELETE");
     }
 
-    @Test
-    void traceQueryIsThePrefixThatTraceTagsAlsoContain() {
-        assertThat(JdbcTraceSql.traceQuery("SELECT * FROM t WHERE id IN (?…) AND a = ?"))
-                .isEqualTo("SELECT * FROM t WHERE id IN");
-        assertThat(JdbcTraceSql.traceQuery("INSERT INTO t (a, b) VALUES (?, ?), …"))
-                .isEqualTo("INSERT INTO t (a, b) VALUES (?, ?)");
-        assertThat(JdbcTraceSql.traceQuery("DELETE FROM a WHERE id = ? [batch]")).isEqualTo("DELETE FROM a WHERE id = ?");
-        assertThat(JdbcTraceSql.traceQuery("SELECT 1")).isNull();
-    }
-
     private static String statsName(String sql) {
         List<QueryInfo> queries = List.of(new QueryInfo(sql));
         return JdbcTraceSql.statsName(queries, JdbcTraceSql.describe(queries));

@@ -3,8 +3,7 @@ package io.github.lakernote.observability.autoconfigure;
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
 import io.github.lakernote.observability.integration.observation.internal.ObservationTraceHandler;
 import io.github.lakernote.observability.integration.observation.ObservationTraceIdResolver;
-import io.github.lakernote.observability.stats.internal.OperationStats;
-import io.github.lakernote.observability.stats.internal.OperationStatsArchive;
+import io.github.lakernote.observability.metrics.internal.OperationStats;
 import io.github.lakernote.observability.storage.internal.StorageDirectory;
 import io.github.lakernote.observability.trace.internal.BoundedHistoryWriter;
 import io.github.lakernote.observability.trace.TraceContextTaskDecorator;
@@ -140,23 +139,5 @@ public class ObservabilityAutoConfiguration {
                                                     ObjectProvider<OperationStats> operationStats) {
         return new ObservationTraceHandler(recentTraceStore, diagnosticTraceStore, properties,
                 resolvers.orderedStream().toList(), operationStats.getIfAvailable());
-    }
-
-    /**
-     * 按接口、SQL、远程调用、Redis 命令、任务和 Kafka 聚合调用次数、耗时与错误，供调用排行页查询；按小时追加到存储目录，
-     * 重启后“今天”“最近 7 天”“最近 30 天”的排行仍然保留。
-     */
-    @Bean(initMethod = "start", destroyMethod = "close")
-    @ConditionalOnProperty(prefix = "easy.observability.trace", name = "enabled",
-            havingValue = "true", matchIfMissing = true)
-    @ConditionalOnProperty(prefix = "easy.observability.stats", name = "enabled",
-            havingValue = "true", matchIfMissing = true)
-    OperationStats easyObservabilityOperationStats(EasyObservabilityProperties properties, StorageDirectory storage) {
-        EasyObservabilityProperties.Stats stats = properties.getStats();
-        if (stats.getMaxStorageSize() == null || stats.getMaxStorageSize().toBytes() <= 0) {
-            throw new IllegalArgumentException("easy.observability.stats.max-storage-size must be positive");
-        }
-        return new OperationStats(stats.getMaxKeys(), new OperationStatsArchive(storage.statsDirectory(),
-                stats.getMaxStorageSize().toBytes(), java.time.ZoneId.systemDefault()));
     }
 }

@@ -46,7 +46,6 @@
         <spring-boot-4.version>4.1.1</spring-boot-4.version>
         <openfeign.version>13.6.1</openfeign.version>
         <redisson.version>4.8.0</redisson.version>
-        <rrd4j.version>3.10</rrd4j.version>
         <maven-compiler-plugin.version>3.14.1</maven-compiler-plugin.version>
         <jacoco.version>0.8.16</jacoco.version>
         <maven.compiler.release>${java.version}</maven.compiler.release>

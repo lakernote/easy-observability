@@ -1,6 +1,7 @@
 package io.github.lakernote.observability.web.internal;
 
 import org.junit.jupiter.api.Test;
+import io.github.lakernote.observability.metrics.internal.OperationStats;
 import org.springframework.http.HttpStatus;
 
 import java.io.IOException;
@@ -48,12 +49,10 @@ class ObservabilityDashboardResourceTest {
                         "addFact($('facts'), '状态'")
                 .doesNotContain("const api = '/api/");
         assertThat(new String(metricsScript.readAllBytes(), StandardCharsets.UTF_8))
-                .contains("new URL('../../api/easy-observability/', import.meta.url)",
-                        "new URL(`metrics?period=${encodeURIComponent($('period').value)}`, api)",
-                        "new URL('metrics/storage', api)",
-                        "if (!storage.initialized)", "本地指标历史存储不可用", "业务应用未受影响",
-                        "$('instance').classList.add('degraded')")
-                .doesNotContain("const api = '/api/");
+                .contains("request(`metrics/operations/trends?period=${period}`)",
+                        "request(`metrics/resources?period=${period}`)", "request('metrics/storage')",
+                        "历史存储不可用", "$('instance').classList.toggle('degraded', !storage.persistent)")
+                .doesNotContain("innerHTML", "const api = '/api/");
         page.close();
         metricsPage.close();
         script.close();
@@ -69,22 +68,27 @@ class ObservabilityDashboardResourceTest {
              var style = classLoader.getResourceAsStream("META-INF/resources/easy-observability/assets/stats.css");
              var index = classLoader.getResourceAsStream("META-INF/resources/easy-observability/index.html");
              var metrics = classLoader.getResourceAsStream("META-INF/resources/easy-observability/metrics.html");
+             var common = classLoader.getResourceAsStream(
+                     "META-INF/resources/easy-observability/assets/metrics-common.js");
              var dashboard = classLoader.getResourceAsStream(
                      "META-INF/resources/easy-observability/assets/dashboard.js")) {
             assertThat(style).isNotNull();
             assertThat(new String(page.readAllBytes(), StandardCharsets.UTF_8))
-                    .contains("src=\"../assets/stats.js", "href=\"../\"", "href=\"../metrics/\">指标趋势",
-                            "<option value=\"30d\">最近 30 天</option>",
+                    .contains("src=\"../assets/stats.js", "src=\"../assets/uplot.min.js", "href=\"../\"",
+                            "href=\"../metrics/\">指标趋势", "<option value=\"30d\">最近 30 天</option>",
                             "<button id=\"reset-stats\" class=\"quiet-button\" type=\"button\" hidden>")
                     .doesNotContain("href=\"/easy-observability", "src=\"/easy-observability");
             assertThat(new String(script.readAllBytes(), StandardCharsets.UTF_8))
+                    .contains("request(`metrics/operations?window=${encodeURIComponent($('window').value)}`)",
+                            "request(`metrics/operations/trend?category=", "LONG_RANGE_REFRESH_MS",
+                            "url.searchParams.set('window', $('window').value)",
+                            "request('/metrics/operations/reset', { method: 'POST' }",
+                            "$('reset-stats').hidden = !permissions.canClear", "next.collecting")
+                    .doesNotContain("innerHTML", "const api = '/api/", "traceQuery");
+            assertThat(new String(common.readAllBytes(), StandardCharsets.UTF_8))
                     .contains("new URL('../../api/easy-observability/', import.meta.url)",
-                            "request(`stats?window=${encodeURIComponent($('window').value)}`)",
-                            "LONG_RANGE_REFRESH_MS", "url.searchParams.set('window', $('window').value)",
-                            "request('/stats/reset', { method: 'POST' }",
-                            "$('reset-stats').hidden = !permissions.canClear",
-                            "target.searchParams.set('q', String(row.traceQuery).slice(0, 200))")
-                    .doesNotContain("innerHTML", "const api = '/api/");
+                            "new URL(path.replace(/^\\/+/, ''), api)", "export function lineChart(")
+                    .doesNotContain("innerHTML");
             assertThat(new String(index.readAllBytes(), StandardCharsets.UTF_8)).contains("href=\"stats/\"");
             assertThat(new String(metrics.readAllBytes(), StandardCharsets.UTF_8)).contains("href=\"../stats/\"");
             assertThat(new String(dashboard.readAllBytes(), StandardCharsets.UTF_8))
@@ -95,7 +99,7 @@ class ObservabilityDashboardResourceTest {
     @Test
     void redirectsEntryPagesToCanonicalTrailingSlashUrls() {
         var traceRedirect = new ObservabilityDashboardController().redirectToIndex();
-        var metricsRedirect = new MetricsDashboardController().redirectToMetrics();
+        var metricsRedirect = new MetricsController((OperationStats) null, null, null, () -> true).redirectToMetrics();
 
         assertThat(traceRedirect.getStatusCode()).isEqualTo(HttpStatus.PERMANENT_REDIRECT);
         assertThat(traceRedirect.getHeaders().getLocation()).hasToString("easy-observability/");
@@ -113,31 +117,6 @@ class ObservabilityDashboardResourceTest {
                             "node('span', `timeline-thread${threadClass}`, thread.key)",
                             "const role = thread.info.isEntry ? '入口线程' : '子线程'",
                             "container.insertBefore(legend, scale)");
-        }
-    }
-
-    @Test
-    void keepsUnboundedExecutorLimitsOutOfTheMetricChartScale() throws IOException {
-        var classLoader = getClass().getClassLoader();
-        try (var script = classLoader.getResourceAsStream(
-                "META-INF/resources/easy-observability/assets/metrics.js");
-             var style = classLoader.getResourceAsStream(
-                     "META-INF/resources/easy-observability/assets/metrics.css")) {
-            assertThat(script).isNotNull();
-            assertThat(style).isNotNull();
-            assertThat(new String(script.readAllBytes(), StandardCharsets.UTF_8))
-                    .contains("const UNBOUNDED_EXECUTOR_MAX = 2147483647",
-                            "function isUnboundedExecutorMax(value, source)",
-                            "const samplesPerPoint = Math.max(1, Math.round(pointIntervalSeconds / stepSeconds))",
-                            "const unboundedThreshold = UNBOUNDED_EXECUTOR_MAX / samplesPerPoint",
-                            "function plotValue(value, source)",
-                            "chartPoints.map(point => plotValue(point.values[item.id], item))",
-                            "不设上限，不参与纵轴缩放",
-                            "statusOnly ? null : legendItem")
-                    .doesNotContain("Number.isFinite(point.values[item.id]) ? point.values[item.id] : null");
-            assertThat(new String(style.readAllBytes(), StandardCharsets.UTF_8))
-                    .contains(".metric-legend-status { grid-column:1 / -1;",
-                            ".metric-status-only {");
         }
     }
 }

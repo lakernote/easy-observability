@@ -1,10 +1,9 @@
 package io.github.lakernote.observability.integration.redis.internal;
 
-import io.github.lakernote.observability.stats.internal.OperationStats;
+import io.github.lakernote.observability.metrics.internal.OperationStats;
 import io.github.lakernote.observability.trace.SpanKind;
 import io.github.lakernote.observability.trace.internal.TraceContext;
 import io.github.lakernote.observability.trace.internal.DetachedSpan;
-import io.micrometer.core.instrument.MeterRegistry;
 import org.aopalliance.intercept.MethodInterceptor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,7 +27,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Supplier;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Instruments Redisson commands that are issued through Spring Data Redis connections. */
@@ -36,22 +34,14 @@ public final class RedissonTraceConnectionFactoryPostProcessor implements BeanPo
     private static final Logger log = LoggerFactory.getLogger(RedissonTraceConnectionFactoryPostProcessor.class);
     private static final Set<MethodSignature> CONNECTION_FACTORY_METHODS = connectionFactoryMethods();
     private static final Set<MethodSignature> COMMAND_ACCESSOR_METHODS = commandAccessorMethods();
-    private final Supplier<? extends MeterRegistry> metricsRegistryProvider;
     private final Supplier<OperationStats> operationStatsProvider;
     private final AtomicBoolean connectionProxyFailureLogged = new AtomicBoolean();
     private final AtomicBoolean commandProxyFailureLogged = new AtomicBoolean();
     private volatile boolean providersResolved;
-    private volatile MeterRegistry metricsRegistry;
     private volatile OperationStats operationStats;
 
-    public RedissonTraceConnectionFactoryPostProcessor(Supplier<? extends MeterRegistry> metricsRegistryProvider) {
-        this(metricsRegistryProvider, () -> null);
-    }
-
-    /** Both suppliers are resolved on the first command and may return null when the feature is disabled. */
-    public RedissonTraceConnectionFactoryPostProcessor(Supplier<? extends MeterRegistry> metricsRegistryProvider,
-                                                       Supplier<OperationStats> operationStatsProvider) {
-        this.metricsRegistryProvider = metricsRegistryProvider;
+    /** The supplier is resolved on the first command and may return null when metrics are disabled. */
+    public RedissonTraceConnectionFactoryPostProcessor(Supplier<OperationStats> operationStatsProvider) {
         this.operationStatsProvider = operationStatsProvider;
     }
 
@@ -200,14 +190,6 @@ public final class RedissonTraceConnectionFactoryPostProcessor implements BeanPo
             String command = method.getName().toUpperCase(java.util.Locale.ROOT);
             OperationStats stats = operationStats;
             if (stats != null) stats.record(OperationStats.Category.REDIS, command, durationNanos, failure != null);
-            MeterRegistry registry = metricsRegistry;
-            if (registry == null) return;
-            registry.timer("spring.data.redis",
-                            "client", "Redisson",
-                            "command", command,
-                            "operation", method.getName(),
-                            "result", failure == null ? "success" : "error")
-                    .record(durationNanos, TimeUnit.NANOSECONDS);
         } catch (RuntimeException ignored) {
             // Metrics must not affect the application's Redis result.
         }
@@ -217,7 +199,6 @@ public final class RedissonTraceConnectionFactoryPostProcessor implements BeanPo
         if (!providersResolved) {
             synchronized (this) {
                 if (!providersResolved) {
-                    metricsRegistry = metricsRegistryProvider.get();
                     operationStats = operationStatsProvider.get();
                     providersResolved = true;
                 }

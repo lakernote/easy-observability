@@ -2,7 +2,11 @@ package io.github.lakernote.observability.starter.boot3;
 
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
+import io.github.lakernote.observability.metrics.internal.ResourceMetricsRegistry;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.composite.CompositeMeterRegistry;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.builder.SpringApplicationBuilder;
@@ -12,6 +16,7 @@ import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -29,13 +34,13 @@ import java.util.Collections;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
-@SpringBootTest(classes = OperationStatsE2ETest.TestApplication.class,
+@SpringBootTest(classes = RuntimeMetricsE2ETest.TestApplication.class,
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {
-                "easy.observability.metrics.enabled=false",
-                "easy.observability.storage.directory=target/operation-stats-e2e"
+                "easy.observability.storage.directory=target/runtime-metrics-e2e",
+                "easy.observability.metrics.include=orders"
         })
-class OperationStatsE2ETest {
+class RuntimeMetricsE2ETest {
     private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(5))
             .followRedirects(HttpClient.Redirect.NEVER)
@@ -43,6 +48,15 @@ class OperationStatsE2ETest {
 
     @LocalServerPort
     private int port;
+
+    @Autowired
+    private ResourceMetricsRegistry resourceRegistry;
+
+    @Autowired
+    private MeterRegistry meterRegistry;
+
+    @Autowired
+    private org.springframework.core.env.Environment environment;
 
     @Test
     void ranksRealHttpEndpointsAndSqlTemplatesOnTheStatisticsPage() throws Exception {
@@ -52,26 +66,32 @@ class OperationStatsE2ETest {
         assertThat(get("/fail").statusCode()).isEqualTo(500);
 
         await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> {
-            String body = get("/api/easy-observability/stats?window=hour").body();
+            String body = get("/api/easy-observability/metrics/operations?window=1h").body();
             assertThat(body)
-                    .contains("\"window\":\"HOUR\"", "\"category\":\"HTTP\"", "\"category\":\"SQL\"")
-                    .contains("\"name\":\"/orders/{id} · GET\",\"traceQuery\":\"/orders/{id} · GET\",\"count\":3,"
-                            + "\"errors\":0")
-                    .contains("\"name\":\"/fail · GET\",\"traceQuery\":\"/fail · GET\",\"count\":1,\"errors\":1")
-                    .contains("\"name\":\"SELECT COUNT(*) FROM orders WHERE id IN (?…)\","
-                            + "\"traceQuery\":\"SELECT COUNT(*) FROM orders WHERE id IN\",\"count\":3,\"errors\":0")
-                    .doesNotContain("easy-observability/");
+                    .contains("\"window\":\"HOUR\"", "\"collecting\":true", "\"category\":\"HTTP\"",
+                            "\"category\":\"SQL\"")
+                    .contains("\"name\":\"/orders/{id} · GET\",\"count\":3,\"errors\":0")
+                    .contains("\"name\":\"/fail · GET\",\"count\":1,\"errors\":1")
+                    .contains("\"name\":\"SELECT COUNT(*) FROM orders WHERE id IN (?…)\",\"count\":3,\"errors\":0")
+                    .doesNotContain("easy-observability/", "traceQuery");
         });
-        // The Trace Explorer filters by substring, so the collapsed SQL row's traceQuery must occur in the slow trace.
-        await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> assertThat(
-                get("/api/easy-observability/traces?limit=500").body())
-                .contains("\"slow\":true", "SELECT COUNT(*) FROM orders WHERE id IN (?, ?, ?, ?, ?)"));
-        assertThat(get("/api/easy-observability/stats?window=today").body())
+        assertThat(get("/api/easy-observability/metrics/operations?window=today").body())
                 .contains("\"window\":\"TODAY\"", "\"persistent\":true", "\"name\":\"/fail · GET\"");
-        assertThat(get("/api/easy-observability/stats?window=30d").body())
+        assertThat(get("/api/easy-observability/metrics/operations?window=30d").body())
                 .contains("\"window\":\"MONTH\"", "\"name\":\"/fail · GET\"");
-        assertThat(get("/api/easy-observability/stats?window=week").statusCode()).isEqualTo(400);
-        assertThat(HTTP_CLIENT.send(HttpRequest.newBuilder(uri("/api/easy-observability/stats/reset"))
+        assertThat(get("/api/easy-observability/metrics/operations?window=week").statusCode()).isEqualTo(400);
+
+        String trend = get("/api/easy-observability/metrics/operations/trend?category=HTTP&name="
+                + java.net.URLEncoder.encode("/orders/{id} · GET", java.nio.charset.StandardCharsets.UTF_8)
+                + "&period=1h").body();
+        assertThat(trend).contains("\"period\":\"HOUR\"", "\"stepMillis\":60000", "\"count\":3,\"errors\":0");
+        assertThat(get("/api/easy-observability/metrics/operations/trend?category=HTTP&name=x&period=24h").body())
+                .contains("\"period\":\"DAY\"", "\"stepMillis\":600000");
+        assertThat(get("/api/easy-observability/metrics/operations/trends?period=7d").body())
+                .contains("\"HTTP\":{\"period\":\"WEEK\"", "\"SQL\":{");
+        assertThat(get("/api/easy-observability/metrics/operations/trend?category=NOPE&name=x").statusCode())
+                .isEqualTo(400);
+        assertThat(HTTP_CLIENT.send(HttpRequest.newBuilder(uri("/api/easy-observability/metrics/operations/reset"))
                         .POST(HttpRequest.BodyPublishers.noBody()).build(),
                 HttpResponse.BodyHandlers.discarding()).statusCode()).isEqualTo(403);
 
@@ -81,9 +101,35 @@ class OperationStatsE2ETest {
         HttpResponse<String> page = get("/easy-observability/stats/");
         assertThat(page.statusCode()).isEqualTo(200);
         assertThat(page.body()).contains("调用排行", "../assets/stats.js", "../metrics/");
-        assertThat(get("/easy-observability/assets/stats.js").statusCode()).isEqualTo(200);
-        assertThat(get("/easy-observability/assets/stats.css").statusCode()).isEqualTo(200);
+        for (String asset : new String[] {"stats.js", "stats.css", "metrics.js", "metrics-common.js", "uplot.min.js"}) {
+            assertThat(get("/easy-observability/assets/" + asset).statusCode()).as(asset).isEqualTo(200);
+        }
+        assertThat(get("/easy-observability/metrics/").body()).contains("../assets/metrics.js");
         assertThat(get("/easy-observability/").body()).contains("href=\"stats/\"");
+    }
+
+    @Test
+    void recordsSpringBootResourceMetersThroughTheMicrometerRegistry() throws Exception {
+        // Tomcat thread meters need the MBean registry, which the starter turns on by default. Tomcat's registry
+        // switch is JVM-wide, so the meters themselves are only asserted in RuntimeMetricsDefaultsTest.
+        assertThat(environment.getProperty("server.tomcat.mbeanregistry.enabled")).isEqualTo("true");
+        assertThat(meterRegistry).isInstanceOf(CompositeMeterRegistry.class);
+        assertThat(((CompositeMeterRegistry) meterRegistry).getRegistries()).contains(resourceRegistry);
+        meterRegistry.counter("orders.created").increment(2);
+        meterRegistry.counter("http.unrelated").increment();
+
+        ReflectionTestUtils.invokeMethod(resourceRegistry, "publish");
+
+        String body = get("/api/easy-observability/metrics/resources?period=1h").body();
+        assertThat(body).contains("\"period\":\"HOUR\"", "\"persistent\":true", "\"jvm.memory.used:heap\":[",
+                "\"jvm.memory.max:heap\":[",
+                "\"jvm.threads.live\":[", "\"process.cpu.usage\":[", "\"hikaricp.connections.max:HikariPool-1\":[",
+                "\"orders.created\":[", "\"executor.active:applicationTaskExecutor\":[",
+                "\"tomcat.sessions.active.current\":[")
+                .doesNotContain("http.unrelated", "http.server.requests");
+        assertThat(get("/api/easy-observability/metrics/resources?period=2h").statusCode()).isEqualTo(400);
+        assertThat(get("/api/easy-observability/metrics/storage").body())
+                .contains("\"persistent\":true", "\"retentionDays\":30");
     }
 
     @Test
@@ -92,22 +138,21 @@ class OperationStatsE2ETest {
         try {
             for (int run = 1; run <= 2; run++) {
                 try (ConfigurableApplicationContext application = new SpringApplicationBuilder(TestApplication.class)
-                        .properties("server.port=0", "easy.observability.metrics.enabled=false",
-                                "easy.observability.storage.directory=" + directory)
+                        .properties("server.port=0", "easy.observability.storage.directory=" + directory)
                         .run()) {
                     int applicationPort = Integer.parseInt(
                             application.getEnvironment().getRequiredProperty("local.server.port"));
                     assertThat(get(applicationPort, "/orders/1?items=1").statusCode()).isEqualTo(200);
                     long expected = run;
                     await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> assertThat(
-                            get(applicationPort, "/api/easy-observability/stats?window=today").body())
-                            .contains("\"persistent\":true", "\"name\":\"/orders/{id} · GET\","
-                                    + "\"traceQuery\":\"/orders/{id} · GET\",\"count\":" + expected + ","));
+                            get(applicationPort, "/api/easy-observability/metrics/operations?window=today").body())
+                            .contains("\"persistent\":true", "\"name\":\"/orders/{id} · GET\",\"count\":"
+                                    + expected + ","));
                 }
             }
-            try (var files = Files.list(directory.resolve("stats"))) {
+            try (var files = Files.list(directory.resolve("metrics"))) {
                 assertThat(files.map(file -> file.getFileName().toString()))
-                        .singleElement().asString().matches("\\d{8}\\.tsv");
+                        .anySatisfy(name -> assertThat(name).matches("operations-\\d{8}\\.tsv"));
             }
         } finally {
             try (var paths = Files.walk(directory)) {
