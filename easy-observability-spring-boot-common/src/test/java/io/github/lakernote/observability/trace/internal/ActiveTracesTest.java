@@ -66,7 +66,7 @@ class ActiveTracesTest {
 
         assertThat(TraceContext.active()).isFalse();
         assertThat(find("trace-live-3").detached()).isTrue();
-        handle.stop(0, "test", null, completion -> { });
+        handle.stop(0, () -> "test", null, completion -> { });
         assertThat(find("trace-live-3")).isNull();
     }
 

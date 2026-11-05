@@ -20,7 +20,7 @@
 | Redis | Lettuce Observation 命令 Span；Spring Data Redis 经 Redisson `RedisConnectionFactory` 执行的命令 Span | 直接调用 Redisson `RLock`、`RMap` 等 API 不属于这组连接工厂命令采集 |
 | 远程 HTTP | 已接入的客户端调用 Span；支持的客户端可传播 Trace ID | 通过 Spring 注入的 `RestClient.Builder`、`RestTemplateBuilder` 创建的客户端自动接入，OpenFeign 自动传播 Trace ID；直接 `new RestTemplate()`、JDK `HttpClient` 等绕过 Spring Builder 的调用不会被采集 |
 | 异步线程池 | 任务耗时、异常及活动 Trace 上下文传播 | Spring Boot 默认线程池自动接入；自定义线程池设置 `TraceContextTaskDecorator` 后才会记录任务边界；请求已返回后继续运行的后台任务不会延长已完成的入口 Trace |
-| 调用统计 | 每个 HTTP 接口、SQL 模板、远程调用、Redis 命令、定时任务和 Kafka Topic 的次数、错误、平均/P95/最大耗时和总耗时，及其随时间的趋势 | 不论是否慢或出错都会计入；与 Trace 共用采集点，见[运行指标](#运行指标) |
+| 调用统计 | 每个 HTTP 接口、SQL 模板、远程调用、Redis 命令、定时任务和 Kafka Topic 的次数、错误、平均/P95/最大耗时和总耗时，及其随时间的趋势；HTTP、定时任务和 Kafka 消费入口另有平均 CPU 时间和平均内存分配量 | 不论是否慢或出错都会计入；与 Trace 共用采集点，见[运行指标](#运行指标) |
 | 资源指标 | JVM 内存与 GC、CPU、线程、Hikari 连接池、线程池、Tomcat 等 Spring Boot 已绑定的指标，以及 `metrics.include` 指定的自定义指标 | 每分钟采样一次，见[运行指标](#运行指标) |
 
 自定义业务边界可使用 `TraceBlock` 或 `@TraceSpan`。组件不会扫描所有业务 Service 自动创建 Span。
@@ -89,7 +89,7 @@ Trace 查询 API（均为 `GET`，前缀 `/api/easy-observability`）：
 
 运行指标回答“这个实例整体怎么样、哪个操作最慢最多”，Trace 诊断回答“这一次请求慢在哪里”。两者共用采集点，但各自独立：指标覆盖全部调用，Trace 只保留慢、错或资源超阈值的请求。运行指标有两个页面：
 
-- **调用排行**（`/easy-observability/stats/`）：按类别列出每个操作的调用次数、错误数和错误率、平均耗时、P95、最大耗时、总耗时及其在本类别中的占比，点击列头排序；点击一行展开该操作的调用次数和耗时趋势。适合回答“哪个接口最耗时”“哪条 SQL 调用最多”“哪个远程服务最常出错”。
+- **调用排行**（`/easy-observability/stats/`）：按类别列出每个操作的调用次数、错误数和错误率、平均耗时、P95、最大耗时、总耗时及其在本类别中的占比，点击列头排序；点击一行展开该操作的调用次数和耗时趋势。HTTP、定时任务和 Kafka 消费入口还显示每次调用平均消耗的入口线程 CPU 时间和内存分配量，用来找出“耗 CPU 的接口”和“分配大量对象、引起频繁 GC 的接口”；这两个值复用入口本来就采集的数据，不增加开销，转为异步处理的请求不计入。适合回答“哪个接口最耗时”“哪条 SQL 调用最多”“哪个远程服务最常出错”“哪个接口最吃 CPU 或内存”。
 - **指标趋势**（`/easy-observability/metrics/`）：上半部分是各类调用的次数、错误和耗时趋势，下半部分是 JVM、CPU、线程、连接池、线程池等资源曲线。
 
 ### 调用统计

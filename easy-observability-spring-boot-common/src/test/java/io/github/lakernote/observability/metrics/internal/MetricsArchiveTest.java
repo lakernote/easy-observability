@@ -149,13 +149,16 @@ class MetricsArchiveTest {
     void escapesSeparatorsAndSkipsTornLines() throws Exception {
         MetricsArchive archive = archive();
         archive.appendOperations(millis("2026-11-05T10:00:00Z"), List.of(row("tab\there\\back")), TODAY);
-        Files.writeString(operations("20261105"), "garbage\n1\tHTTP\tx\t1\t1\t0:1\tbad\n"
-                + "1\tNOPE\t0\t1\t1\t0:1\tbad\n1\tHTTP\t0\t1\t1\t99:1\tbad\n1\tHTTP\t0\t1\t1\t0:1\tbad\textra\n"
-                + "1\tHTTP\t0\t1\t1\t0:1", StandardOpenOption.APPEND);
+        Files.writeString(operations("20261105"), "garbage\n1\tHTTP\tx\t1\t1\t0\t0\t0\t0:1\tbad\n"
+                + "1\tNOPE\t0\t1\t1\t0\t0\t0\t0:1\tbad\n1\tHTTP\t0\t1\t1\t0\t0\t0\t99:1\tbad\n"
+                + "1\tHTTP\t0\t1\t1\t0\t0\t0\t0:1\tbad\textra\n1\tHTTP\t0\t1\t1\t0\t0\t0\t0:1", StandardOpenOption.APPEND);
 
         Map<String, long[]> entries = archive.rankOperations(TODAY, TODAY).get(Category.HTTP);
         assertThat(entries).containsOnlyKeys("tab\there\\back");
         assertThat(entries.get("tab\there\\back")[OperationStats.COUNT]).isEqualTo(1);
+        assertThat(entries.get("tab\there\\back")[OperationStats.CPU]).isEqualTo(3);
+        assertThat(entries.get("tab\there\\back")[OperationStats.ALLOCATED]).isEqualTo(1024);
+        assertThat(entries.get("tab\there\\back")[OperationStats.MEASURED]).isEqualTo(1);
         assertThat(MetricsArchive.unescape(MetricsArchive.escape("a\\b\tc\nd\re"))).isEqualTo("a\\b\tc\nd\re");
     }
 
@@ -177,7 +180,7 @@ class MetricsArchiveTest {
         assertThat(Files.readAllLines(operations("20261102"))).hasSize(3)
                 .first().isEqualTo("# easy-observability operations v1 bucket=3600");
         assertThat(Files.readAllLines(operations("20261102")).get(1))
-                .startsWith(millis("2026-11-02T10:00:00Z") + "\tHTTP\t0\t10\t5\t0:2\t");
+                .startsWith(millis("2026-11-02T10:00:00Z") + "\tHTTP\t0\t10\t5\t6\t2048\t2\t0:2\t");
         List<String> resources = Files.readAllLines(directory.resolve("resources-20261102.tsv"));
         assertThat(resources).hasSize(2).first().isEqualTo("# easy-observability resources v1 bucket=600");
         assertThat(resources.get(1)).startsWith(millis("2026-11-02T10:00:00Z") + "\t")
@@ -190,6 +193,19 @@ class MetricsArchiveTest {
 
         Map<String, long[]> ranked = archive.rankOperations(LocalDate.parse("2026-11-01"), TODAY).get(Category.HTTP);
         assertThat(ranked.get("a")[OperationStats.COUNT]).isEqualTo(6);
+    }
+
+    @Test
+    void entryResourcesSurviveRestart() {
+        OperationStats first = stats(100);
+        first.record(Category.JOB, "nightly", ms(50), false, ms(40), 8 * 1024);
+        first.record(Category.JOB, "nightly", ms(70), false, ms(20), 4 * 1024);
+        first.close();
+
+        OperationStats.Row row = row(stats(100), Window.TODAY, Category.JOB);
+        assertThat(row.count()).isEqualTo(2);
+        assertThat(row.meanCpuMs()).isEqualTo(30.0);
+        assertThat(row.meanAllocatedBytes()).isEqualTo(6L * 1024);
     }
 
     @Test
@@ -271,6 +287,9 @@ class MetricsArchiveTest {
         long[] cells = new long[OperationStats.CELLS];
         cells[OperationStats.TOTAL] = 5;
         cells[OperationStats.MAX] = 5;
+        cells[OperationStats.CPU] = 3;
+        cells[OperationStats.ALLOCATED] = 1024;
+        cells[OperationStats.MEASURED] = 1;
         cells[OperationStats.FIRST_BUCKET] = 1;
         cells[OperationStats.COUNT] = 1;
         return new MetricsArchive.OperationRow(Category.HTTP, name, cells);

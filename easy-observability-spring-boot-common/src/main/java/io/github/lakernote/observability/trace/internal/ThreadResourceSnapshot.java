@@ -54,7 +54,12 @@ public record ThreadResourceSnapshot(long threadId, long cpuNanos, long allocate
     }
 
     public long cpuTimeMsSince(ThreadResourceSnapshot start) {
-        return start.cpuNanos < 0 || cpuNanos < 0 ? -1 : Math.max(0, (cpuNanos - start.cpuNanos) / 1_000_000);
+        long nanos = cpuNanosSince(start);
+        return nanos < 0 ? -1 : nanos / 1_000_000;
+    }
+
+    public long cpuNanosSince(ThreadResourceSnapshot start) {
+        return start.cpuNanos < 0 || cpuNanos < 0 ? -1 : Math.max(0, cpuNanos - start.cpuNanos);
     }
 
     public long allocatedBytesSince(ThreadResourceSnapshot start) {

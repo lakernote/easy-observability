@@ -6,6 +6,7 @@ import org.slf4j.LoggerFactory;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Supplier;
 
 /** Rate-limited, single-line-safe log summaries for slow and failed root traces. */
 final class TraceDiagnosticLog {
@@ -20,14 +21,14 @@ final class TraceDiagnosticLog {
     private TraceDiagnosticLog() {
     }
 
-    static void summarize(TraceCompletion result, String description, long slowThresholdMs, Throwable throwable,
+    static void summarize(TraceCompletion result, Supplier<String> description, long slowThresholdMs, Throwable throwable,
                           String traceId) {
         if (throwable != null) {
             long suppressed = ERROR_LIMITER.tryAcquire(System.nanoTime());
             if (suppressed < 0) return;
             log.error("Trace error summary: description={}, cost={}ms, threshold={}ms, exception={}, "
                             + "reasons={}, unfinishedSpansAtTraceEnd={}, traceId={}, previousWindowSuppressed={}\n{}",
-                    oneLine(description), result.costMs(), slowThresholdMs, oneLine(throwable.getClass().getName()),
+                    oneLine(description.get()), result.costMs(), slowThresholdMs, oneLine(throwable.getClass().getName()),
                     summarizeReasons(result.reasons()), countUnfinishedSpans(result.nodes()), oneLine(traceId),
                     suppressed, result.tree());
         } else if (slowThresholdMs > 0 && result.costMs() >= slowThresholdMs) {
@@ -35,7 +36,7 @@ final class TraceDiagnosticLog {
             if (suppressed < 0) return;
             log.warn("Slow trace summary: description={}, cost={}ms, threshold={}ms, reasons={}, "
                             + "unfinishedSpansAtTraceEnd={}, traceId={}, previousWindowSuppressed={}\n{}",
-                    oneLine(description), result.costMs(), slowThresholdMs, summarizeReasons(result.reasons()),
+                    oneLine(description.get()), result.costMs(), slowThresholdMs, summarizeReasons(result.reasons()),
                     countUnfinishedSpans(result.nodes()), oneLine(traceId), suppressed, result.tree());
         }
     }

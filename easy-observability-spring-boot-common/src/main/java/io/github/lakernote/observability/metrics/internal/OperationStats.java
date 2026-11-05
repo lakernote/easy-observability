@@ -48,7 +48,11 @@ public final class OperationStats implements AutoCloseable {
     static final int ERRORS = 1;
     static final int TOTAL = 2;
     static final int MAX = 3;
-    static final int FIRST_BUCKET = 4;
+    /** Entry-thread CPU nanoseconds and allocated bytes, summed over the {@link #MEASURED} calls that reported them. */
+    static final int CPU = 4;
+    static final int ALLOCATED = 5;
+    static final int MEASURED = 6;
+    static final int FIRST_BUCKET = 7;
     /** Bucket {@code i} holds durations below {@code BUCKET_UPPER_NANOS[i]}; one extra bucket is unbounded. */
     private static final long[] BUCKET_UPPER_NANOS = bucketBounds();
     static final int CELLS = FIRST_BUCKET + BUCKET_UPPER_NANOS.length + 1;
@@ -109,8 +113,12 @@ public final class OperationStats implements AutoCloseable {
         }
     }
 
+    /**
+     * @param meanCpuMs entry-thread CPU time per call, or null when no call reported it (dependencies, async entries)
+     * @param meanAllocatedBytes entry-thread heap allocation per call, or null like {@code meanCpuMs}
+     */
     public record Row(String name, long count, long errors, double meanMs, double p95Ms, double maxMs,
-                      double totalMs) { }
+                      double totalMs, Double meanCpuMs, Long meanAllocatedBytes) { }
 
     public record CategorySnapshot(Category category, long count, long errors, double totalMs, List<Row> rows) { }
 
@@ -199,14 +207,24 @@ public final class OperationStats implements AutoCloseable {
 
     /** Records one completed call. Null, blank and oversized names are normalized instead of rejected. */
     public void record(Category category, String name, long durationNanos, boolean error) {
+        record(category, name, durationNanos, error, -1, -1);
+    }
+
+    /**
+     * Records one completed entry call with the CPU time and allocation of the thread that ran it; pass -1 for
+     * either when unknown, and the call then counts toward duration only.
+     */
+    public void record(Category category, String name, long durationNanos, boolean error, long cpuNanos,
+                       long allocatedBytes) {
         if (category == null) return;
         long nanos = Math.max(0, durationNanos);
+        boolean measured = cpuNanos >= 0 && allocatedBytes >= 0;
         long now = clockMillis.getAsLong();
         Operation operation = operation(operations.get(category), normalizeName(name));
         Aggregate slice = operation.slice(Math.floorDiv(now, SLICE_MILLIS));
-        if (slice != null) slice.add(nanos, error);
+        if (slice != null) slice.cells.add(nanos, error, measured, cpuNanos, allocatedBytes, true);
         Minute minute = operation.minute(Math.floorDiv(now, MINUTE_MILLIS));
-        if (minute != null) minute.add(nanos, error);
+        if (minute != null) minute.cells.add(nanos, error, measured, cpuNanos, allocatedBytes, false);
     }
 
     /** Synchronized with {@link #flush} so a slice is never counted from both memory and the archive. */
@@ -463,8 +481,11 @@ public final class OperationStats implements AutoCloseable {
 
     private static Row row(String name, long[] cells) {
         long count = cells[COUNT];
+        long measured = cells[MEASURED];
         return new Row(name, count, cells[ERRORS], millis(cells[TOTAL] / (double) count),
-                millis(Math.min(percentile(cells, 0.95), cells[MAX])), millis(cells[MAX]), millis(cells[TOTAL]));
+                millis(Math.min(percentile(cells, 0.95), cells[MAX])), millis(cells[MAX]), millis(cells[TOTAL]),
+                measured == 0 ? null : millis(cells[CPU] / (double) measured),
+                measured == 0 ? null : Math.round(cells[ALLOCATED] / (double) measured));
     }
 
     /** Estimates a percentile as the geometric midpoint of the histogram bucket containing its rank. */
@@ -550,26 +571,47 @@ public final class OperationStats implements AutoCloseable {
         }
     }
 
+    /** Atomic summary cells; slices also count the latency histogram, minutes keep only the summary. */
+    private static final class Cells {
+        private final AtomicLongArray values;
+
+        private Cells(int width) {
+            values = new AtomicLongArray(width);
+        }
+
+        private void add(long nanos, boolean error, boolean measured, long cpuNanos, long allocatedBytes,
+                         boolean histogram) {
+            // Slices derive the count from the histogram on read, saving one contended atomic per call.
+            if (histogram) values.getAndIncrement(FIRST_BUCKET + bucket(nanos));
+            else values.getAndIncrement(COUNT);
+            if (error) values.getAndIncrement(ERRORS);
+            values.getAndAdd(TOTAL, nanos);
+            long max = values.get(MAX);
+            while (nanos > max && !values.compareAndSet(MAX, max, nanos)) max = values.get(MAX);
+            if (measured) {
+                values.getAndAdd(CPU, cpuNanos);
+                values.getAndAdd(ALLOCATED, allocatedBytes);
+                values.getAndIncrement(MEASURED);
+            }
+        }
+
+        private long[] read() {
+            long[] copy = new long[values.length()];
+            for (int cell = 0; cell < copy.length; cell++) copy[cell] = values.get(cell);
+            return copy;
+        }
+    }
+
     private static final class Aggregate {
         private final long epoch;
-        private final AtomicLongArray cells = new AtomicLongArray(CELLS);
+        private final Cells cells = new Cells(CELLS);
 
         private Aggregate(long epoch) {
             this.epoch = epoch;
         }
 
-        /** The count is derived from the histogram on read, saving one contended atomic per call. */
-        private void add(long nanos, boolean error) {
-            if (error) cells.getAndIncrement(ERRORS);
-            cells.getAndAdd(TOTAL, nanos);
-            long max = cells.get(MAX);
-            while (nanos > max && !cells.compareAndSet(MAX, max, nanos)) max = cells.get(MAX);
-            cells.getAndIncrement(FIRST_BUCKET + bucket(nanos));
-        }
-
         private long[] read() {
-            long[] values = new long[CELLS];
-            for (int cell = 0; cell < CELLS; cell++) values[cell] = cells.get(cell);
+            long[] values = cells.read();
             deriveCount(values);
             return values;
         }
@@ -577,24 +619,14 @@ public final class OperationStats implements AutoCloseable {
 
     private static final class Minute {
         private final long epoch;
-        private final AtomicLongArray cells = new AtomicLongArray(FIRST_BUCKET);
+        private final Cells cells = new Cells(FIRST_BUCKET);
 
         private Minute(long epoch) {
             this.epoch = epoch;
         }
 
-        private void add(long nanos, boolean error) {
-            cells.getAndIncrement(COUNT);
-            if (error) cells.getAndIncrement(ERRORS);
-            cells.getAndAdd(TOTAL, nanos);
-            long max = cells.get(MAX);
-            while (nanos > max && !cells.compareAndSet(MAX, max, nanos)) max = cells.get(MAX);
-        }
-
         private long[] read() {
-            long[] values = new long[FIRST_BUCKET];
-            for (int cell = 0; cell < FIRST_BUCKET; cell++) values[cell] = cells.get(cell);
-            return values;
+            return cells.read();
         }
     }
 }

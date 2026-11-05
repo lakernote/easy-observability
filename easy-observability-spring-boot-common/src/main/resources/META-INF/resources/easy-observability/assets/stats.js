@@ -1,6 +1,6 @@
 import {
-  $, DISABLED_MESSAGE, categoryNames, countsSince, formatMs, initializeEmbeddedAuth, lineChart, node, request
-} from './metrics-common.js?v=20261105.4'
+  $, DISABLED_MESSAGE, categoryNames, countsSince, formatBytes, formatMs, initializeEmbeddedAuth, lineChart, node, request
+} from './metrics-common.js?v=20261106.1'
 
 const REFRESH_MS = 10000
 // Day ranges change slowly and read history files, so poll them less often.
@@ -18,6 +18,17 @@ const columns = [
   { key: 'totalMs', label: '总耗时', numeric: true },
   { key: 'share', label: '耗时占比', title: '该操作总耗时占本类别总耗时的比例' }
 ]
+// Entries run on one thread from start to finish, so their CPU time and allocation are measured per call.
+const ENTRY_CATEGORIES = new Set(['HTTP', 'JOB', 'KAFKA_CONSUMER'])
+const resourceColumns = [
+  { key: 'meanCpuMs', label: '平均 CPU', numeric: true, title: '入口线程每次调用消耗的 CPU 时间；异步请求不统计' },
+  { key: 'meanAllocatedBytes', label: '平均内存分配', numeric: true, title: '入口线程每次调用分配的堆内存（不是占用量）；异步请求不统计' }
+]
+
+function visibleColumns() {
+  if (!ENTRY_CATEGORIES.has(activeCategory)) return columns
+  return [...columns.slice(0, -1), ...resourceColumns, columns[columns.length - 1]]
+}
 let snapshot = null
 let activeCategory = ''
 let sortKey = 'totalMs'
@@ -55,7 +66,7 @@ function renderCategories() {
 function renderHead() {
   const head = $('stats-head')
   head.replaceChildren()
-  for (const column of columns) {
+  for (const column of visibleColumns()) {
     const th = node('th', column.numeric ? 'numeric' : '')
     th.scope = 'col'
     if (column.title) th.title = column.title
@@ -113,7 +124,7 @@ function detailRow() {
     detail = document.createElement('tr')
     detail.className = 'stats-detail'
     const cell = node('td')
-    cell.colSpan = columns.length
+    cell.colSpan = visibleColumns().length
     cell.append(node('div', 'stats-detail-body'))
     detail.append(cell)
   }
@@ -176,7 +187,11 @@ function renderRows(category) {
     share.append(shareBox)
     tr.append(name, node('td', 'numeric strong', Number(row.count).toLocaleString()), errors,
       node('td', 'numeric', formatMs(row.meanMs)), node('td', 'numeric', `≈ ${formatMs(row.p95Ms)}`),
-      node('td', 'numeric', formatMs(row.maxMs)), node('td', 'numeric strong', formatMs(row.totalMs)), share)
+      node('td', 'numeric', formatMs(row.maxMs)), node('td', 'numeric strong', formatMs(row.totalMs)),
+      ...(ENTRY_CATEGORIES.has(activeCategory) ? [
+        node('td', 'numeric', row.meanCpuMs == null ? '—' : formatMs(row.meanCpuMs)),
+        node('td', 'numeric', formatBytes(row.meanAllocatedBytes))] : []),
+      share)
     tr.tabIndex = 0
     tr.setAttribute('aria-expanded', String(open))
     tr.title = open ? '收起趋势' : '查看趋势'

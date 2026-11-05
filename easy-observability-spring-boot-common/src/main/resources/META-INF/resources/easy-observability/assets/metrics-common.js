@@ -63,6 +63,15 @@ export function formatMs(value) {
   return `${ms.toFixed(2)} ms`
 }
 
+export function formatBytes(bytes) {
+  if (bytes == null || bytes < 0) return '—'
+  const units = ['B', 'KiB', 'MiB', 'GiB']
+  let value = Number(bytes)
+  let index = 0
+  while (value >= 1024 && index < units.length - 1) { value /= 1024; index++ }
+  return `${value.toFixed(index === 0 || value >= 100 ? 0 : 1)} ${units[index]}`
+}
+
 export function formatValue(value, unit) {
   if (value == null || !Number.isFinite(value)) return '—'
   switch (unit) {

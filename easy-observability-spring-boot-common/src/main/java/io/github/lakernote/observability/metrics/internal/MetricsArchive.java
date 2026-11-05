@@ -26,10 +26,13 @@ import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import static io.github.lakernote.observability.metrics.internal.OperationStats.ALLOCATED;
 import static io.github.lakernote.observability.metrics.internal.OperationStats.CELLS;
+import static io.github.lakernote.observability.metrics.internal.OperationStats.CPU;
 import static io.github.lakernote.observability.metrics.internal.OperationStats.ERRORS;
 import static io.github.lakernote.observability.metrics.internal.OperationStats.FIRST_BUCKET;
 import static io.github.lakernote.observability.metrics.internal.OperationStats.MAX;
+import static io.github.lakernote.observability.metrics.internal.OperationStats.MEASURED;
 import static io.github.lakernote.observability.metrics.internal.OperationStats.TOTAL;
 
 /**
@@ -364,7 +367,9 @@ public final class MetricsArchive {
     private static void appendOperationLine(StringBuilder line, long bucketStart, OperationStats.Category category,
                                             String name, long[] cells) {
         line.append(bucketStart).append('\t').append(category.name()).append('\t')
-                .append(cells[ERRORS]).append('\t').append(cells[TOTAL]).append('\t').append(cells[MAX]).append('\t');
+                .append(cells[ERRORS]).append('\t').append(cells[TOTAL]).append('\t').append(cells[MAX]).append('\t')
+                .append(cells[CPU]).append('\t').append(cells[ALLOCATED]).append('\t').append(cells[MEASURED])
+                .append('\t');
         boolean first = true;
         for (int cell = FIRST_BUCKET; cell < CELLS; cell++) {
             if (cells[cell] == 0) continue;
@@ -399,7 +404,7 @@ public final class MetricsArchive {
         for (String line : Files.readAllLines(file, StandardCharsets.UTF_8)) {
             if (line.isEmpty() || line.charAt(0) == '#') continue;
             String[] fields = line.split("\t", -1);
-            if (fields.length != 7) continue;
+            if (fields.length != 10) continue;
             try {
                 long start = Long.parseLong(fields[0]);
                 OperationStats.Category category = OperationStats.Category.valueOf(fields[1]);
@@ -407,8 +412,11 @@ public final class MetricsArchive {
                 cells[ERRORS] = Long.parseLong(fields[2]);
                 cells[TOTAL] = Long.parseLong(fields[3]);
                 cells[MAX] = Long.parseLong(fields[4]);
-                if (!fields[5].isEmpty()) {
-                    for (String bucket : fields[5].split(";")) {
+                cells[CPU] = Long.parseLong(fields[5]);
+                cells[ALLOCATED] = Long.parseLong(fields[6]);
+                cells[MEASURED] = Long.parseLong(fields[7]);
+                if (!fields[8].isEmpty()) {
+                    for (String bucket : fields[8].split(";")) {
                         int colon = bucket.indexOf(':');
                         int index = FIRST_BUCKET + Integer.parseInt(bucket.substring(0, colon));
                         if (index < FIRST_BUCKET || index >= CELLS) throw new IllegalArgumentException(bucket);
@@ -416,7 +424,7 @@ public final class MetricsArchive {
                     }
                 }
                 OperationStats.deriveCount(cells);
-                visitor.visit(start, category, unescape(fields[6]), cells);
+                visitor.visit(start, category, unescape(fields[9]), cells);
             } catch (RuntimeException corrupt) {
                 // A torn or foreign line must not hide the rest of the history.
             }

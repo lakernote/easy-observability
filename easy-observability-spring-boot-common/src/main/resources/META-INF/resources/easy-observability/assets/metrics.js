@@ -1,6 +1,6 @@
 import {
   $, DISABLED_MESSAGE, categoryNames, countsSince, formatValue, initializeEmbeddedAuth, lineChart, request
-} from './metrics-common.js?v=20261105.4'
+} from './metrics-common.js?v=20261106.1'
 
 const PERIODS = new Set(['1h', '24h', '7d', '30d'])
 const REFRESH_MS = 60000

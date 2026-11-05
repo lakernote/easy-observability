@@ -68,7 +68,7 @@ class LiveDiagnosticsTest {
             assertThat(request.threadState()).isNull();
             assertThat(request.cpuTimeMs()).isEqualTo(-1);
         } finally {
-            handle.stop(0, "test", null, completion -> { });
+            handle.stop(0, () -> "test", null, completion -> { });
         }
     }
 

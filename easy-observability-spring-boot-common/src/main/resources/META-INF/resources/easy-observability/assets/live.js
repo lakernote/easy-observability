@@ -1,4 +1,4 @@
-import { $, api, formatMs, initializeEmbeddedAuth, node, request } from './metrics-common.js?v=20261105.4'
+import { $, api, formatBytes, formatMs, initializeEmbeddedAuth, node, request } from './metrics-common.js?v=20261106.1'
 
 const DENIED = '没有查看实时诊断的权限，请登录或检查 ObservabilityAccessPolicy'
 const SOURCES = { HTTP: 'HTTP', JOB: '定时任务', KAFKA_CONSUMER: 'Kafka 消费' }
@@ -22,14 +22,6 @@ function connected(ok) {
   $('instance').lastChild.textContent = ok ? '已连接' : '连接失败'
 }
 
-function formatBytes(bytes) {
-  if (bytes == null || bytes < 0) return '—'
-  const units = ['B', 'KiB', 'MiB', 'GiB']
-  let value = bytes
-  let index = 0
-  while (value >= 1024 && index < units.length - 1) { value /= 1024; index++ }
-  return `${value.toFixed(index === 0 || value >= 100 ? 0 : 1)} ${units[index]}`
-}
 
 function cpuText(ms) {
   if (ms == null || ms < 0) return '—'

@@ -183,7 +183,9 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
             }
             long durationNanos = Math.max(0, System.nanoTime() - state.startedAtNanos);
             long durationMs = TimeUnit.NANOSECONDS.toMillis(durationNanos);
-            ThreadResourceSnapshot resourcesAtStop = state.root ? state.resourcesAtStop() : null;
+            ResourceUsage resources = state.root
+                    ? ResourceUsage.between(state.resourcesAtStart, state.resourcesAtStop(), properties)
+                    : ResourceUsage.UNKNOWN;
             Throwable error = context.getError();
             if (error != null) {
                 // Some instrumentation only exposes the error at stop; preserve the same child/root semantics.
@@ -201,15 +203,14 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
             if (slow) markSlow(state);
             if (state.span != null) state.span.close();
             recordStats(context, state, detail, durationNanos,
-                    error != null || state.failure != null || status >= 500 || redisFailed);
+                    error != null || state.failure != null || status >= 500 || redisFailed, resources);
             if (!ownsRoot) return;
             String displayName = displayName(context, state.type, state.operationName, detail);
             state.traceHandle.updateRootIdentity(displayName, detail);
             RootOutcome outcome = new RootOutcome(displayName, detail, status, durationMs, slow,
-                    error != null || status >= 500 || redisFailed,
-                    ResourceUsage.between(state.resourcesAtStart, resourcesAtStop, properties));
+                    error != null || status >= 500 || redisFailed, resources);
             if (outcome.resources.exceeded()) state.traceHandle.requireTree();
-            state.traceHandle.stop(threshold, state.type.name() + " observation", error,
+            state.traceHandle.stop(threshold, () -> state.type.name() + " observation" + resources.logText(), error,
                     completion -> storeCompletedTrace(state, completion, outcome));
         } catch (RuntimeException failure) {
             if (ownsRoot) state.traceHandle.discard();
@@ -221,12 +222,12 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
     }
 
     private void recordStats(Observation.Context context, ObservationState state, String detail, long durationNanos,
-                             boolean failed) {
+                             boolean failed, ResourceUsage resources) {
         if (operationStats == null) return;
         OperationStats.Category category = statsCategory(state.type);
         if (category == null) return;
         operationStats.record(category, statsName(context, state.type, state.operationName, detail),
-                durationNanos, failed);
+                durationNanos, failed, resources.cpuNanos, resources.allocatedBytes);
     }
 
     private void storeCompletedTrace(ObservationState state, TraceCompletion completion, RootOutcome outcome) {
@@ -341,20 +342,45 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
     }
 
     /** Entry-thread CPU time and allocation for one request; -1 means unknown (for example, finished elsewhere). */
-    private record ResourceUsage(long cpuTimeMs, long allocatedBytes, boolean highCpu, boolean highAllocation) {
+    private record ResourceUsage(long cpuNanos, long cpuTimeMs, long allocatedBytes, boolean highCpu,
+                                 boolean highAllocation) {
+        static final ResourceUsage UNKNOWN = new ResourceUsage(-1, -1, -1, false, false);
+
         static ResourceUsage between(ThreadResourceSnapshot start, ThreadResourceSnapshot stop,
                                      EasyObservabilityProperties properties) {
-            long cpuTimeMs = start == null || stop == null ? -1 : stop.cpuTimeMsSince(start);
-            long allocatedBytes = start == null || stop == null ? -1 : stop.allocatedBytesSince(start);
+            if (start == null || stop == null) return UNKNOWN;
+            long cpuNanos = stop.cpuNanosSince(start);
+            long cpuTimeMs = cpuNanos < 0 ? -1 : cpuNanos / 1_000_000;
+            long allocatedBytes = stop.allocatedBytesSince(start);
             long cpuThresholdMs = properties.getTrace().getCpuThreshold().toMillis();
             long allocationThreshold = properties.getTrace().getAllocatedMemoryThreshold().toBytes();
-            return new ResourceUsage(cpuTimeMs, allocatedBytes,
+            return new ResourceUsage(cpuNanos, cpuTimeMs, allocatedBytes,
                     cpuThresholdMs > 0 && cpuTimeMs >= cpuThresholdMs,
                     allocationThreshold > 0 && allocatedBytes >= allocationThreshold);
         }
 
         boolean exceeded() {
             return highCpu || highAllocation;
+        }
+
+        /** Suffix for the slow and error trace log, for example {@code ", cpu=12ms, allocated=3.4MiB"}. */
+        String logText() {
+            StringBuilder text = new StringBuilder();
+            if (cpuTimeMs >= 0) text.append(", cpu=").append(cpuTimeMs).append("ms");
+            if (allocatedBytes >= 0) text.append(", allocated=").append(formatBytes(allocatedBytes));
+            return text.toString();
+        }
+
+        private static String formatBytes(long bytes) {
+            if (bytes < 1024) return bytes + "B";
+            String[] units = {"KiB", "MiB", "GiB"};
+            double value = bytes;
+            int unit = -1;
+            while (value >= 1024 && unit < units.length - 1) {
+                value /= 1024;
+                unit++;
+            }
+            return String.format(java.util.Locale.ROOT, "%.1f%s", value, units[unit]);
         }
     }
 }

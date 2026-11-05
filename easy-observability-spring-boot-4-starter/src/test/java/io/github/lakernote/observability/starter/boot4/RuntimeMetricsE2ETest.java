@@ -74,6 +74,12 @@ class RuntimeMetricsE2ETest {
                     .contains("\"name\":\"/fail · GET\",\"count\":1,\"errors\":1")
                     .contains("\"name\":\"SELECT COUNT(*) FROM orders WHERE id IN (?…)\",\"count\":3,\"errors\":0")
                     .doesNotContain("easy-observability/", "traceQuery");
+            // Entries carry the CPU time and allocation of the request thread; dependency calls cannot.
+            assertThat(body)
+                    .containsPattern(java.util.regex.Pattern.quote("\"name\":\"/orders/{id} · GET\",")
+                            + "[^}]*\"meanCpuMs\":[0-9.]+,\"meanAllocatedBytes\":[1-9][0-9]*}")
+                    .containsPattern(java.util.regex.Pattern.quote("\"name\":\"SELECT COUNT(*) FROM orders")
+                            + "[^}]*\"meanCpuMs\":null,\"meanAllocatedBytes\":null}");
         });
         assertThat(get("/api/easy-observability/metrics/operations?window=today").body())
                 .contains("\"window\":\"TODAY\"", "\"persistent\":true", "\"name\":\"/fail · GET\"");
@@ -147,7 +153,8 @@ class RuntimeMetricsE2ETest {
                     await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> assertThat(
                             get(applicationPort, "/api/easy-observability/metrics/operations?window=today").body())
                             .contains("\"persistent\":true", "\"name\":\"/orders/{id} · GET\",\"count\":"
-                                    + expected + ","));
+                                    + expected + ",")
+                            .containsPattern("\"meanAllocatedBytes\":[1-9][0-9]*}"));
                 }
             }
             try (var files = Files.list(directory.resolve("metrics"))) {

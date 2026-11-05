@@ -1,5 +1,8 @@
 package io.github.lakernote.observability.integration.observation.internal;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
 import io.github.lakernote.observability.metrics.internal.OperationStats;
 import io.github.lakernote.observability.metrics.internal.OperationStats.Category;
@@ -11,7 +14,9 @@ import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 
+import java.time.Duration;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -104,6 +109,67 @@ class ObservationTraceHandlerStatsTest {
 
         assertThat(stats.snapshot(OperationStats.Window.TODAY).categories())
                 .allSatisfy(category -> assertThat(category.rows()).isEmpty());
+    }
+
+    @Test
+    void entriesCarryEntryThreadCpuAndAllocationButDependenciesDoNot() {
+        Observation observation = Observation.createNotStarted("http.server.requests", registry)
+                .lowCardinalityKeyValue("http.route", "/report")
+                .lowCardinalityKeyValue("uri", "/report")
+                .lowCardinalityKeyValue("method", "GET")
+                .lowCardinalityKeyValue("status", "200")
+                .start();
+        try (Observation.Scope ignored = observation.openScope()) {
+            byte[][] garbage = new byte[64][];
+            for (int i = 0; i < garbage.length; i++) garbage[i] = new byte[16 * 1024];
+            assertThat(garbage[63]).hasSize(16 * 1024);
+            Observation.createNotStarted("http.client.requests", registry)
+                    .lowCardinalityKeyValue("method", "GET")
+                    .lowCardinalityKeyValue("client.name", "pay.example.com")
+                    .lowCardinalityKeyValue("uri", "/charges")
+                    .start().stop();
+        }
+        observation.stop();
+
+        assertThat(rows(Category.HTTP)).singleElement().satisfies(row -> {
+            assertThat(row.meanCpuMs()).isNotNull().isGreaterThanOrEqualTo(0.0);
+            assertThat(row.meanAllocatedBytes()).isNotNull().isGreaterThanOrEqualTo(1024L * 1024);
+        });
+        assertThat(rows(Category.REMOTE)).singleElement().satisfies(row -> {
+            assertThat(row.meanCpuMs()).isNull();
+            assertThat(row.meanAllocatedBytes()).isNull();
+        });
+    }
+
+    @Test
+    void slowEntryLogStatesEntryThreadCpuAndAllocation() throws InterruptedException {
+        EasyObservabilityProperties properties = new EasyObservabilityProperties();
+        properties.getTrace().setHttpSlowThreshold(Duration.ofMillis(1));
+        ObservationRegistry slowRegistry = ObservationRegistry.create();
+        slowRegistry.observationConfig().observationHandler(new ObservationTraceHandler(TraceStore.inMemory(10),
+                properties, List.of(), stats));
+        Logger logger = (Logger) LoggerFactory.getLogger(TraceContext.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        boolean additive = logger.isAdditive();
+        logger.setAdditive(false);
+        logger.addAppender(appender);
+        appender.start();
+        try {
+            Observation observation = Observation.createNotStarted("http.server.requests", slowRegistry)
+                    .lowCardinalityKeyValue("http.route", "/slow")
+                    .lowCardinalityKeyValue("method", "GET")
+                    .lowCardinalityKeyValue("status", "200")
+                    .start();
+            Thread.sleep(5);
+            observation.stop();
+
+            assertThat(appender.list).singleElement().satisfies(event -> assertThat(event.getFormattedMessage())
+                    .containsPattern("description=HTTP observation, cpu=\\d+ms, allocated=[0-9.]+(B|KiB|MiB), cost="));
+        } finally {
+            logger.detachAppender(appender);
+            logger.setAdditive(additive);
+            appender.stop();
+        }
     }
 
     private void http(String route, String method, String status) {

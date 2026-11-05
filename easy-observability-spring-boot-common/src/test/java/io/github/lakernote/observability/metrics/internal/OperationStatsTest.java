@@ -47,6 +47,23 @@ class OperationStatsTest {
     }
 
     @Test
+    void averagesEntryCpuAndAllocationOverCallsThatReportedThem() {
+        stats.record(Category.HTTP, "/report · GET", ms(40), false, ms(30), 4 * 1024 * 1024);
+        stats.record(Category.HTTP, "/report · GET", ms(60), false, ms(10), 2 * 1024 * 1024);
+        // An async request finished on another thread reports no resources and must not dilute the averages.
+        stats.record(Category.HTTP, "/report · GET", ms(500), false, -1, -1);
+        stats.record(Category.SQL, "select ?", ms(5), false);
+
+        Row report = category(Window.HOUR, Category.HTTP).rows().get(0);
+        assertThat(report.count()).isEqualTo(3);
+        assertThat(report.meanCpuMs()).isEqualTo(20.0);
+        assertThat(report.meanAllocatedBytes()).isEqualTo(3L * 1024 * 1024);
+        Row sql = category(Window.HOUR, Category.SQL).rows().get(0);
+        assertThat(sql.meanCpuMs()).isNull();
+        assertThat(sql.meanAllocatedBytes()).isNull();
+    }
+
+    @Test
     void estimatesP95WithinHistogramResolutionAndNeverAboveMax() {
         for (int i = 1; i <= 100; i++) stats.record(Category.SQL, "select ?", ms(i), false);
         stats.record(Category.REDIS, "GET", 3_000, false);
