@@ -1,6 +1,6 @@
 import {
   $, DISABLED_MESSAGE, categoryNames, countsSince, formatBytes, formatMs, initializeEmbeddedAuth, lineChart, node, request
-} from './metrics-common.js?v=20261106.1'
+} from './metrics-common.js?v=20261106.2'
 
 const REFRESH_MS = 10000
 // Day ranges change slowly and read history files, so poll them less often.
@@ -131,6 +131,17 @@ function detailRow() {
   return detail
 }
 
+// Trace search matches entry names, SQL and span tags, so the operation name finds the recorded slow and failed calls.
+function traceLink(target) {
+  const actions = node('div', 'stats-detail-actions')
+  const link = node('a', '', '查看相关的慢 / 错误 Trace →')
+  // Remote rows are named "GET host /path"; trace spans only carry the path.
+  const remotePath = target.category === 'REMOTE' ? /^[A-Z]+ \S+ (.+)$/.exec(target.name)?.[1] : null
+  link.href = `../?q=${encodeURIComponent(remotePath || target.name)}`
+  actions.append(link)
+  return actions
+}
+
 async function loadTrend() {
   if (!expanded) return
   const target = expanded
@@ -157,7 +168,7 @@ async function loadTrend() {
     ]
     const grid = node('div', 'stats-detail-grid')
     grid.append(...detailCharts.map(chart => chart.card))
-    body.replaceChildren(grid)
+    body.replaceChildren(traceLink(target), grid)
   } catch (error) {
     if (expanded === target) body.replaceChildren(node('p', 'stats-detail-status', error.message))
   }

@@ -16,7 +16,7 @@
 .metric-chart-hint { color:#8290a4; font-size:11px; }
 .metric-reset { min-height:40px; padding:7px 11px; border:1px solid #dbe3ee; border-radius:6px; background:#fff; color:#56677f; font-size:11px; font-weight:650; cursor:pointer; transition:background-color 140ms ease,border-color 140ms ease,color 140ms ease; }
 .metric-reset:hover { background:#f5f8fd; }
-.metric-plot { width:100%; min-height:250px; }
+.metric-plot { width:100%; }
 .metric-uplot { width:100%; font-family:inherit; }
 .metric-legend { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,230px),1fr)); gap:6px; margin-top:9px; }
 .metric-legend-item { display:flex; min-width:0; min-height:40px; align-items:center; gap:8px; padding:6px 9px; border:1px solid #e8edf4; border-radius:6px; background:#f9fbfd; color:#394b65; text-align:left; cursor:pointer; transition:background-color 140ms ease,border-color 140ms ease,opacity 140ms ease; }

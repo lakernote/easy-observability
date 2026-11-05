@@ -28,7 +28,7 @@ class ObservabilityDashboardResourceTest {
         String metricsPageContent = new String(metricsPage.readAllBytes(), StandardCharsets.UTF_8);
         assertThat(pageContent)
                 .contains("Easy Observability", "src=\"assets/dashboard.js", "href=\"stats/\">运行指标",
-                        "Trace 诊断", "正常请求不会显示在此列表中", "内存分配量", "完成时间", "入口线程资源",
+                        "Trace 诊断", "正常请求不会显示在此列表中", "内存分配量", "CPU 时间", "完成时间", "id=\"result-filter\" class=\"segmented\"",
                         "表格可横向滚动查看全部字段",
                         "<button id=\"clear-history\" class=\"quiet-button\" type=\"button\" hidden>")
                 .doesNotContain("href=\"/easy-observability", "src=\"/easy-observability");
@@ -42,11 +42,11 @@ class ObservabilityDashboardResourceTest {
                         "easy-observability:auth-request", "easy-observability:auth-response",
                         "initializeEmbeddedAuth().then(() => Promise.all([loadPermissions(), refresh()]))",
                         "$('clear-history').hidden = !permissions.canClear",
-                        "kind: $('result-filter').value", "params.set('before', pageCursors[page])",
+                        "kind: resultFilter", "params.set('before', pageCursors[page])",
                         "traces.scanLimited ? '继续搜索' : '下一页'", "notFoundMessage: '这条 Trace 已不在保留范围内'",
                         "formatAllocatedBytes(trace.allocatedBytes)", "formatAllocatedBytes(detail.allocatedBytes)",
                         "内存分配量", "不是当前堆占用", "条诊断 Trace",
-                        "addFact($('facts'), '状态'")
+                        "addFact($('facts'), '状态'", "foldRepeats(", "formatCpu(trace.cpuTimeMs)")
                 .doesNotContain("const api = '/api/");
         assertThat(new String(metricsScript.readAllBytes(), StandardCharsets.UTF_8))
                 .contains("request(`metrics/operations/trends?period=${period}`)",
@@ -81,7 +81,7 @@ class ObservabilityDashboardResourceTest {
             assertThat(new String(script.readAllBytes(), StandardCharsets.UTF_8))
                     .contains("request(`metrics/operations?window=${encodeURIComponent($('window').value)}`)",
                             "request(`metrics/operations/trend?category=", "LONG_RANGE_REFRESH_MS",
-                            "url.searchParams.set('window', $('window').value)",
+                            "url.searchParams.set('window', $('window').value)", "link.href = `../?q=",
                             "request('/metrics/operations/reset', { method: 'POST' }",
                             "$('reset-stats').hidden = !permissions.canClear", "next.collecting")
                     .doesNotContain("innerHTML", "const api = '/api/", "traceQuery");
@@ -108,7 +108,7 @@ class ObservabilityDashboardResourceTest {
     }
 
     @Test
-    void keepsThreadIdentityVisibleForSingleThreadTimelines() throws IOException {
+    void keepsThreadIdentityVisibleInTimelines() throws IOException {
         try (var script = getClass().getClassLoader()
                 .getResourceAsStream("META-INF/resources/easy-observability/assets/dashboard.js")) {
             assertThat(script).isNotNull();

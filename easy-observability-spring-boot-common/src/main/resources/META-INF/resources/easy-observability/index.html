@@ -6,7 +6,7 @@
   <meta name="color-scheme" content="light">
   <title>Easy Observability · Trace</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="assets/dashboard.css?v=20261105.1">
+  <link rel="stylesheet" href="assets/dashboard.css?v=20261106.2">
 </head>
 <body>
   <a class="skip-link" href="#main-content">跳到主要内容</a>
@@ -30,11 +30,11 @@
     <section class="intro">
       <p class="eyebrow">TRACE EXPLORER</p>
       <h1>Trace 诊断</h1>
-      <p>集中查看慢调用、错误以及 CPU 时间或内存分配量超阈值的入口；打开记录沿调用时间线定位根因。</p>
+      <p>只记录慢、出错或资源超阈值的入口（HTTP、定时任务、Kafka 消费）。打开一条记录，沿调用时间线定位根因。</p>
     </section>
     <div id="notice" class="notice" role="status" hidden></div>
     <section class="filters" aria-label="Trace 筛选">
-      <label><span>结果</span><select id="result-filter"><option value="all">全部诊断 Trace</option><option value="slow">慢调用</option><option value="resource">资源告警</option><option value="error">错误</option></select></label>
+      <div class="filter-group"><span id="result-filter-label">结果</span><div id="result-filter" class="segmented" role="group" aria-labelledby="result-filter-label"><button type="button" data-value="all" aria-pressed="true">全部</button><button type="button" data-value="slow" aria-pressed="false">慢调用</button><button type="button" data-value="error" aria-pressed="false">错误</button><button type="button" data-value="resource" aria-pressed="false">资源告警</button></div></div>
       <label><span>入口</span><select id="source-filter"><option value="">全部来源</option><option value="HTTP">HTTP</option><option value="JOB">定时任务</option><option value="KAFKA_CONSUMER">Kafka 消费</option></select></label>
       <label class="search"><span>搜索入口、Trace ID、SQL、调用节点或错误</span><input id="search" type="search" maxlength="200" placeholder="例如 /api/orders 或 SQLException"></label>
       <span id="result-count" class="count" role="status"></span>
@@ -43,7 +43,7 @@
       <p class="scroll-hint">表格可横向滚动查看全部字段</p>
       <div class="table-scroll"><table>
         <caption class="sr-only">慢调用、资源告警和错误 Trace；选择记录可查看入口线程 CPU 时间、内存分配量与调用时间线</caption>
-        <thead><tr><th scope="col">结果</th><th scope="col">入口</th><th scope="col" title="入口线程在本次入口执行期间累计分配的对象大小，不是当前堆占用">内存分配量</th><th scope="col">总耗时</th><th scope="col">Trace ID</th><th scope="col">完成时间</th></tr></thead>
+        <thead><tr><th scope="col">完成时间</th><th scope="col">入口</th><th scope="col">结果</th><th scope="col" class="numeric">总耗时</th><th scope="col" class="numeric" title="入口线程在本次入口执行期间占用 CPU 的累计时间，不含子线程">CPU 时间</th><th scope="col" class="numeric" title="入口线程在本次入口执行期间累计分配的对象大小，不是当前堆占用">内存分配量</th><th scope="col">Trace ID</th></tr></thead>
         <tbody id="trace-rows"></tbody>
       </table></div>
       <p id="empty" class="empty" hidden>暂无诊断 Trace；正常请求不会显示在此列表中</p>
@@ -52,15 +52,14 @@
     <footer>Trace 历史来自当前应用实例。Spring Boot Actuator 指标仍由应用自身配置管理。</footer>
   </main>
   <dialog id="detail-dialog" aria-labelledby="detail-title">
-    <div class="dialog-head"><div><p class="eyebrow">TRACE DETAIL</p><h2 id="detail-title">调用详情</h2></div><button id="close-dialog" class="close" aria-label="关闭">×</button></div>
-    <div id="facts" class="facts"></div>
-    <section id="resource-facts" class="resource-facts" aria-labelledby="resource-facts-title">
-      <h3 id="resource-facts-title">入口线程资源</h3>
-      <div id="resource-facts-content" class="resource-facts-content"></div>
-    </section>
-    <div class="tree-heading"><h3>调用时间线</h3><span>按调用关系排列 · T 编号对应线程 · 横条表示相对开始时间和持续时间</span></div>
-    <div id="tree" class="tree-view" role="region" aria-label="端到端调用时间线"></div>
-    <section id="span-detail" class="span-detail" aria-live="polite"><p>选择一个调用节点查看详情</p></section>
+    <div class="dialog-head">
+      <div class="dialog-title">
+        <p class="dialog-meta"><span id="detail-source"></span><code id="detail-trace-id"></code><button id="copy-trace-id" class="copy-trace-id" type="button" title="复制 Trace ID">复制</button></p>
+        <h2 id="detail-title" tabindex="-1">调用详情</h2>
+      </div>
+      <button id="close-dialog" class="close" aria-label="关闭">×</button>
+    </div>
+    <div id="facts" class="facts" aria-label="入口和入口线程资源"></div>
     <section id="error-section" class="error-detail" hidden>
       <h3>异常</h3><p id="error-message" class="error-message"></p>
       <details id="error-stack-details" class="stack-details">
@@ -68,12 +67,15 @@
         <pre id="error-stack" class="stack"></pre>
       </details>
     </section>
+    <div class="tree-heading"><h3>调用时间线</h3><span>按调用关系排列 · 连续重复的调用合并为一行 · 横条表示开始时间和持续时间</span></div>
+    <div id="tree" class="tree-view" role="region" aria-label="端到端调用时间线"></div>
+    <section id="span-detail" class="span-detail" aria-live="polite"></section>
   </dialog>
   <dialog id="clear-dialog" class="confirm-dialog">
     <h2>清空 Trace 历史？</h2>
     <p>将删除当前实例内存中的近期记录和诊断 Trace 归档文件。</p>
     <div class="dialog-actions"><button id="cancel-clear" type="button">取消</button><button id="confirm-clear" class="danger" type="button">清空</button></div>
   </dialog>
-  <script type="module" src="assets/dashboard.js?v=20261105.2"></script>
+  <script type="module" src="assets/dashboard.js?v=20261106.2"></script>
 </body>
 </html>

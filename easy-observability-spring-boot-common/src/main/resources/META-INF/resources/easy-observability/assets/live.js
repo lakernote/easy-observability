@@ -1,4 +1,4 @@
-import { $, api, formatBytes, formatMs, initializeEmbeddedAuth, node, request } from './metrics-common.js?v=20261106.1'
+import { $, api, formatBytes, formatMs, initializeEmbeddedAuth, node, request } from './metrics-common.js?v=20261106.2'
 
 const DENIED = '没有查看实时诊断的权限，请登录或检查 ObservabilityAccessPolicy'
 const SOURCES = { HTTP: 'HTTP', JOB: '定时任务', KAFKA_CONSUMER: 'Kafka 消费' }
@@ -152,9 +152,18 @@ function renderThreads() {
   const waiting = (report.states.WAITING || 0) + (report.states.TIMED_WAITING || 0)
   const cards = [['线程', report.threadCount], ['RUNNABLE', report.states.RUNNABLE || 0],
     ['BLOCKED', report.states.BLOCKED || 0], ['WAITING', waiting], ['死锁', report.deadlockedThreadIds.length]]
+  // Thread and state cards double as filters; the WAITING card covers both waiting states, so it stays informational.
+  const filters = { 线程: '', RUNNABLE: 'RUNNABLE', BLOCKED: 'BLOCKED' }
   $('thread-cards').replaceChildren(...cards.map(([label, value]) => {
-    const card = node('div', `live-card ${(label === '死锁' || label === 'BLOCKED') && value > 0 ? 'bad' : ''}`)
+    const clickable = label in filters
+    const card = node(clickable ? 'button' : 'div', `live-card ${(label === '死锁' || label === 'BLOCKED') && value > 0 ? 'bad' : ''}`)
     card.append(node('small', '', label), node('strong', '', value.toLocaleString()))
+    if (clickable) {
+      card.type = 'button'
+      card.setAttribute('aria-pressed', String($('thread-state').value === filters[label]))
+      card.title = label === '线程' ? '显示全部线程' : `只看 ${label} 线程`
+      card.addEventListener('click', () => { $('thread-state').value = filters[label]; renderThreads() })
+    }
     return card
   }))
   const deadlocks = $('deadlocks')
@@ -218,10 +227,12 @@ function appendThread(rows, thread) {
   expandable(rows, row, `t${thread.id}`, 5, () => [stackBlock(thread.stack)])
 }
 
+// A lock with an owner is contention worth reading; ownerless waits are idle pools parked on a condition.
 function lockCell(thread) {
   const text = thread.lockName
     ? `${thread.deadlocked ? '死锁 · ' : ''}${shortLock(thread.lockName)}${thread.lockOwnerName ? ` ← ${thread.lockOwnerName}` : ''}` : ''
-  return clipped(`mono ${thread.deadlocked ? 'bad' : ''}`, text,
+  const tone = thread.deadlocked ? 'bad' : thread.lockOwnerName ? 'contended' : 'muted'
+  return clipped(`mono ${tone}`, text,
     thread.lockName ? thread.lockName + (thread.lockOwnerName ? `，持有者 ${thread.lockOwnerName}` : '') : '')
 }
 
