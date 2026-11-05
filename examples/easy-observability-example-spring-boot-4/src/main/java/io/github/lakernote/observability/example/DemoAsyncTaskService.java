@@ -9,93 +9,50 @@ import org.springframework.web.client.RestClient;
 
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 public class DemoAsyncTaskService {
     private final RestClient httpBingo;
-    private final Map<String, ConcurrentHashMap<String, String>> statuses = new ConcurrentHashMap<>();
 
     public DemoAsyncTaskService(RestClient httpBingo) {
         this.httpBingo = httpBingo;
     }
 
     @Async("demoTaskExecutor")
-    public CompletableFuture<Map<String, Object>> executeObservedWork() {
-        Map<String, Object> result = TraceBlock.call("demo.worker.process", SpanKind.CODE,
-                "子线程业务处理", () -> {
-                    pause(650);
-                    return Map.of("workerThread", Thread.currentThread().getName(),
-                            "traceId", TraceIdContext.currentTraceId(),
-                            "processed", true);
-                });
-        return CompletableFuture.completedFuture(result);
+    public CompletableFuture<Map<String, Object>> processOnWorker() {
+        return CompletableFuture.completedFuture(TraceBlock.call("demo.worker.process", SpanKind.CODE, "子线程业务处理",
+                () -> {
+                    DemoSupport.pause(650);
+                    return worker("completed");
+                }));
     }
 
+    /** Calls a remote service and keeps working for 4 s, so it outlives the request that started it. */
     @Async("demoTaskExecutor")
-    public CompletableFuture<Void> callRemoteOnWorker(String path) {
+    public void callRemoteAndLinger(String path) {
         httpBingo.get().uri(path).retrieve().toBodilessEntity();
-        // Keep the worker busy after its remote call so the no-wait demo reliably outlives the HTTP request.
-        pause(4_000);
-        return CompletableFuture.completedFuture(null);
-    }
-
-    public void registerTask(String taskId, String mode, String propagation, String parentTraceId) {
-        ConcurrentHashMap<String, String> state = new ConcurrentHashMap<>();
-        state.put("taskId", taskId);
-        state.put("mode", mode);
-        state.put("propagation", propagation);
-        state.put("parentTraceId", parentTraceId == null || parentTraceId.isBlank() ? "未创建" : parentTraceId);
-        state.put("status", "queued");
-        statuses.put(taskId, state);
+        DemoSupport.pause(4_000);
     }
 
     @Async("demoTaskExecutor")
-    public CompletableFuture<Void> executeWrapped(String taskId, String mode) {
-        executeTask(taskId, mode);
-        return CompletableFuture.completedFuture(null);
+    public CompletableFuture<Map<String, Object>> runWrapped(String mode) {
+        return CompletableFuture.completedFuture(task(mode));
     }
 
     @Async("demoTaskExecutorUnwrapped")
-    public CompletableFuture<Void> executeUnwrapped(String taskId, String mode) {
-        executeTask(taskId, mode);
-        return CompletableFuture.completedFuture(null);
+    public CompletableFuture<Map<String, Object>> runUnwrapped(String mode) {
+        return CompletableFuture.completedFuture(task(mode));
     }
 
-    private void executeTask(String taskId, String mode) {
-        ConcurrentHashMap<String, String> state = statuses.get(taskId);
-        if (state == null) return;
-        state.put("status", "running");
-        state.put("workerThread", Thread.currentThread().getName());
-        String observedTraceId = TraceIdContext.currentTraceId();
-        boolean traceContextPresent = observedTraceId != null && !observedTraceId.isBlank();
-        state.put("traceContextPresent", Boolean.toString(traceContextPresent));
-        state.put("observedTraceId", observedTraceId == null || observedTraceId.isBlank() ? "未传播" : observedTraceId);
-        state.put("traceIdMatchesParent", Boolean.toString(state.get("parentTraceId").equals(observedTraceId)));
-        state.put("taskTraceRecorded", Boolean.toString(traceContextPresent));
-        try {
-            if ("slow".equals(mode)) pause(700);
-            if ("error".equals(mode)) throw new IllegalStateException("Example executor task failure");
-            state.put("status", "completed");
-        } catch (RuntimeException failure) {
-            state.put("status", "failed");
-            state.put("cause", failure.getClass().getSimpleName() + ": " + String.valueOf(failure.getMessage()));
-            // Keep the failure visible to the executor decorator (and the returned @Async Future).
-            throw failure;
-        }
+    private static Map<String, Object> task(String mode) {
+        if ("slow".equals(mode)) DemoSupport.pause(700);
+        if ("error".equals(mode)) throw new IllegalStateException("Example executor task failure");
+        return worker(mode);
     }
 
-    public Map<String, String> status(String taskId) {
-        Map<String, String> state = statuses.get(taskId);
-        return state == null ? Map.of("taskId", taskId, "status", "unknown") : Map.copyOf(state);
-    }
-
-    private static void pause(long millis) {
-        try {
-            Thread.sleep(millis);
-        } catch (InterruptedException failure) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException("Example executor task interrupted", failure);
-        }
+    private static Map<String, Object> worker(String outcome) {
+        String traceId = TraceIdContext.currentTraceId();
+        return Map.of("workerThread", Thread.currentThread().getName(),
+                "workerTraceId", traceId == null || traceId.isBlank() ? "未传播" : traceId, "outcome", outcome);
     }
 }

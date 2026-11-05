@@ -57,7 +57,7 @@ public class DemoKafkaService {
                 }
                 Thread.sleep(50);
             } while (System.nanoTime() < deadline);
-            return Map.of("traceId", traceId, "consumerTraceId", "尚未消费，请稍后查询 /api/demo/kafka/status",
+            return Map.of("traceId", traceId, "consumerTraceId", "尚未消费，请稍后查询 /api/demo/trace/kafka/status",
                     "traceIdMatches", false, "topic", TOPIC, "messageKey", key);
         } catch (Exception e) {
             throw new IllegalStateException("Kafka 示例消息发送或消费失败", e);

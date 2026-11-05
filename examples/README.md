@@ -3,11 +3,11 @@
 - `easy-observability-example-spring-boot-3`：Spring Boot 3，默认 `http://localhost:8083/`
 - `easy-observability-example-spring-boot-4`：Spring Boot 4，默认 `http://localhost:8084/`
 
-主页按 JDBC、Redis、远程 HTTP、Kafka 和异步线程池分组。每个依赖提供正常、慢、错误场景，便于在 Trace 页面核对耗时节点和异常堆栈。示例同时开启组件的运行指标（调用统计和资源指标），不添加应用专属的自定义指标。
+两个示例代码相同。主页按“在哪个页面看效果”分组列出全部场景，点击即可触发真实调用。
 
 ## 启动
 
-H2 是内嵌数据库，不需要额外服务。Redis 和 Kafka 示例需要先启动本地依赖：
+H2 是内嵌内存数据库，无需额外服务。Redis 和 Kafka 场景需要先启动本地依赖：
 
 ```bash
 docker compose -f examples/docker-compose.yml up -d --wait
@@ -23,56 +23,63 @@ mvn -pl examples/easy-observability-example-spring-boot-4 -am package
 java -jar examples/easy-observability-example-spring-boot-4/target/easy-observability-example-spring-boot-4-0.1.0-alpha.4.jar
 ```
 
-打开应用主页，Trace 页面为 `/easy-observability/`，调用排行页为 `/easy-observability/stats/`，指标趋势页为 `/easy-observability/metrics/`。Boot 3 示例可用 `http://localhost:8083/`，Boot 4 示例可用 `http://localhost:8084/`。
+页面入口：Trace 诊断 `/easy-observability/`、调用排行 `/easy-observability/stats/`、指标趋势 `/easy-observability/metrics/`、实时诊断 `/easy-observability/live/`。
 
-页面和查询 API 默认允许访问；两个示例额外通过 `DemoAccessConfiguration` 定义了允许所有人清空历史的 `ObservabilityAccessPolicy`。仅用于本机体验，不要将示例直接暴露到不可信网络。生产应用应复用自己的登录和授权，详见[接入与配置指南](../docs/guide.md#页面和-api-访问)。
+示例阈值：HTTP 和定时任务慢阈值 250 ms，入口线程 CPU 时间 100 ms，内存分配量 8 MB（见 `application.yaml`）。
 
-## 依赖调用场景
+页面和 API 默认允许访问；示例通过 `DemoAccessConfiguration` 允许所有人清空历史，仅用于本机体验，不要暴露到不可信网络。
 
-所有场景都在一个 HTTP Trace 中查看入口及依赖调用树。
+## Trace：依赖调用（`/api/demo/trace`）
 
-| 依赖 | 正常 | 慢 | 错误 | 场景说明 |
-| --- | --- | --- | --- | --- |
-| JDBC / H2 | `/api/demo/db?mode=normal` | `/api/demo/db?mode=slow` | `/api/demo/db?mode=error` | 执行真实 `JdbcTemplate` 写入和查询；慢场景在查询边界模拟 900 ms 等待；错误场景重复插入主键以产生真实 SQL 约束异常 |
-| Redis | `/api/demo/redis?mode=normal` | `/api/demo/redis?mode=slow` | `/api/demo/redis?mode=error` | 执行真实 SET/GET；慢场景使用 1 秒 BLPOP 等待；错误场景对字符串键执行列表命令以触发 `WRONGTYPE` |
-| 远程 HTTP | `/api/demo/remote?mode=normal` | `/api/demo/remote?mode=slow` | `/api/demo/remote?mode=error` | 调用 httpbingo 的 `/anything`、`/delay/1` 和 `/status/500`，分别查看正常、慢和 HTTP 500 错误 Span |
-| Kafka | `/api/demo/kafka` | `/api/demo/kafka/slow` | `/api/demo/kafka/error` | 发送真实消息并等待 listener 消费；响应包含 producer/consumer Trace ID 是否一致 |
+| 场景 | URL | 看什么 |
+| --- | --- | --- |
+| SQL 正常 / 慢 / 错误 | `/db`、`/db?mode=slow`、`/db?mode=error` | 慢场景是真实执行 900 ms 的 SQL；错误场景是主键冲突，详情含 SQL 异常堆栈 |
+| 事务回滚 | `/transaction-rollback` | 事务内 INSERT 后抛异常，调用树含 SQL，详情含根因 |
+| N+1 查询 | `/n-plus-one` | 20 次 INSERT + 20 次相同 SELECT（每次 15 ms）；慢 Trace 日志合并为 `count=20` |
+| 自定义业务步骤 | `/custom-steps` | `@TraceSpan` 方法下的 `TraceBlock` 步骤：加载、计算（CPU）、渲染 |
+| Redis 正常 / 慢 / 错误 | `/redis`、`/redis?mode=slow`、`/redis?mode=error` | 慢场景是 1 秒 BLPOP；错误场景是 `WRONGTYPE` |
+| 远程 HTTP 正常 / 慢 / 错误 | `/remote`、`/remote?mode=slow`、`/remote?mode=error` | 调用 httpbingo 的 `/anything`、`/delay/1`、`/status/500` |
+| Kafka 正常 / 慢 / 错误 | `/kafka`、`/kafka?mode=slow`、`/kafka?mode=error` | 发送并等待消费；consumer 是独立的 Kafka 入口 Trace。未消费完可查 `/kafka/status` |
+| 完整链路 | `/full-flow` | 一个请求依次经过 H2、Redis、远程 HTTP、Kafka |
 
-Kafka 首次启动时 broker 和 consumer group 需要一些时间完成协调。若接口返回尚未消费，可查询 `/api/demo/kafka/status`。慢和错误场景只用于本地诊断演示，Kafka 错误消息配置为不重试，避免生成重复错误 Trace。
+远程 HTTP 需要访问 httpbingo，可用 `EASY_OBSERVABILITY_DEMO_HTTPBINGO_BASE_URL` 换成兼容服务。示例通过 Spring 管理的 `RestClient.Builder` 创建客户端，`RestClient.create()` 创建的客户端不会被观测。
 
-远程 HTTP 场景需要访问 httpbingo。可用 `EASY_OBSERVABILITY_DEMO_HTTPBINGO_BASE_URL` 指定兼容的服务地址。
+## Trace：跨线程（`/api/demo/async`）
 
-## 异步线程池上下文传播
+| 场景 | URL | 看什么 |
+| --- | --- | --- |
+| 等待子线程 | `/child-thread` | 650 ms 的子线程任务挂在请求调用树下，时间线用 T1/T2 区分线程 |
+| 请求返回后子线程仍运行 | `/fire-and-forget` | 子线程节点标为“请求结束时仍在运行”，日志带 `[RUNNING_AT_END]` |
+| 带传播的线程池 | `/executor?mode=slow`、`/executor?mode=error` | 线程池配置 `TraceContextTaskDecorator` 后，任务以 `executor.task` 节点记录耗时和异常 |
+| 不带传播的线程池 | `/executor?mode=slow&propagation=unwrapped` | 对照组：响应 `propagated=false`，任务不出现在调用树中 |
 
-主页的“异步线程池上下文传播对照”提供 `normal`、`slow`、`error` 三种任务，以及带/不带 Trace 包装器两种线程池：
+## Trace：资源超阈值（`/api/demo/resource`）
 
-- `propagation=wrapped`：线程池只需配置一次公共 `TraceContextTaskDecorator`。任务自动继承父 Trace，并以 `executor.task` 节点记录耗时和异常；不需要在任务代码里手动包装。接口会等待任务结束，保证父 Trace 仍处于活动状态。
-- `propagation=unwrapped`：线程池不使用包装器。任务状态响应显示上下文未传播，任务不会出现在请求 Trace 调用树中。
-- `/api/demo/executor/{taskId}` 可查看任务执行状态；提交入口也会等待任务完成并返回任务状态、worker 线程以及上下文传播结果。
+| 场景 | URL | 看什么 |
+| --- | --- | --- |
+| 高 CPU | `/cpu` | 约 200 ms 计算，不慢也不报错，但超过 CPU 阈值被记录 |
+| 高内存分配 | `/allocation` | 累计分配约 24 MiB 临时数组，超过分配量阈值被记录 |
 
-任务节点使用通用名称 `executor.task`，标签显示执行线程名；任务耗时随父入口 Trace 记录，只有 HTTP、定时任务和 Kafka 消费入口会按阈值分类为慢 Trace。Trace 记录不注册 Timer 或其他 Micrometer meter。Spring 的 `Future` 会吸收任务异常，装饰器会在任务结束后读取已完成 Future 的异常结果；任务内部自行捕获且不再抛出的异常无法由边界装饰器判断。
+CPU 时间不是 CPU 使用率；内存分配量是累计创建对象的大小，不是堆占用；两者只统计入口线程。
 
-另外提供两个可直接观察子线程 Trace 行为的场景：
+## 实时诊断（`/api/demo/live`）
 
-- `/api/demo/async-work`：提交一个约 650 ms 的子线程处理任务，让请求稳定进入慢 Trace 列表。调用树中应看到入口 → `executor.task` → `demo.worker.process`，节点详情里的线程名应为 `demo-task-trace-*`。
-- `/api/demo/real-async-flow`：入口线程与线程池子线程各自调用远程 HTTP；子线程收到响应后再做 4 秒模拟处理，入口不等待 worker。响应先返回；父 Trace 在 HTTP 请求结束时完成。详情会把当时仍运行的 `executor.task` 标为“请求结束时仍在运行”，时长截止于入口结束；慢 Trace 摘要日志会附带 `unfinishedSpansAtTraceEnd` 数量和 `traceId`。worker 随后继续执行，但不会更新已完成 Trace。
+这些请求会持续一段时间（默认 30 秒，`?seconds=N` 可调，最长 120 秒）。在新标签页打开，然后切到实时诊断页观察。
 
-两个场景都通过配置了 `TraceContextTaskDecorator` 的线程池执行。等待版保证子线程在入口 Trace 结束前完成；不等待版用于体验后台任务超出请求生命周期时当前 Trace 的记录边界。
+| 场景 | URL | 在实时诊断页看到 |
+| --- | --- | --- |
+| 卡在业务步骤 | `/slow-step` | 进行中请求的当前步骤为 `ReportService.export`，线程 `TIMED_WAITING` |
+| 卡在 SQL | `/slow-sql` | 当前步骤为 `SQL SELECT`，栈停在 JDBC 驱动里 |
+| 卡在远程调用 | `/slow-remote` | 当前步骤为远程 HTTP 调用（httpbingo `/delay`，最长 10 秒） |
+| 占满 CPU | `/cpu` | 请求 CPU 时间持续增长，线程在 CPU 排行中接近 100% |
+| 锁竞争 | `/lock` | 3 个 `demo-lock-waiter-*` 线程 `BLOCKED`，锁为 `InventoryLock`，持有者是请求线程 |
+| 死锁 | `/deadlock` | 检测到 `demo-deadlock-orders` 与 `demo-deadlock-accounts` 互相等待；默认 60 秒后自动解除 |
+| 异步请求 | `/async` | 请求标为异步，入口线程已释放，因此没有线程栈和 CPU |
 
-## Redis 与 RestClient 自动接入
+## 调用排行与指标趋势（`/api/demo/stats`）
 
-两个示例均启用 Lettuce Observation。Redis 命令由客户端自动生成命令级 Trace Span，业务代码不需要用 `TraceBlock` 包围每次调用。Spring Boot 4 使用 Boot 自带的 Lettuce Micrometer 集成；Spring Boot 3 由 Starter 的 Lettuce `ClientResourcesBuilderCustomizer` 接入。示例保留的 Redis 正常、慢、错误场景都是真实 Redis 命令。
-
-示例的 HTTP 客户端通过 Spring 管理的 `RestClient.Builder` 创建。Starter 自动添加 Trace ID 拦截器，Boot 的 Observation 负责远程调用 Span。`RestClient.create()` 或单独调用 `RestClient.builder()` 创建的客户端绕过 Spring 定制器，不会自动传递 Trace ID。
-
-## 完整链路与事务回滚
-
-- `/api/demo/real-flow` 在一个请求中执行 H2 写入/查询、Redis SET/GET、远程 HTTP 和 Kafka producer，适合检查跨依赖 Trace 串联。
-- `/api/demo/transaction/error` 在 Spring 事务内写入后抛出异常，适合检查 SQL、事务回滚结果和根因堆栈。
-- `/api/demo/resources/cpu` 在请求线程上运行约 200 ms 的计算，触发 CPU 时间阈值而不依赖外部服务。
-- `/api/demo/resources/allocation` 在请求期间累计分配约 24 MiB 临时字节数组，触发分配量阈值；对象在响应后可回收，不会长期占用堆。
-
-每个入口 Trace 都会采集入口线程在本次入口执行期间消耗的 CPU 时间，以及该线程期间的内存分配量。CPU 时间不是 CPU 使用率；内存分配量是创建对象的累计大小，不代表进程当前堆内存占用；两项都不包含子线程。示例将 CPU 时间阈值设为 100 ms、内存分配量阈值设为 `8MB`。HTTP 服务依赖失败仍会作为 Trace 错误保存；Redis 和 Kafka 的场景需要本地 Docker 依赖可用。
+- `/traffic?requests=60`：用 4 个线程批量调用本机示例接口（最多 500 次），混合快、慢、出错和高资源请求，然后到调用排行页查看次数、错误、P95、平均 CPU 和内存分配。
+- 定时任务每 30 秒运行一次：`orderReport`（H2，约 300 ms，每次都是慢任务）和 `redisHeartbeat`（Redis 未启动时每次失败），计入“定时任务”分类。
 
 完成后可关闭本地依赖：
 

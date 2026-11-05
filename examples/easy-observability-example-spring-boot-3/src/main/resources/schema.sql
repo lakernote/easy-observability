@@ -4,3 +4,5 @@ CREATE TABLE IF NOT EXISTS demo_orders (
     status VARCHAR(32) NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL
 );
+
+CREATE ALIAS IF NOT EXISTS DEMO_SLEEP FOR 'io.github.lakernote.observability.example.DemoSqlFunctions.sleep';

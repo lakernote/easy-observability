@@ -4,21 +4,29 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-/** 定时执行真实 Redis 计数，用于展示 Job 根 Trace 及其 Redis 子调用。 */
+/** Background jobs: each run is a JOB root trace and a row in the 定时任务 ranking. */
 @Component
 public class DemoScheduledJob {
+    private final DemoDatabaseService database;
     private final StringRedisTemplate redis;
 
-    public DemoScheduledJob(StringRedisTemplate redis) {
+    public DemoScheduledJob(DemoDatabaseService database, StringRedisTemplate redis) {
+        this.database = database;
         this.redis = redis;
     }
 
+    /** Counts orders in H2; slower than the 250 ms job threshold, so every run is recorded as a slow job. */
     @Scheduled(initialDelayString = "${easy.observability.demo.schedule-initial-delay:5000}",
             fixedDelayString = "${easy.observability.demo.schedule-delay:30000}")
-    public void countHeartbeat() {
-        redis.opsForValue().increment("easy-observability:demo:scheduled-heartbeats");
-        // 后台心跳应保持轻量；阻塞等待会每 30 秒自动制造一条慢 Job 事件。
-        redis.opsForList().leftPop("easy-observability:demo:scheduled-queue");
+    public void orderReport() {
+        database.countOrders();
+        database.slowQuery(300);
     }
 
+    /** A light Redis heartbeat; fails every run while Redis is not started. */
+    @Scheduled(initialDelayString = "${easy.observability.demo.schedule-initial-delay:5000}",
+            fixedDelayString = "${easy.observability.demo.schedule-delay:30000}")
+    public void redisHeartbeat() {
+        redis.opsForValue().increment("easy-observability:demo:scheduled-heartbeats");
+    }
 }
