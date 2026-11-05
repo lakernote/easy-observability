@@ -6,10 +6,10 @@
   <meta name="color-scheme" content="light">
   <title>Easy Observability · 调用排行</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="../assets/dashboard.css?v=20261106.4">
+  <link rel="stylesheet" href="../assets/dashboard.css?v=20261106.5">
   <link rel="stylesheet" href="../assets/uplot.min.css?v=1.6.32">
-  <link rel="stylesheet" href="../assets/metrics.css?v=20261106.4">
-  <link rel="stylesheet" href="../assets/stats.css?v=20261106.4">
+  <link rel="stylesheet" href="../assets/metrics.css?v=20261106.5">
+  <link rel="stylesheet" href="../assets/stats.css?v=20261106.5">
 </head>
 <body>
   <a class="skip-link" href="#main-content">跳到主要内容</a>
@@ -55,7 +55,7 @@
       </table></div>
       <p id="empty" class="empty" hidden></p>
     </section>
-    <footer>每个实例各自统计，每 10 分钟保存到存储目录（metrics/），重启后“今天”“最近 7 天”“最近 30 天”仍然保留，保留天数由 easy.observability.metrics.retention 决定。“最近 1 小时”只看当前进程内存，按 10 分钟分片滚动，实际覆盖 50 到 60 分钟。P95 由对数分桶直方图估算，误差约 ±20%。SQL 已去除字面量，IN 列表和多行 VALUES 会合并为同一条。</footer>
+    <footer>每个实例各自统计，每 10 分钟保存到存储目录（metrics/），重启后各时间范围都保留，保留天数由 easy.observability.metrics.retention 决定。“最近 1 小时”按 10 分钟分片滚动，实际覆盖 50 到 60 分钟；重启前的部分在分钟曲线上按 10 分钟均摊。P95 由对数分桶直方图估算，误差约 ±20%。SQL 已去除字面量，IN 列表和多行 VALUES 会合并为同一条。</footer>
   </main>
   <dialog id="reset-dialog" class="confirm-dialog">
     <h2>重置调用统计？</h2>
@@ -63,6 +63,6 @@
     <div class="dialog-actions"><button id="cancel-reset" type="button">取消</button><button id="confirm-reset" class="danger" type="button">重置</button></div>
   </dialog>
   <script src="../assets/uplot.min.js?v=1.6.32"></script>
-  <script type="module" src="../assets/stats.js?v=20261106.4"></script>
+  <script type="module" src="../assets/stats.js?v=20261106.5"></script>
 </body>
 </html>

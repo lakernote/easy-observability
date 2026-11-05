@@ -6,6 +6,7 @@ import io.github.lakernote.observability.metrics.internal.OperationStats;
 import net.ttddyy.dsproxy.proxy.ProxyJdbcObject;
 import net.ttddyy.dsproxy.support.ProxyDataSource;
 import net.ttddyy.dsproxy.support.ProxyDataSourceBuilder;
+import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -27,8 +28,10 @@ import javax.sql.DataSource;
 @ConditionalOnProperty(prefix = "jdbc.datasource-proxy", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class JdbcTraceAutoConfiguration {
     @Bean
-    JdbcTraceQueryExecutionListener jdbcTraceQueryExecutionListener(ObjectProvider<OperationStats> operationStats) {
-        return new JdbcTraceQueryExecutionListener(operationStats.getIfAvailable());
+    JdbcTraceQueryExecutionListener jdbcTraceQueryExecutionListener(ObjectProvider<OperationStats> operationStats,
+                                                                    ListableBeanFactory beanFactory) {
+        return new JdbcTraceQueryExecutionListener(operationStats.getIfAvailable(),
+                () -> beanFactory.getBeanNamesForType(DataSource.class, false, false).length > 1);
     }
 
     @Bean

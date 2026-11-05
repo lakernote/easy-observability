@@ -26,7 +26,8 @@ import java.util.function.LongSupplier;
  * <p>Each operation keeps two rings in memory: one-minute counters for the last hour's curve, and two hours of
  * 10-minute slices holding a log-scale latency histogram from which P95 is estimated (within one √2-wide bucket). Completed
  * slices are appended to the {@link MetricsArchive} once a minute and the current one on shutdown, so rankings and
- * trends over days survive restarts. Histograms merge exactly, so averages and P95 stay correct over any range.
+ * trends over days survive restarts. On startup the slices of the last hour are read back, so the one-hour views
+ * also survive a restart; the minute curve spreads each of them evenly over its minutes. Histograms merge exactly, so averages and P95 stay correct over any range.
  * The number of distinct operations is capped; later ones are merged into one overflow row per category.</p>
  */
 public final class OperationStats implements AutoCloseable {
@@ -143,6 +144,10 @@ public final class OperationStats implements AutoCloseable {
     private final AtomicInteger keys = new AtomicInteger();
     /** Slices up to and including this one were appended to the archive by this process. */
     private volatile long flushedThroughSlice = Long.MIN_VALUE;
+    /** Slices of the last hour saved by the previous run; they are in the archive, not in {@link #operations}. */
+    private volatile List<RestoredSlice> restored = List.of();
+    /** Start of the one-hour views: the oldest restored slice, or this process's start. */
+    private final long hourCoveredSinceMillis;
     private volatile boolean collecting = true;
     private LocalDate compactedOn;
     private ScheduledExecutorService flusher;
@@ -167,6 +172,23 @@ public final class OperationStats implements AutoCloseable {
         this.zone = zone;
         this.startedAtMillis = clockMillis.getAsLong();
         for (Category category : Category.values()) operations.put(category, new ConcurrentHashMap<>());
+        this.restored = restoreLastHour();
+        this.hourCoveredSinceMillis = restored.stream().mapToLong(slice -> slice.slice() * SLICE_MILLIS)
+                .min().orElse(startedAtMillis);
+    }
+
+    private record RestoredSlice(long slice, Category category, String name, long[] cells) { }
+
+    private List<RestoredSlice> restoreLastHour() {
+        if (!persistent()) return List.of();
+        long firstSlice = Math.floorDiv(startedAtMillis, SLICE_MILLIS) - HOUR_SLICES + 1;
+        List<RestoredSlice> slices = new ArrayList<>();
+        archive.scanOperations(archiveDate(firstSlice * SLICE_MILLIS), archiveDate(startedAtMillis),
+                (start, category, name, cells) -> {
+                    long slice = Math.floorDiv(start, SLICE_MILLIS);
+                    if (slice >= firstSlice) slices.add(new RestoredSlice(slice, category, name, cells.clone()));
+                });
+        return List.copyOf(slices);
     }
 
     /** Marks whether any instrumentation feeds these statistics, so the page can explain an empty ranking. */
@@ -235,8 +257,12 @@ public final class OperationStats implements AutoCloseable {
         Map<Category, Map<String, long[]>> merged = MetricsArchive.emptyResult();
         boolean persistent = persistent();
         if (window == Window.HOUR) {
-            since = Math.max(startedAtMillis, (currentSlice - HOUR_SLICES + 1) * SLICE_MILLIS);
-            collectSlices(merged, currentSlice - HOUR_SLICES + 1, currentSlice, Long.MIN_VALUE);
+            long firstSlice = currentSlice - HOUR_SLICES + 1;
+            since = Math.max(hourCoveredSinceMillis, firstSlice * SLICE_MILLIS);
+            collectSlices(merged, firstSlice, currentSlice, Long.MIN_VALUE);
+            for (RestoredSlice slice : restored) {
+                if (slice.slice() >= firstSlice) MetricsArchive.add(merged, slice.category(), slice.name(), slice.cells());
+            }
         } else {
             LocalDate today = archiveDate(now);
             LocalDate from = today.minusDays(window.days - 1L);
@@ -282,6 +308,7 @@ public final class OperationStats implements AutoCloseable {
     public synchronized void clear() {
         for (ConcurrentHashMap<String, Operation> map : operations.values()) map.clear();
         keys.set(0);
+        restored = List.of();
         if (archive != null) archive.clearOperations();
     }
 
@@ -326,6 +353,10 @@ public final class OperationStats implements AutoCloseable {
         if (period == Period.HOUR) {
             forEachOperation(onlyCategory, onlyName, (category, name, operation) ->
                     operation.addMinutes(grid(grids, category, period), firstBucket));
+            for (RestoredSlice slice : restored) {
+                if (!matches(slice.category(), slice.name(), onlyCategory, onlyName)) continue;
+                spreadOverMinutes(grid(grids, slice.category(), period), firstBucket, slice);
+            }
         } else {
             long currentSlice = Math.floorDiv(now, SLICE_MILLIS);
             if (persistent) {
@@ -345,7 +376,7 @@ public final class OperationStats implements AutoCloseable {
             });
         }
         long since = persistent && period != Period.HOUR ? fromMillis
-                : Math.max(fromMillis, period == Period.HOUR ? startedAtMillis
+                : Math.max(fromMillis, period == Period.HOUR ? hourCoveredSinceMillis
                 : Math.max(startedAtMillis, oldestSliceMillis(now)));
         Map<Category, Trend> result = new EnumMap<>(Category.class);
         for (Category category : Category.values()) {
@@ -386,6 +417,28 @@ public final class OperationStats implements AutoCloseable {
         // Minute buckets carry only the four summary cells; slices also carry the histogram.
         int width = period == Period.HOUR ? FIRST_BUCKET : CELLS;
         return grids.computeIfAbsent(category, ignored -> new long[period.points][width]);
+    }
+
+    /**
+     * Spreads a restored slice evenly over its minutes before this process started; the saved slice has no
+     * per-minute detail. Each minute keeps the slice maximum.
+     */
+    private void spreadOverMinutes(long[][] grid, long firstMinute, RestoredSlice slice) {
+        long minutesPerSlice = SLICE_MILLIS / MINUTE_MILLIS;
+        long first = slice.slice() * minutesPerSlice;
+        int minutes = (int) Math.max(1, Math.min(minutesPerSlice, Math.floorDiv(startedAtMillis, MINUTE_MILLIS) - first));
+        long[] cells = slice.cells();
+        long count = cells[COUNT];
+        for (int i = 0; i < minutes; i++) {
+            long share = count / minutes + (i < count % minutes ? 1 : 0);
+            if (share == 0) continue;
+            long[] minute = new long[FIRST_BUCKET];
+            minute[COUNT] = share;
+            minute[ERRORS] = cells[ERRORS] / minutes + (i < cells[ERRORS] % minutes ? 1 : 0);
+            minute[TOTAL] = Math.round(cells[TOTAL] * (share / (double) count));
+            minute[MAX] = cells[MAX];
+            addCells(grid, first + i - firstMinute, minute);
+        }
     }
 
     private static void addCells(long[][] grid, long index, long[] cells) {

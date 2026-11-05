@@ -9,6 +9,7 @@ import net.ttddyy.dsproxy.QueryInfo;
 import net.ttddyy.dsproxy.listener.QueryExecutionListener;
 
 import java.util.List;
+import java.util.function.BooleanSupplier;
 
 /**
  * 将 JDBC 执行记录为当前 Trace 的子节点并计入 SQL 统计，不发布 Micrometer Observation。
@@ -17,14 +18,22 @@ import java.util.List;
 public final class JdbcTraceQueryExecutionListener implements QueryExecutionListener {
     private static final String TRACE_STATE_KEY = JdbcTraceQueryExecutionListener.class.getName() + ".traceState";
     private final OperationStats operationStats;
+    private final BooleanSupplier multipleDataSources;
+    /** Resolved on the first query, once every DataSource bean is defined. */
+    private volatile Boolean showDataSourceName;
 
     public JdbcTraceQueryExecutionListener() {
-        this(null);
+        this(null, () -> true);
     }
 
-    /** {@code operationStats} may be null when call statistics are disabled. */
-    public JdbcTraceQueryExecutionListener(OperationStats operationStats) {
+    /**
+     * @param operationStats      may be null when call statistics are disabled
+     * @param multipleDataSources whether the application has more than one DataSource; SQL spans name their
+     *                            DataSource only then
+     */
+    public JdbcTraceQueryExecutionListener(OperationStats operationStats, BooleanSupplier multipleDataSources) {
         this.operationStats = operationStats;
+        this.multipleDataSources = multipleDataSources;
     }
 
     @Override
@@ -36,7 +45,7 @@ public final class JdbcTraceQueryExecutionListener implements QueryExecutionList
             String sql = JdbcTraceSql.describe(queryInfoList);
             ScopedSpan span = null;
             if (traceActive) {
-                String dataSource = executionInfo.getDataSourceName();
+                String dataSource = showDataSourceName() ? executionInfo.getDataSourceName() : null;
                 String detail = dataSource == null || dataSource.isBlank() ? sql : dataSource + " · " + sql;
                 span = TraceContext.startScopedSpan("SQL " + JdbcTraceSql.commandOf(sql), SpanKind.DATABASE, detail);
             }
@@ -51,6 +60,15 @@ public final class JdbcTraceQueryExecutionListener implements QueryExecutionList
         } catch (Throwable ignored) {
             // Trace 回调不能影响 JDBC 调用。
         }
+    }
+
+    private boolean showDataSourceName() {
+        Boolean show = showDataSourceName;
+        if (show == null) {
+            show = multipleDataSources.getAsBoolean();
+            showDataSourceName = show;
+        }
+        return show;
     }
 
     @Override

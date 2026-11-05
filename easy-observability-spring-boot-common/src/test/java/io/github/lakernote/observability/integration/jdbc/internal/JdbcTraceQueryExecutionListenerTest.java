@@ -25,7 +25,7 @@ class JdbcTraceQueryExecutionListenerTest {
     @Test
     void countsSqlStatisticsWithAndWithoutAnActiveTrace() {
         var stats = new io.github.lakernote.observability.metrics.internal.OperationStats(10);
-        var counting = new JdbcTraceQueryExecutionListener(stats);
+        var counting = new JdbcTraceQueryExecutionListener(stats, () -> false);
         List<QueryInfo> queries = List.of(new QueryInfo("SELECT * FROM orders WHERE id IN (1, 2)"));
 
         ExecutionInfo outsideTrace = new ExecutionInfo();
@@ -66,6 +66,23 @@ class JdbcTraceQueryExecutionListenerTest {
                 .contains("SQL SELECT", "primary · SELECT ?")
                 .doesNotContain("literal-secret", "tail");
         assertThat(completion.get().error()).isFalse();
+    }
+
+    @Test
+    void namesTheDataSourceOnlyWhenTheApplicationHasSeveral() {
+        var single = new JdbcTraceQueryExecutionListener(null, () -> false);
+        ExecutionInfo execution = new ExecutionInfo();
+        execution.setDataSourceName("dataSource");
+        List<QueryInfo> queries = List.of(new QueryInfo("SELECT 1"));
+        AtomicReference<TraceCompletion> completion = new AtomicReference<>();
+
+        TraceContext.startRoot("jdbc-request", SpanKind.HTTP);
+        single.beforeQuery(execution, queries);
+        single.afterQuery(execution, queries);
+        TraceContext.currentRootTraceHandle().requireTree();
+        TraceContext.stopRoot(0, "test", null, completion::set);
+
+        assertThat(completion.get().tree()).contains("tag=\"SELECT ?\"").doesNotContain("dataSource");
     }
 
     @Test

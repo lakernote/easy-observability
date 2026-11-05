@@ -71,7 +71,7 @@ class MetricsArchiveTest {
         OperationStats third = stats(100);
         assertThat(row(third, Window.TODAY, Category.SQL))
                 .extracting(Row::count, Row::maxMs, Row::totalMs).containsExactly(2L, 7.0, 12.0);
-        assertThat(third.snapshot(Window.HOUR).categories()).allSatisfy(c -> assertThat(c.rows()).isEmpty());
+        assertThat(row(third, Window.HOUR, Category.SQL).count()).isEqualTo(2);
         OperationStats.Trend day = third.trend(Category.SQL, "SELECT * FROM t WHERE id IN (?…)", Period.DAY);
         assertThat(day.persistent()).isTrue();
         assertThat(day.points().get(143)).extracting(Point::timestamp, Point::count, Point::maxMs)
@@ -206,6 +206,48 @@ class MetricsArchiveTest {
         assertThat(row.count()).isEqualTo(2);
         assertThat(row.meanCpuMs()).isEqualTo(30.0);
         assertThat(row.meanAllocatedBytes()).isEqualTo(6L * 1024);
+    }
+
+    @Test
+    void restartKeepsTheLastHourWithoutCountingAnyCallTwice() {
+        OperationStats before = stats(100);
+        before.record(Category.HTTP, "/a", ms(10), true);
+        before.record(Category.HTTP, "/a", ms(10), false);
+        before.record(Category.HTTP, "/a", ms(10), false);
+        clock.set(millis("2026-11-05T10:12:00Z"));
+        before.record(Category.HTTP, "/a", ms(40), false);
+        before.record(Category.HTTP, "/a", ms(40), false);
+        before.close();
+
+        clock.set(millis("2026-11-05T10:14:30Z"));
+        OperationStats after = stats(100);
+        after.record(Category.HTTP, "/a", ms(20), false);
+
+        assertThat(row(after, Window.HOUR, Category.HTTP)).extracting(Row::count, Row::errors, Row::maxMs)
+                .containsExactly(6L, 1L, 40.0);
+        assertThat(after.snapshot(Window.HOUR).since()).isEqualTo(Instant.parse("2026-11-05T10:00:00Z"));
+        // Saved 10-minute slices are spread over their minutes before the restart: 3 calls over 10:00-10:09 and
+        // 2 calls over 10:10-10:13; the call after the restart keeps its own minute.
+        List<Point> minutes = after.trend(Category.HTTP, "/a", Period.HOUR).points();
+        assertThat(minutes).filteredOn(point -> point.count() > 0)
+                .extracting(point -> Instant.ofEpochMilli(point.timestamp()).toString(), Point::count, Point::maxMs)
+                .containsExactly(tuple("2026-11-05T10:00:00Z", 1L, 10.0), tuple("2026-11-05T10:01:00Z", 1L, 10.0),
+                        tuple("2026-11-05T10:02:00Z", 1L, 10.0), tuple("2026-11-05T10:10:00Z", 1L, 40.0),
+                        tuple("2026-11-05T10:11:00Z", 1L, 40.0), tuple("2026-11-05T10:14:00Z", 1L, 20.0));
+        assertThat(after.trend(Category.HTTP, "/a", Period.HOUR).since())
+                .isEqualTo(Instant.parse("2026-11-05T10:00:00Z"));
+
+        clock.set(millis("2026-11-05T10:21:00Z"));
+        after.flush(false);
+        assertThat(row(after, Window.HOUR, Category.HTTP).count()).isEqualTo(6);
+        assertThat(row(after, Window.TODAY, Category.HTTP).count()).isEqualTo(6);
+        assertThat(after.trends(Period.DAY).get(Category.HTTP).points().stream().mapToLong(Point::count).sum())
+                .isEqualTo(6);
+
+        clock.set(millis("2026-11-05T11:30:00Z"));
+        assertThat(category(stats(100), Window.HOUR, Category.HTTP).rows()).isEmpty();
+        after.clear();
+        assertThat(category(after, Window.HOUR, Category.HTTP).rows()).isEmpty();
     }
 
     @Test
