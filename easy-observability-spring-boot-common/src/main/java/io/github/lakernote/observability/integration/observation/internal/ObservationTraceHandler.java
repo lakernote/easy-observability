@@ -25,6 +25,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public final class ObservationTraceHandler implements ObservationHandler<Observation.Context> {
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(ObservationTraceHandler.class);
     private static final Object STATE_KEY = ObservationTraceHandler.class.getName() + ".state";
+    private static final String REACTIVE_SERVER_CONTEXT =
+            "org.springframework.http.server.reactive.observation.ServerRequestObservationContext";
     private final RecentTraceStore recentTraceStore;
     private final EasyObservabilityProperties properties;
     private final DiagnosticTraceStore diagnosticTraceStore;
@@ -58,6 +60,8 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
             if (type == null) return;
             // 诊断页轮询自身 API 和静态资源会持续制造 HTTP Trace；仅跳过本组件记录，不改动宿主 Actuator/Micrometer 指标。
             if (type == ObservationType.HTTP && isDashboardRequest(context)) return;
+            // Trace 上下文绑定在线程上，无法跟随 WebFlux 请求切换线程，因此不记录响应式 HTTP 入口。
+            if (type == ObservationType.HTTP && isReactiveServerRequest(context)) return;
             // 只有入口 Observation 创建根 Trace。客户端调用、SQL、Redis 和事务是依赖节点；脱离入口时不生成孤立 Trace。
             boolean traceActive = TraceContext.active();
             ObservationState parentState = parentTraceState(context);
@@ -397,6 +401,13 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
             TraceContext.markError(state.observationType.name() + "_ERROR", failure);
         }
         state.failure = failure;
+    }
+
+    private static boolean isReactiveServerRequest(Observation.Context context) {
+        for (Class<?> type = context.getClass(); type != null; type = type.getSuperclass()) {
+            if (REACTIVE_SERVER_CONTEXT.equals(type.getName())) return true;
+        }
+        return false;
     }
 
     private static boolean isDashboardRequest(Observation.Context context) {

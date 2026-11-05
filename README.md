@@ -30,7 +30,7 @@ Metrics 页面按指标类别查看历史曲线，点击图例可切换序列：
 
 ## 快速接入
 
-选择与应用 Spring Boot 主版本匹配的 Starter（Java 17+）：
+选择与应用 Spring Boot 主版本匹配的 Starter（Java 17+，Spring MVC 等 Servlet Web 应用；WebFlux 不支持，见[运行环境](docs/guide.md#运行环境)）：
 
 ```xml
 <!-- Spring Boot 3 -->

@@ -2,6 +2,13 @@
 
 引入与应用 Spring Boot 主版本匹配的 Starter 后，Easy Observability 会自动注册 Trace 采集、公共 Metrics 历史和嵌入页面。通常不需要额外配置。Starter 不替换应用已有的 `MeterRegistry`、`ObservationRegistry`，也不会把应用自定义的全部 Meter 写入本地历史。
 
+## 运行环境
+
+- Java 17 及以上；Spring Boot 3 与 Spring Boot 4 分别使用对应的 Starter。
+- Web 应用须为 Servlet 栈（Spring MVC）。Trace 上下文绑定在线程上，与"一个请求由一个线程处理"的 Servlet 模型匹配。
+- **不支持 WebFlux 等响应式应用。** 引入 Starter 后应用仍可正常启动，但响应式 HTTP 请求不会生成入口 Trace，页面和查询 API 也不会注册；在响应式链路中切换线程的调用无法关联到同一 Trace。
+- 非 Web 应用（如只消费 Kafka 或只运行定时任务）可以采集 Trace 和本地指标历史，但没有页面可以查看。
+
 ## 自动采集范围
 
 | 场景 | 采集内容 | 说明 |
