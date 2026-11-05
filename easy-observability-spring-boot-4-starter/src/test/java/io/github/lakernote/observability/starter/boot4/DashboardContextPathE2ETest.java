@@ -75,6 +75,7 @@ class DashboardContextPathE2ETest {
         assertThat(paths(traceReferences)).containsExactlyInAnyOrder(
                 APPLICATION_PATH + "/easy-observability/",
                 APPLICATION_PATH + "/easy-observability/stats/",
+                APPLICATION_PATH + "/easy-observability/live/",
                 APPLICATION_PATH + "/easy-observability/assets/dashboard.css",
                 APPLICATION_PATH + "/easy-observability/assets/dashboard.js");
 
@@ -86,11 +87,23 @@ class DashboardContextPathE2ETest {
                 APPLICATION_PATH + "/easy-observability/",
                 APPLICATION_PATH + "/easy-observability/stats/",
                 APPLICATION_PATH + "/easy-observability/metrics/",
+                APPLICATION_PATH + "/easy-observability/live/",
                 APPLICATION_PATH + "/easy-observability/assets/dashboard.css",
                 APPLICATION_PATH + "/easy-observability/assets/uplot.min.css",
                 APPLICATION_PATH + "/easy-observability/assets/metrics.css",
                 APPLICATION_PATH + "/easy-observability/assets/uplot.min.js",
                 APPLICATION_PATH + "/easy-observability/assets/metrics.js");
+
+        URI livePage = assertCanonicalRedirect("/easy-observability/live", "/easy-observability/live/");
+        HttpResponse<String> livePageResponse = get(livePage);
+        assertThat(livePageResponse.statusCode()).isEqualTo(200);
+        Set<URI> liveReferences = assertPageReferencesAvailable(livePage, livePageResponse.body());
+        assertThat(paths(liveReferences)).contains(
+                APPLICATION_PATH + "/easy-observability/assets/live.css",
+                APPLICATION_PATH + "/easy-observability/assets/live.js");
+        HttpResponse<String> liveRequests = get(URI.create(livePage.toString()).resolve("../../api/easy-observability/live/requests"));
+        assertThat(liveRequests.statusCode()).isEqualTo(200);
+        assertThat(liveRequests.body()).contains("\"items\":");
 
         URI dashboardModule = referenceEndingWith(traceReferences, "/assets/dashboard.js");
         URI metricsModule = referenceEndingWith(metricsReferences, "/assets/metrics.js");

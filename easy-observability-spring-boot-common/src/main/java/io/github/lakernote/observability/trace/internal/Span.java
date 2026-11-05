@@ -57,6 +57,53 @@ final class Span {
         return spanId;
     }
 
+    SpanKind kind() {
+        return kind;
+    }
+
+    String name() {
+        return name;
+    }
+
+    String tag() {
+        return tag;
+    }
+
+    synchronized boolean open() {
+        return endNanos == 0;
+    }
+
+    /**
+     * Returns the deepest still-running descendant, preferring the most recently started one at equal depth, or
+     * {@code null} when no descendant is running. Callers hold the owning tree's lock.
+     */
+    Span deepestOpenDescendant() {
+        if (children == null) return null;
+        Span best = null;
+        int bestDepth = -1;
+        for (Span child : children) {
+            if (!child.open()) continue;
+            Span candidate = child;
+            int depth = 0;
+            Span deeper = child.deepestOpenDescendant();
+            if (deeper != null) {
+                candidate = deeper;
+                depth = deeper.depthBelow(child) + 1;
+            }
+            if (depth > bestDepth || (depth == bestDepth && candidate.startNanos >= best.startNanos)) {
+                best = candidate;
+                bestDepth = depth;
+            }
+        }
+        return best;
+    }
+
+    private int depthBelow(Span ancestor) {
+        int depth = 0;
+        for (Span current = parent; current != null && current != ancestor; current = current.parent) depth++;
+        return depth;
+    }
+
     String parentSpanId() {
         return parent == null ? "" : parent.spanId();
     }

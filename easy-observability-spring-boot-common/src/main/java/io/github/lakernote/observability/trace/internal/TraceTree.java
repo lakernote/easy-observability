@@ -18,6 +18,7 @@ final class TraceTree {
     private final int maxDepth;
     private final int maxNodes;
     private final long ownerThreadId = Thread.currentThread().getId();
+    private final String rootThreadName = Thread.currentThread().getName();
     /** 正常 Trace 完成后会丢弃；只有慢、错或截断时才分配事件原因集合。 */
     private Set<String> diagnosticReasons;
     private boolean slow;
@@ -30,6 +31,11 @@ final class TraceTree {
     private long omittedSpans;
     private boolean completed;
     private String ownedTraceId = "";
+    private boolean tracked;
+    private String liveTraceId = "";
+    private String liveSource = "";
+    private ThreadResourceSnapshot resourcesAtStart;
+    private boolean detached;
 
     TraceTree(String rootName, SpanKind rootKind, String rootTag) {
         this(rootName, rootKind, rootTag, DEFAULT_MAX_DEPTH, DEFAULT_MAX_NODES);
@@ -94,6 +100,7 @@ final class TraceTree {
 
     synchronized long completeRoot(long slowThresholdMs, Throwable throwable) {
         if (completed) return root.costMs();
+        untrack();
         long costMs = stopRoot();
         if (slowThresholdMs > 0 && costMs >= slowThresholdMs && !slow) {
             markSlow("SLOW_ROOT");
@@ -105,6 +112,7 @@ final class TraceTree {
 
     synchronized void discard() {
         if (completed) return;
+        untrack();
         stopRoot();
         completed = true;
     }
@@ -183,6 +191,37 @@ final class TraceTree {
 
     synchronized String ownedTraceIdForCurrentThread() {
         return ownerThreadId == Thread.currentThread().getId() ? ownedTraceId : "";
+    }
+
+    /** Lists this running root on the live diagnostics page until it completes or is discarded. */
+    synchronized void track(String traceId, String source, ThreadResourceSnapshot resources) {
+        if (completed || tracked) return;
+        liveTraceId = traceId == null ? "" : traceId;
+        liveSource = source == null ? "" : source;
+        resourcesAtStart = resources;
+        tracked = ActiveTraces.register(this);
+    }
+
+    synchronized void markDetached() {
+        detached = true;
+    }
+
+    private void untrack() {
+        if (!tracked) return;
+        tracked = false;
+        ActiveTraces.unregister(this);
+    }
+
+    /** Returns a point-in-time view of this running root, or {@code null} once it has completed. */
+    synchronized ActiveTraces.ActiveTrace activeView() {
+        if (completed) return null;
+        Span step = root.deepestOpenDescendant();
+        long now = System.nanoTime();
+        return new ActiveTraces.ActiveTrace(liveTraceId, liveSource, root.name(), root.tag(),
+                Math.max(0, (now - root.startNanos()) / 1_000_000), ownerThreadId, rootThreadName, detached,
+                resourcesAtStart, recordedNodes,
+                step == null ? null : new ActiveTraces.Step(step.kind().displayName(), step.name(), step.tag(),
+                        Math.max(0, (now - step.startNanos()) / 1_000_000)));
     }
 
     private void addReason(String reason) {

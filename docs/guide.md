@@ -136,9 +136,20 @@ Trace 查询 API（均为 `GET`，前缀 `/api/easy-observability`）：
 
 查询 API（均为 `GET`，前缀 `/api/easy-observability/metrics`）：`/operations?window=1h|today|7d|30d`、`/operations/trend?category=HTTP&name=...&period=1h|24h|7d|30d`、`/operations/trends?period=...`、`/resources?period=...`、`/storage`；重置为 `POST /operations/reset`。
 
+## 实时诊断
+
+页面 `/easy-observability/live/` 回答“现在正在发生什么”，适合接口卡住、CPU 突然升高、线程池被占满时排查。数据在打开页面或点击刷新时读取，不在后台采样，也不写入磁盘。
+
+- **进行中请求：** 列出正在执行的 HTTP、定时任务和 Kafka 消费入口，按已执行时间排序，显示入口线程已消耗的 CPU 时间、当前正在执行的最内层步骤（例如某条 SQL 或远程调用及其已执行时间）和线程状态；展开一行查看该线程此刻的堆栈和正在等待的锁。默认每 5 秒刷新。请求转为异步处理、入口线程已返回后，只显示耗时和当前步骤，不显示线程堆栈。最多显示 200 个，诊断页面自身的请求不计入。
+- **线程：** 对全部平台线程采样 1 秒，按 CPU 使用率（100% 表示占满一个核心）排序，显示状态、累计 CPU、等待的锁及持有者，展开查看堆栈；检测到死锁时在顶部列出相关线程。勾选“合并相同堆栈”可以把状态和堆栈相同的线程合为一行，便于发现大量线程卡在同一处。可下载 jstack 格式的线程 Dump 文本。虚拟线程不在列表中。
+
+每个入口只在开始和结束时各做一次并发集合的增删，不影响请求耗时。线程采样同一时间只允许一个，正在采样时再次请求返回 429。
+
+查询 API（均为 `GET`，前缀 `/api/easy-observability/live`）：`/requests`、`/threads?sampleMs=0..5000`（默认 1000）、`/threads/dump`（`text/plain` 附件）。
+
 ## 页面和 API 访问
 
-页面路径为 `/easy-observability/`，调用排行页面为 `/easy-observability/stats/`，指标趋势页面为 `/easy-observability/metrics/`，查询 API 位于 `/api/easy-observability/`。组件不提供用户名、密码或登录系统，认证由应用现有的 Spring Security、Servlet 容器或网关负责。
+页面路径为 `/easy-observability/`，调用排行页面为 `/easy-observability/stats/`，指标趋势页面为 `/easy-observability/metrics/`，实时诊断页面为 `/easy-observability/live/`，查询 API 位于 `/api/easy-observability/`。组件不提供用户名、密码或登录系统，认证由应用现有的 Spring Security、Servlet 容器或网关负责。
 
 API 授权由 `ObservabilityAccessPolicy` 决定，应用定义该类型的 Bean 即可替换默认实现：
 
@@ -225,7 +236,7 @@ executor.setTaskDecorator(new CompositeTaskDecorator(List.of(applicationDecorato
 
 | 场景 | 未接入 | 接入后 | 说明 |
 | --- | --- | --- | --- |
-| 一次未超阈值的入口请求，无依赖调用 | 0.06 µs | 1.6 µs | 主要是入口线程 CPU 时间与内存分配量的采样 |
+| 一次未超阈值的入口请求，无依赖调用 | 0.06 µs | 1.8 µs | 主要是入口线程 CPU 时间与内存分配量的采样，以及登记到进行中请求列表 |
 | 同上，含 5 次依赖调用 | 0.16 µs | 3.1 µs | 每次依赖调用（JDBC、Redis 等 Observation）约 0.3 µs |
 | 同上，含 20 次依赖调用 | 0.44 µs | 6.9 µs | |
 | 同上，含 20 次依赖调用并启用调用统计（默认） | 0.44 µs | 7.9 µs | 调用统计每次调用约 50 ns；`metrics.enabled=false` 可关闭 |

@@ -114,16 +114,36 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
                 span = traceHandle.startDetachedSpan(name, type.spanKind, detail);
             }
             // CPU 时间和内存分配量在入口线程的请求开始/结束处采样；不归因到单个 Span 或子线程。
+            ThreadResourceSnapshot resourcesAtStart = root ? ThreadResourceSnapshot.capture(threadId) : null;
             context.put(STATE_KEY, new ObservationState(type, name, detail, traceId, root, installedTraceId,
                     threadId, root ? safe(Thread.currentThread().getName(), 128) : "",
-                    root ? ThreadResourceSnapshot.capture(threadId) : null, span, traceHandle));
+                    resourcesAtStart, span, traceHandle));
+            if (rootStarted && traceHandle != null) trackActive(context, type, traceId, traceHandle, resourcesAtStart);
         } catch (RuntimeException failure) {
             // 监控回调异常不能影响应用已有的 Trace 和业务流程。
-            if (rootStarted) TraceContext.clear();
+            if (rootStarted) {
+                RootTraceHandle started = TraceContext.currentRootTraceHandle();
+                if (started != null) started.discard();
+                TraceContext.clear();
+            }
             if (span != null) span.close();
             if (installedTraceId) TraceIds.clear();
             logCallbackFailure("start", failure);
         }
+    }
+
+    /** Lists the entry on the live diagnostics page; requests for the dashboard itself are left out. */
+    private static void trackActive(Observation.Context context, ObservationType type, String traceId,
+                                    RootTraceHandle handle, ThreadResourceSnapshot resourcesAtStart) {
+        if (type == ObservationType.HTTP) {
+            HttpEntryRequest request = HttpEntryRequest.of(context);
+            if (request != null) {
+                if (isDashboardPath(request.path())) return;
+                handle.updateRootIdentity(request.method().isEmpty() ? request.path()
+                        : request.path() + " · " + request.method(), request.path());
+            }
+        }
+        handle.trackActive(traceId, type.name(), resourcesAtStart);
     }
 
     @Override

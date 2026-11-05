@@ -1,0 +1,28 @@
+.live-toggle { display:flex !important; align-items:center; gap:8px !important; min-height:40px; cursor:pointer; }
+.live-toggle input { width:16px; height:16px; margin:0; }
+.live-link { display:inline-flex; align-items:center; min-height:40px; padding:0 14px; border:1px solid #d6dee9; border-radius:6px; background:#fff; color:var(--blue); font-size:13px; font-weight:650; text-decoration:none; }
+.live-link:hover { background:#f5f8fd; }
+.live-table tbody tr { cursor:pointer; }
+.live-table tbody tr.is-expanded td { background:#f3f6fd; }
+.live-table tbody tr.live-detail { cursor:default; }
+.live-table tbody tr.live-detail > td { padding:12px 14px; background:#f8faff; }
+.live-table td.mono { font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:11px; }
+.live-table .clip { display:block; max-width:360px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.live-table td.warn { color:#b86a00; font-weight:700; }
+.live-table td.bad { color:var(--red); font-weight:700; }
+.live-kind { display:inline-block; margin-right:6px; padding:1px 6px; border-radius:4px; background:#edf2ff; color:var(--blue); font-size:10px; font-weight:700; }
+.live-state { display:inline-block; padding:1px 6px; border-radius:4px; background:#eef1f5; color:#56677f; font-size:10px; font-weight:700; }
+.live-state.RUNNABLE { background:#e6f6ef; color:#137a50; }
+.live-state.BLOCKED { background:#fdecec; color:var(--red); }
+.live-state.WAITING, .live-state.TIMED_WAITING { background:#fff4e0; color:#94600b; }
+.live-facts { display:flex; flex-wrap:wrap; gap:6px 18px; margin:0 0 8px; color:#56677f; font-size:12px; }
+.live-facts b { color:#26364e; font-weight:650; }
+.live-stack { max-height:420px; margin:0; padding:10px 12px; overflow:auto; border:1px solid #e3e9f2; border-radius:6px; background:#fff; color:#26364e; font:11px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; white-space:pre; }
+.live-cards { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:10px; margin:0 0 12px; }
+.live-card { padding:12px 14px; border:1px solid var(--line); border-radius:9px; background:var(--surface); }
+.live-card small { display:block; color:#68788f; font-size:11px; font-weight:650; }
+.live-card strong { display:block; margin-top:4px; color:#26364e; font-size:20px; font-variant-numeric:tabular-nums; }
+.live-card.bad strong { color:var(--red); }
+.live-deadlock { border-color:#f2c4c4; background:#fff5f5; color:#8c2525; }
+.live-deadlock ul { margin:6px 0 0; padding-left:18px; }
+@media(max-width:920px) { .live-cards { grid-template-columns:repeat(2,minmax(0,1fr)); } }

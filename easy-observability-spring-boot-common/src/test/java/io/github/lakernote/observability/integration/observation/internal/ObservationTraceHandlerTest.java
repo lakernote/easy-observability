@@ -8,10 +8,14 @@ import io.github.lakernote.observability.trace.internal.TraceCompletion;
 import io.github.lakernote.observability.trace.internal.store.TraceRecord;
 import io.github.lakernote.observability.trace.internal.store.TraceStore;
 import io.github.lakernote.observability.trace.internal.TraceNodeFixtures;
+import io.github.lakernote.observability.trace.internal.ActiveTraces;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.server.observation.ServerRequestObservationContext;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.mock.web.MockHttpServletResponse;
 
 import java.sql.SQLException;
 import java.util.concurrent.CompletableFuture;
@@ -284,5 +288,60 @@ class ObservationTraceHandlerTest {
             assertThat(trace.name()).isEqualTo("/async · GET");
             assertThat(trace.sourceType()).isEqualTo("HTTP");
         });
+    }
+
+    @Test
+    void listsARunningServletRequestOnTheLivePageUntilItStops() {
+        ObservationRegistry registry = ObservationRegistry.create();
+        registry.observationConfig().observationHandler(new ObservationTraceHandler(TraceStore.inMemory(10),
+                new EasyObservabilityProperties(), java.util.List.of()));
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/shop/orders/42");
+        request.setContextPath("/shop");
+        Observation observation = Observation.createNotStarted("http.server.requests",
+                () -> new ServerRequestObservationContext(request, new MockHttpServletResponse()), registry);
+        observation.start();
+        try (Observation.Scope ignored = observation.openScope()) {
+            ActiveTraces.ActiveTrace live = ActiveTraces.snapshot().stream()
+                    .filter(trace -> trace.tag().equals("/orders/42")).findFirst().orElseThrow();
+            assertThat(live.name()).isEqualTo("/orders/42 · POST");
+            assertThat(live.source()).isEqualTo("HTTP");
+            assertThat(live.traceId()).isEqualTo(io.github.lakernote.observability.trace.TraceIdContext.currentTraceId());
+            assertThat(live.resourcesAtStart()).isNotNull();
+        }
+        observation.stop();
+        assertThat(ActiveTraces.snapshot()).noneMatch(trace -> trace.tag().equals("/orders/42"));
+    }
+
+    @Test
+    void leavesDashboardRequestsOffTheLivePage() {
+        ObservationRegistry registry = ObservationRegistry.create();
+        registry.observationConfig().observationHandler(new ObservationTraceHandler(TraceStore.inMemory(10),
+                new EasyObservabilityProperties(), java.util.List.of()));
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/easy-observability/live/requests");
+        Observation observation = Observation.createNotStarted("http.server.requests",
+                () -> new ServerRequestObservationContext(request, new MockHttpServletResponse()), registry);
+        observation.start();
+        try {
+            assertThat(ActiveTraces.snapshot())
+                    .noneMatch(trace -> trace.tag().startsWith("/api/easy-observability"));
+        } finally {
+            observation.stop();
+        }
+    }
+
+    @Test
+    void listsNonServletEntriesUnderTheirObservationName() {
+        ObservationRegistry registry = ObservationRegistry.create();
+        registry.observationConfig().observationHandler(new ObservationTraceHandler(TraceStore.inMemory(10),
+                new EasyObservabilityProperties(), java.util.List.of()));
+        Observation observation = Observation.createNotStarted("tasks.scheduled.execution", registry)
+                .contextualName("ReportJob.run");
+        observation.start();
+        try (Observation.Scope ignored = observation.openScope()) {
+            assertThat(ActiveTraces.snapshot()).anyMatch(trace -> trace.source().equals("JOB"));
+        } finally {
+            observation.stop();
+        }
+        assertThat(ActiveTraces.snapshot()).noneMatch(trace -> trace.source().equals("JOB"));
     }
 }

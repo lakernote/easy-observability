@@ -100,7 +100,9 @@ public final class TraceContext {
     /** Detaches an active tree from this thread while preserving its handle for asynchronous finalization. */
     public static void detach(RootTraceHandle handle) {
         ExecutionFrame current = CURRENT_FRAME.get();
-        if (handle != null && current != null && current.trace == handle.trace()) CURRENT_FRAME.remove();
+        if (handle == null) return;
+        handle.trace().markDetached();
+        if (current != null && current.trace == handle.trace()) CURRENT_FRAME.remove();
     }
 
     /** 由调用方显式标记当前 Trace 为慢调用，不代表自动依赖节点阈值。 */

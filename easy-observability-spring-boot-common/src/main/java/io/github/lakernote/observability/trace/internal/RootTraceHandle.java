@@ -33,6 +33,11 @@ public final class RootTraceHandle {
         trace.requireExplicitTree();
     }
 
+    /** Shows this running entry on the live diagnostics page until it completes. */
+    public void trackActive(String traceId, String source, ThreadResourceSnapshot resourcesAtStart) {
+        trace.track(traceId, source, resourcesAtStart);
+    }
+
     public void rememberOwnedTraceId(String traceId) {
         trace.rememberOwnedTraceId(traceId);
     }

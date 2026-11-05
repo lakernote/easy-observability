@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Easy Observability · 实时诊断</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="../assets/dashboard.css?v=20261105.1">
+  <link rel="stylesheet" href="../assets/metrics.css?v=20261105.4">
+  <link rel="stylesheet" href="../assets/stats.css?v=20261105.4">
+  <link rel="stylesheet" href="../assets/live.css?v=20261105.4">
+</head>
+<body>
+  <a class="skip-link" href="#main-content">跳到主要内容</a>
+  <header class="masthead">
+    <a class="brand" href="../">
+      <span class="brand-mark" aria-hidden="true">↗</span>
+      <span><strong>Easy Observability</strong><small>实时诊断</small></span>
+    </a>
+    <nav class="view-nav" aria-label="可观测性视图">
+      <a href="../">Trace 诊断</a>
+      <a href="../stats/">运行指标</a>
+      <a class="active" href="./">实时诊断</a>
+    </nav>
+    <div class="toolbar">
+      <span id="instance" class="instance-pill"><i></i>连接中</span>
+      <button id="refresh" type="button">刷新</button>
+    </div>
+  </header>
+  <main id="main-content" class="report">
+    <section class="intro">
+      <p class="eyebrow">LIVE DIAGNOSTICS</p>
+      <h1>实时诊断</h1>
+      <p>查看此刻正在执行的请求和线程：哪个请求卡住了、卡在哪一步，哪个线程在消耗 CPU，有没有死锁。数据在打开页面或点击刷新时读取，不在后台采样，也不保存。</p>
+    </section>
+    <nav class="sub-nav" aria-label="实时诊断视图">
+      <a id="tab-requests" class="active" aria-current="page" href="#requests">进行中请求</a>
+      <a id="tab-threads" href="#threads">线程</a>
+    </nav>
+    <div id="notice" class="notice" role="status" hidden></div>
+
+    <section id="requests-panel" aria-label="进行中请求">
+      <section class="metrics-controls stats-controls" aria-label="请求筛选">
+        <label><span>已执行</span><select id="min-elapsed"><option value="0" selected>全部</option><option value="1000">≥ 1 秒</option><option value="5000">≥ 5 秒</option><option value="30000">≥ 30 秒</option></select></label>
+        <label class="live-toggle"><input id="auto-refresh" type="checkbox" checked><span>每 5 秒自动刷新</span></label>
+        <div id="requests-summary" class="storage-summary" role="status">读取中</div>
+      </section>
+      <section class="trace-list">
+        <p class="scroll-hint">表格可横向滚动查看全部字段</p>
+        <div class="table-scroll"><table class="stats-table live-table">
+          <caption class="sr-only">正在执行的入口请求，按已执行时间排序；选择一行查看线程堆栈</caption>
+          <thead><tr><th>入口</th><th class="numeric">已执行</th><th class="numeric">CPU</th><th>当前步骤</th><th>线程</th><th>Trace ID</th></tr></thead>
+          <tbody id="request-rows"></tbody>
+        </table></div>
+        <p id="requests-empty" class="empty" hidden>当前没有正在执行的请求</p>
+      </section>
+    </section>
+
+    <section id="threads-panel" aria-label="线程" hidden>
+      <section class="metrics-controls stats-controls" aria-label="线程筛选">
+        <label><span>状态</span><select id="thread-state"><option value="" selected>全部状态</option><option value="RUNNABLE">RUNNABLE</option><option value="BLOCKED">BLOCKED</option><option value="WAITING">WAITING</option><option value="TIMED_WAITING">TIMED_WAITING</option></select></label>
+        <label class="stats-search"><span>搜索线程名或堆栈</span><input id="thread-search" type="search" maxlength="200" placeholder="例如 http-nio 或 com.example"></label>
+        <label class="live-toggle"><input id="group-stacks" type="checkbox"><span>合并相同堆栈</span></label>
+        <a id="dump" class="live-link" href="#" download>下载线程 Dump</a>
+      </section>
+      <div id="thread-cards" class="live-cards"></div>
+      <div id="deadlocks" class="notice live-deadlock" role="alert" hidden></div>
+      <section class="trace-list">
+        <div class="table-scroll"><table class="stats-table live-table">
+          <caption class="sr-only">线程列表，按采样期间的 CPU 使用率排序；选择一行查看堆栈</caption>
+          <thead id="thread-head"></thead>
+          <tbody id="thread-rows"></tbody>
+        </table></div>
+        <p id="threads-empty" class="empty" hidden>没有匹配的线程</p>
+      </section>
+    </section>
+    <footer>进行中请求只包含 HTTP、定时任务和 Kafka 消费入口；异步请求在入口线程返回后不再显示线程和堆栈。线程 CPU 使用率为 1 秒采样内占用单个核心的比例，100% 表示占满一个核心。虚拟线程不在线程列表中。</footer>
+  </main>
+  <script type="module" src="../assets/live.js?v=20261105.4"></script>
+</body>
+</html>
