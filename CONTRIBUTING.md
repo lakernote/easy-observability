@@ -10,11 +10,13 @@
 mvn verify
 ```
 
+修改 Trace 采集路径时，请运行 [JMH 基准](benchmarks/README.md)，并更新 `docs/guide.md`「性能开销」一节中的参考结果。
+
 Pull Request 和 `main` 分支的推送会触发 CI，在 JDK 17、21、25 上运行同一套验证（每次都覆盖 Boot 3 和 Boot 4 模块），并用 `central-release` profile 检查 sources 和 Javadoc 打包。
 
 ## Maven Central 发布
 
-发布的 Maven 坐标由根 POM、`easy-observability-spring-boot-common`、两个 `*-autoconfigure` 模块和两个 `*-starter` 模块组成。三个实现模块和两个依赖汇总 starter 都发布 JAR、sources JAR 和 Javadoc JAR；starter JAR 不包含运行时代码，保留标准 JAR 坐标以便应用像其他 Spring Boot starter 一样直接依赖。`examples` 仅用于演示并配置为跳过发布。
+发布的 Maven 坐标由根 POM、`easy-observability-spring-boot-common`、两个 `*-autoconfigure` 模块和两个 `*-starter` 模块组成。三个实现模块和两个依赖汇总 starter 都发布 JAR、sources JAR 和 Javadoc JAR；starter JAR 不包含运行时代码，保留标准 JAR 坐标以便应用像其他 Spring Boot starter 一样直接依赖。`examples` 和 `benchmarks` 仅用于演示和性能测量，配置为跳过发布。
 
 发布前先运行完整验证，再生成本地 Central bundle 检查实际内容。以下命令显式跳过上传，但仍会调用 GPG 签名；构建环境必须已配置可非交互使用的 GPG 私钥：
 

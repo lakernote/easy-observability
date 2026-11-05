@@ -37,6 +37,7 @@
         <module>easy-observability-spring-boot-4-starter</module>
         <module>examples/easy-observability-example-spring-boot-3</module>
         <module>examples/easy-observability-example-spring-boot-4</module>
+        <module>benchmarks</module>
     </modules>
     <properties>
         <revision>0.1.0-alpha.3</revision>

@@ -458,11 +458,15 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
     private static int httpStatus(Observation.Context context) {
         String status = lowCardinality(context, "http.response.status_code");
         if (status.isBlank()) status = lowCardinality(context, "status");
-        try {
-            return Integer.parseInt(status);
-        } catch (NumberFormatException ignored) {
-            return 0;
+        // Most observations carry no numeric status; parsing by hand avoids an exception on every stop.
+        if (status.isEmpty() || status.length() > 3) return 0;
+        int code = 0;
+        for (int i = 0; i < status.length(); i++) {
+            char digit = status.charAt(i);
+            if (digit < '0' || digit > '9') return 0;
+            code = code * 10 + (digit - '0');
         }
+        return code;
     }
 
     private static String safe(String value, int limit) {

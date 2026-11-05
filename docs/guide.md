@@ -159,6 +159,21 @@ executor.setTaskDecorator(new CompositeTaskDecorator(List.of(applicationDecorato
 
 装饰器在线程池执行任务时传播活动 Trace 上下文并记录任务边界；无父 Trace 时不会创建 Trace。若 HTTP 请求先结束，Trace 时间线会在入口结束处停止，仍在运行的子任务标记为未完成，之后发生的调用不再补写到该 Trace。
 
+## 性能开销
+
+以下数字来自 `benchmarks` 模块中的 JMH 基准（Apple M4 Pro，JDK 21，单线程，平均耗时）。只代表量级，不同硬件和 JVM 会有差异，可按 [benchmarks/README.md](../benchmarks/README.md) 在自己的环境中复现。
+
+| 场景 | 未接入 | 接入后 | 说明 |
+| --- | --- | --- | --- |
+| 一次未超阈值的入口请求，无依赖调用 | 0.06 µs | 1.6 µs | 主要是入口线程 CPU 时间与内存分配量的采样 |
+| 同上，含 5 次依赖调用 | 0.16 µs | 3.1 µs | 每次依赖调用（JDBC、Redis 等 Observation）约 0.3 µs |
+| 同上，含 20 次依赖调用 | 0.44 µs | 6.9 µs | |
+| `TraceBlock`，不在 Trace 中 | — | 18 ns | 直接执行业务代码，不记录 |
+| 一个入口 Trace 内 10 个 `TraceBlock` | — | 1.0 µs | 每个 Span 约 0.1 µs |
+| `TraceContextTaskDecorator` 装饰并执行一个任务 | — | 0.27 µs（无 Trace）/ 0.37 µs（Trace 内） | 无父 Trace 时会为任务生成新的 Trace ID |
+
+对于耗时在毫秒级的典型 HTTP 请求，这部分开销通常低于 1%。慢请求、错误和资源超阈值的入口还会被写入内存列表并在后台线程异步归档，归档 I/O 不在业务线程上执行。
+
 ## 公共 API
 
 以下类型是公开 API，正式发布后保持兼容：

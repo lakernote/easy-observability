@@ -210,6 +210,29 @@ class ObservationTraceHandlerTest {
     }
 
     @Test
+    void readsNumericHttpStatusAndIgnoresNonNumericValues() {
+        RecentTraceStore history = new RecentTraceStore(10);
+        ObservationRegistry registry = ObservationRegistry.create();
+        registry.observationConfig().observationHandler(new ObservationTraceHandler(
+                history, null, new EasyObservabilityProperties(), java.util.List.of()));
+
+        for (String status : new String[] {"UNKNOWN", "", "5000", "-500", "200"}) {
+            Observation.createNotStarted("http.server.requests", registry)
+                    .lowCardinalityKeyValue("http.route", "/orders/" + status)
+                    .lowCardinalityKeyValue("status", status).start().stop();
+        }
+        Observation.createNotStarted("http.server.requests", registry)
+                .lowCardinalityKeyValue("http.route", "/failed")
+                .lowCardinalityKeyValue("status", "503").start().stop();
+
+        assertThat(history.recent(10)).singleElement().satisfies(trace -> {
+            assertThat(trace.status()).isEqualTo(503);
+            assertThat(trace.error()).isTrue();
+            assertThat(trace.errorType()).isEqualTo("HTTP_503");
+        });
+    }
+
+    @Test
     void recordsHttpObservationWhenContextualNameIsNotAvailableAtStart() throws Exception {
         EasyObservabilityProperties properties = new EasyObservabilityProperties();
         properties.getTrace().setHttpSlowThreshold(java.time.Duration.ofMillis(1));
