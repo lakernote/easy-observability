@@ -1,8 +1,11 @@
 const api = new URL('../../api/easy-observability/', import.meta.url)
 const $ = id => document.getElementById(id)
 const PAGE_SIZE = 50
-let traces = []
+let traces = { items: [], nextCursor: null, scanLimited: false, total: 0 }
+// Cursor that starts each visited page; the first page always starts at the newest trace.
+let pageCursors = ['']
 let page = 0
+let loadRequest = 0
 let timer
 let searchTimer
 let detailRequest = 0
@@ -10,7 +13,8 @@ let detailRequest = 0
 const sourceNames = { HTTP: 'HTTP', JOB: '定时任务', KAFKA_CONSUMER: 'Kafka 消费' }
 const escText = value => value == null || value === '' ? '—' : String(value)
 
-async function request(path, options = {}, deniedMessage = '没有查看 Trace 的权限，请登录或检查 ObservabilityAccessPolicy') {
+async function request(path, requestOptions = {}, deniedMessage = '没有查看 Trace 的权限，请登录或检查 ObservabilityAccessPolicy') {
+  const { notFoundMessage, ...options } = requestOptions
   const headers = new Headers(options.headers || {})
   const token = typeof window.EasyObservabilityAuth?.token === 'function' ? window.EasyObservabilityAuth.token() : ''
   if (token) headers.set('Authorization', `Bearer ${token}`)
@@ -22,7 +26,8 @@ async function request(path, options = {}, deniedMessage = '没有查看 Trace �
     { credentials: 'same-origin', ...options, headers })
   if (!response.ok) throw new Error(response.status === 401 || response.status === 403
     ? deniedMessage
-    : `请求失败（HTTP ${response.status}）`)
+    : response.status === 404 && notFoundMessage ? notFoundMessage
+      : `请求失败（HTTP ${response.status}）`)
   return response.status === 204 ? null : response.json()
 }
 
@@ -54,12 +59,6 @@ function time(value) {
   return Number.isNaN(date.getTime()) ? escText(value) : date.toLocaleString('zh-CN')
 }
 
-function unfinishedSpanCount(nodes) {
-  if (!Array.isArray(nodes)) return 0
-  return nodes.reduce((count, item) => count + (item.unfinishedAtTraceEnd ? 1 : 0)
-    + unfinishedSpanCount(item.children), 0)
-}
-
 function threadInfo(item, entryThread) {
   const sameThread = String(item.threadId) === String(entryThread.threadId)
   const name = item.threadName || `线程 ${item.threadId}`
@@ -77,42 +76,18 @@ function node(tag, className, text) {
   return element
 }
 
-function filtered() {
-  const query = $('search').value.trim().toLocaleLowerCase()
-  const result = $('result-filter').value
-  const source = $('source-filter').value
-  return traces.filter(trace => {
-    const resourceAlert = trace.highCpu || trace.highAllocation
-    if (!trace.slow && !trace.error && !resourceAlert) return false
-    if (result === 'slow' && (!trace.slow || trace.error)) return false
-    if (result === 'error' && !trace.error) return false
-    if (result === 'resource' && !resourceAlert) return false
-    if (source && trace.sourceType !== source) return false
-    if (!query) return true
-    const matchesNode = nodes => Array.isArray(nodes) && nodes.some(item =>
-      [item.name, item.tag, item.kind, item.errorType, item.threadName]
-        .some(value => String(value || '').toLocaleLowerCase().includes(query)) || matchesNode(item.children))
-    return [trace.name, trace.method, trace.traceId, trace.errorType, trace.errorMessage,
-      trace.highCpu ? 'CPU 时间超阈值' : '', trace.highAllocation ? '内存分配量超阈值' : '']
-      .some(value => String(value || '').toLocaleLowerCase().includes(query)) || matchesNode(trace.treeNodes)
-  })
-}
-
 function render() {
-  const rows = filtered()
-  const lastPage = Math.max(0, Math.ceil(rows.length / PAGE_SIZE) - 1)
-  page = Math.min(page, lastPage)
-  const visible = rows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
+  const rows = traces.items
   const tbody = $('trace-rows')
   tbody.replaceChildren()
-  for (const trace of visible) {
+  for (const trace of rows) {
     const tr = document.createElement('tr')
     const resultCell = node('td')
     if (trace.error) resultCell.append(node('span', 'badge error', '错误'))
     if (trace.slow) resultCell.append(node('span', 'badge slow', '慢调用'))
     if (trace.highCpu) resultCell.append(node('span', 'badge resource', 'CPU 时间超阈值'))
     if (trace.highAllocation) resultCell.append(node('span', 'badge resource', '内存分配量超阈值'))
-    if (unfinishedSpanCount(trace.treeNodes)) {
+    if (trace.unfinishedSpanCount) {
       const unfinishedBadge = node('span', 'badge unfinished', '请求结束时未完成')
       unfinishedBadge.title = '该子 Span 在入口请求结束时仍在运行'
       resultCell.append(unfinishedBadge)
@@ -130,15 +105,19 @@ function render() {
     tr.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openTrace(trace) } })
     tbody.append(tr)
   }
+  const searching = Boolean($('search').value.trim())
   $('empty').hidden = rows.length > 0
-  $('result-count').textContent = `${rows.length} 条诊断 Trace`
-  const noFilters = $('result-filter').value === 'all' && !$('source-filter').value && !$('search').value.trim()
-  $('empty').textContent = noFilters
-    ? '暂无诊断 Trace；正常请求不会显示在此列表中'
-    : '没有符合当前筛选条件的 Trace'
-  $('page-label').textContent = rows.length ? `第 ${page + 1} / ${lastPage + 1} 页` : ''
+  $('result-count').textContent = traces.total >= 0 ? `${traces.total.toLocaleString()} 条诊断 Trace`
+    : `本页 ${rows.length} 条匹配`
+  const noFilters = $('result-filter').value === 'all' && !$('source-filter').value && !searching
+  $('empty').textContent = traces.scanLimited
+    ? '已搜索的范围内没有匹配的 Trace，点击“下一页”继续搜索更早的记录'
+    : noFilters ? '暂无诊断 Trace；正常请求不会显示在此列表中' : '没有符合当前筛选条件的 Trace'
+  const pages = traces.total >= 0 ? Math.max(1, Math.ceil(traces.total / PAGE_SIZE)) : 0
+  $('page-label').textContent = pages ? `第 ${page + 1} / ${Math.max(pages, page + 1)} 页` : `第 ${page + 1} 页`
   $('previous').disabled = page <= 0
-  $('next').disabled = page >= lastPage
+  $('next').disabled = !traces.nextCursor
+  $('next').textContent = traces.scanLimited ? '继续搜索' : '下一页'
 }
 
 function addFact(container, label, value, className = '', title = '') {
@@ -295,9 +274,9 @@ async function openTrace(summary) {
   $('error-section').hidden = true
   $('detail-dialog').showModal()
   try {
-    const detail = await request(`/traces/${encodeURIComponent(summary.traceId)}?source=${encodeURIComponent(summary.sourceType || '')}`)
+    const detail = await request(`/traces/${encodeURIComponent(summary.traceId)}?source=${encodeURIComponent(summary.sourceType || '')}`,
+      { notFoundMessage: '这条 Trace 已不在保留范围内' })
     if (requestId !== detailRequest || !$('detail-dialog').open) return
-    if (!detail) throw new Error('这条 Trace 已不在保留范围内')
     $('facts').replaceChildren()
     const resourceAlerts = [detail.highCpu ? 'CPU 时间超阈值' : '', detail.highAllocation ? '内存分配量超阈值' : ''].filter(Boolean)
     const result = [detail.error ? '错误' : '', detail.slow ? '慢调用' : '', ...resourceAlerts]
@@ -339,14 +318,33 @@ async function openTrace(summary) {
   }
 }
 
+function traceQuery() {
+  const params = new URLSearchParams({ kind: $('result-filter').value, limit: String(PAGE_SIZE) })
+  if ($('source-filter').value) params.set('source', $('source-filter').value)
+  const query = $('search').value.trim()
+  if (query) params.set('q', query)
+  if (pageCursors[page]) params.set('before', pageCursors[page])
+  return `/traces?${params}`
+}
+
+function showPage(target) {
+  page = target
+  pageCursors.length = page + 1
+  return refresh()
+}
+
 async function refresh() {
+  const requestId = ++loadRequest
   try {
-    traces = await request('/traces?limit=500')
+    const result = await request(traceQuery())
+    if (requestId !== loadRequest) return
+    traces = result
     $('instance').classList.add('connected')
     $('instance').lastChild.textContent = '已连接'
     $('notice').hidden = true
     render()
   } catch (error) {
+    if (requestId !== loadRequest) return
     $('instance').classList.remove('connected')
     $('instance').lastChild.textContent = '连接失败'
     $('notice').textContent = `${error.message}。请检查应用权限和服务状态。`
@@ -354,7 +352,7 @@ async function refresh() {
   }
 }
 
-// The statistics page links here with ?q= and ?source= so a ranked row opens its slow and error traces.
+// ?q= and ?source= let other tools link to a pre-filtered list, for example a trace ID copied from a log line.
 function applyLinkedFilters() {
   const params = new URLSearchParams(window.location.search)
   const query = params.get('q')
@@ -364,13 +362,18 @@ function applyLinkedFilters() {
 }
 
 function bind() {
-  for (const id of ['result-filter', 'source-filter']) $(id).addEventListener('change', () => { page = 0; render() })
+  for (const id of ['result-filter', 'source-filter']) $(id).addEventListener('change', () => showPage(0))
   $('search').addEventListener('input', () => {
     window.clearTimeout(searchTimer)
-    searchTimer = window.setTimeout(() => { page = 0; render() }, 140)
+    searchTimer = window.setTimeout(() => showPage(0), 300)
   })
-  $('previous').addEventListener('click', () => { page = Math.max(0, page - 1); render() })
-  $('next').addEventListener('click', () => { page += 1; render() })
+  $('previous').addEventListener('click', () => { if (page > 0) showPage(page - 1) })
+  $('next').addEventListener('click', () => {
+    if (!traces.nextCursor) return
+    pageCursors[page + 1] = traces.nextCursor
+    page += 1
+    refresh()
+  })
   $('refresh').addEventListener('click', refresh)
   $('close-dialog').addEventListener('click', () => { detailRequest += 1; $('detail-dialog').close() })
   $('detail-dialog').addEventListener('close', () => { detailRequest += 1 })
@@ -382,7 +385,7 @@ function bind() {
       await request('/storage/clear', { method: 'POST' },
         '没有清空历史的权限，请检查 ObservabilityAccessPolicy#canClear 或 CSRF 配置')
       $('clear-dialog').close()
-      await refresh()
+      await showPage(0)
     } catch (error) {
       $('notice').textContent = error.message
       $('notice').hidden = false
@@ -402,5 +405,6 @@ async function loadPermissions() {
 applyLinkedFilters()
 bind()
 initializeEmbeddedAuth().then(() => Promise.all([loadPermissions(), refresh()]))
-timer = window.setInterval(refresh, 10000)
+// Only the newest page is polled; older pages and text searches stay as loaded until the user acts.
+timer = window.setInterval(() => { if (page === 0 && !$('search').value.trim()) refresh() }, 10000)
 window.addEventListener('beforeunload', () => window.clearInterval(timer), { once: true })

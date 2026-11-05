@@ -20,7 +20,7 @@ class TraceRecordJsonCodecTest {
 
     @Test
     void roundTripsEveryRecordAndNodeComponent() throws IOException {
-        RecentTraceStore.TraceRecord trace = fullTrace();
+        TraceRecord trace = fullTrace();
 
         assertThat(CODEC.read(encode(trace))).isEqualTo(trace);
     }
@@ -41,7 +41,7 @@ class TraceRecordJsonCodecTest {
     @Test
     void archiveFormatIsStable() throws IOException {
         TraceNode node = new TraceNode("Database", "q\"1", "", 2, 7L, false, true, false, "", "w", 3, List.of());
-        RecentTraceStore.TraceRecord trace = RecentTraceStore.TraceRecord.builder()
+        TraceRecord trace = TraceRecord.builder()
                 .id(1).traceId("t").sourceType("HTTP").name("n").method("GET").status(500).durationMs(9)
                 .slow(true).highAllocation(true).treeNodes(List.of(node))
                 .finishedAt(Instant.parse("2026-10-21T10:00:00Z"))
@@ -63,7 +63,7 @@ class TraceRecordJsonCodecTest {
         String json = "{ \"traceId\" : \"t-1\", \"future\": {\"nested\": [1, -2.5e3, true, null, \"x\", {}]},"
                 + " \"treeNodes\": [{\"name\": \"n\", \"extra\": [[]]}], \"sourceType\": \"HTTP\", \"slow\": true }";
 
-        RecentTraceStore.TraceRecord trace = CODEC.read(json.getBytes(StandardCharsets.UTF_8));
+        TraceRecord trace = CODEC.read(json.getBytes(StandardCharsets.UTF_8));
 
         assertThat(trace.traceId()).isEqualTo("t-1");
         assertThat(trace.sourceType()).isEqualTo("HTTP");
@@ -116,18 +116,18 @@ class TraceRecordJsonCodecTest {
         assertThat(output.size()).isPositive();
     }
 
-    private static byte[] encode(RecentTraceStore.TraceRecord trace) throws IOException {
+    private static byte[] encode(TraceRecord trace) throws IOException {
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         CODEC.write(output, trace);
         return output.toByteArray();
     }
 
-    private static RecentTraceStore.TraceRecord fullTrace() {
+    private static TraceRecord fullTrace() {
         TraceNode child = new TraceNode("Database", "SQL select", "jdbc", 2, 1L, true, false, true,
                 "SQLTimeout", "worker-2", 78, List.of());
         TraceNode root = new TraceNode("Http", "HTTP GET", TRICKY, 845, 0L, true, true, false,
                 "HTTP_5XX", "http-nio-1", 77, List.of(child));
-        return RecentTraceStore.TraceRecord.builder()
+        return TraceRecord.builder()
                 .id(42).traceId("trace-1").sourceType("HTTP").name("GET /orders/{id}").method("GET")
                 .status(500).durationMs(845).slow(true).error(true).highAllocation(true).treeNodes(List.of(root))
                 .finishedAt(Instant.parse("2026-10-21T10:00:00.123Z"))

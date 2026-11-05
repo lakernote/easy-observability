@@ -25,10 +25,12 @@ public final class BoundedHistoryWriter implements AutoCloseable {
         return thread;
     }, new ThreadPoolExecutor.AbortPolicy());
 
-    public void execute(Runnable write) {
-        if (write == null) return;
+    /** @return whether the write was queued; {@code false} when the queue is full or the writer is closed */
+    public boolean execute(Runnable write) {
+        if (write == null) return false;
         try {
             executor.execute(write);
+            return true;
         } catch (RejectedExecutionException saturated) {
             // 队列满时丢弃新任务而不让业务线程反向执行落盘；计数和告警便于发现持久化压力。
             long dropped = droppedTasks.incrementAndGet();
@@ -37,6 +39,7 @@ public final class BoundedHistoryWriter implements AutoCloseable {
                                 + "queueCapacity={}, dropped={}",
                         QUEUE_CAPACITY, dropped);
             }
+            return false;
         }
     }
 

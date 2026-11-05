@@ -6,7 +6,7 @@ import io.github.lakernote.observability.metrics.internal.OperationStats.Categor
 import io.github.lakernote.observability.metrics.internal.OperationStats.Row;
 import io.github.lakernote.observability.trace.internal.TraceContext;
 import io.github.lakernote.observability.trace.internal.TraceIds;
-import io.github.lakernote.observability.trace.internal.store.RecentTraceStore;
+import io.github.lakernote.observability.trace.internal.store.TraceStore;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
 import org.junit.jupiter.api.AfterEach;
@@ -21,7 +21,7 @@ class ObservationTraceHandlerStatsTest {
     private final ObservationRegistry registry = ObservationRegistry.create();
 
     ObservationTraceHandlerStatsTest() {
-        registry.observationConfig().observationHandler(new ObservationTraceHandler(new RecentTraceStore(10), null,
+        registry.observationConfig().observationHandler(new ObservationTraceHandler(TraceStore.inMemory(10),
                 new EasyObservabilityProperties(), List.of(), stats));
     }
 

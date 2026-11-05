@@ -207,13 +207,6 @@ class MetricsArchiveTest {
     }
 
     @Test
-    void deletesLegacyRrdFilesOnStartup() throws Exception {
-        Files.writeString(directory.resolve("common-metrics-60s-30d.rrd"), "old");
-        archive();
-        assertThat(directory.resolve("common-metrics-60s-30d.rrd")).doesNotExist();
-    }
-
-    @Test
     void unusableDirectoryKeepsStatisticsInMemory() throws Exception {
         Path notADirectory = Files.writeString(directory.resolve("file"), "x");
         MetricsArchive archive = new MetricsArchive(notADirectory.resolve("metrics"), MB, 30, ZoneOffset.UTC);

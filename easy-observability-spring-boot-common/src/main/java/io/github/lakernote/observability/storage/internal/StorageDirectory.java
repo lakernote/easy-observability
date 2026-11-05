@@ -71,9 +71,9 @@ public final class StorageDirectory implements AutoCloseable {
         return root;
     }
 
-    /** The diagnostic trace archive, or {@code null} when the directory is unavailable. */
-    public Path traceFile() {
-        return available() ? root.resolve("traces.jsonl") : null;
+    /** The trace segment directory, or {@code null} when the directory is unavailable. */
+    public Path traceDirectory() {
+        return available() ? root.resolve("traces") : null;
     }
 
     /** The metric history directory, or {@code null} when the directory is unavailable. */

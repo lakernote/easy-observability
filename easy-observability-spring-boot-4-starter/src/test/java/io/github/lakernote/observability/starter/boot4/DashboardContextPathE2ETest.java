@@ -1,6 +1,7 @@
 package io.github.lakernote.observability.starter.boot4;
 
-import io.github.lakernote.observability.trace.internal.store.RecentTraceStore;
+import io.github.lakernote.observability.trace.internal.store.TraceRecord;
+import io.github.lakernote.observability.trace.internal.store.TraceStore;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -48,7 +49,7 @@ class DashboardContextPathE2ETest {
     private int port;
 
     @Autowired
-    private RecentTraceStore recentTraceStore;
+    private TraceStore traceStore;
 
     @DynamicPropertySource
     static void metricsStorage(DynamicPropertyRegistry registry) {
@@ -106,15 +107,15 @@ class DashboardContextPathE2ETest {
         assertThat(traceApi).isEqualTo(uri("/api/easy-observability/"));
         assertThat(metricsApi).isEqualTo(traceApi);
 
-        recentTraceStore.clear();
-        recentTraceStore.add(RecentTraceStore.TraceRecord.builder()
+        traceStore.clear();
+        traceStore.add(TraceRecord.builder()
                 .traceId("context-path-trace").sourceType("HTTP").name("GET /context-path").method("GET")
                 .status(503).durationMs(12).error(true)
                 .threadName("test-thread").threadId(Thread.currentThread().getId())
                 .errorType(IllegalStateException.class.getName()).errorMessage("context failure")
                 .build());
 
-        HttpResponse<String> traces = get(traceApi.resolve("traces?limit=500"));
+        HttpResponse<String> traces = get(traceApi.resolve("traces?limit=50"));
         assertThat(traces.statusCode()).isEqualTo(200);
         assertThat(traces.body()).contains("context-path-trace", "GET /context-path");
 

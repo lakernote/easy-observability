@@ -6,7 +6,7 @@ import io.github.lakernote.observability.autoconfigure.KafkaTraceAutoConfigurati
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
 import io.github.lakernote.observability.integration.kafka.internal.TraceIdProducerInterceptor;
 import io.github.lakernote.observability.integration.observation.internal.ObservationTraceHandler;
-import io.github.lakernote.observability.trace.internal.store.RecentTraceStore;
+import io.github.lakernote.observability.trace.internal.store.TraceStore;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.header.internals.RecordHeader;
 import org.springframework.kafka.support.micrometer.KafkaRecordReceiverContext;
@@ -83,12 +83,12 @@ class KafkaTraceAutoConfigurationTest {
     void slowConsumerObservationUsesTraceIdFromKafkaRecordHeader() throws Exception {
         EasyObservabilityProperties properties = new EasyObservabilityProperties();
         properties.getTrace().setKafkaConsumerSlowThreshold(java.time.Duration.ofMillis(1));
-        RecentTraceStore history = new RecentTraceStore(10);
+        TraceStore history = TraceStore.inMemory(10);
         new ApplicationContextRunner()
                 .withConfiguration(AutoConfigurations.of(KafkaTraceAutoConfiguration.class))
                 .withBean(EasyObservabilityProperties.class, () -> properties)
                 .run(context -> {
-                    ObservationTraceHandler handler = new ObservationTraceHandler(history, null,
+                    ObservationTraceHandler handler = new ObservationTraceHandler(history,
                             properties, context.getBeansOfType(
                             io.github.lakernote.observability.integration.observation.ObservationTraceIdResolver.class)
                                     .values().stream().toList());

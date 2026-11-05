@@ -35,7 +35,7 @@
     <section class="filters" aria-label="Trace 筛选">
       <label><span>结果</span><select id="result-filter"><option value="all">全部诊断 Trace</option><option value="slow">慢调用</option><option value="resource">资源告警</option><option value="error">错误</option></select></label>
       <label><span>入口</span><select id="source-filter"><option value="">全部来源</option><option value="HTTP">HTTP</option><option value="JOB">定时任务</option><option value="KAFKA_CONSUMER">Kafka 消费</option></select></label>
-      <label class="search"><span>搜索入口、Trace ID、SQL、资源告警或错误</span><input id="search" type="search" maxlength="200" placeholder="例如 /api/orders 或 SQLException"></label>
+      <label class="search"><span>搜索入口、Trace ID、SQL、调用节点或错误</span><input id="search" type="search" maxlength="200" placeholder="例如 /api/orders 或 SQLException"></label>
       <span id="result-count" class="count" role="status"></span>
     </section>
     <section class="trace-list" aria-label="慢调用、资源告警和错误 Trace 列表">
@@ -73,6 +73,6 @@
     <p>将删除当前实例内存中的近期记录和诊断 Trace 归档文件。</p>
     <div class="dialog-actions"><button id="cancel-clear" type="button">取消</button><button id="confirm-clear" class="danger" type="button">清空</button></div>
   </dialog>
-  <script type="module" src="assets/dashboard.js?v=20261105.1"></script>
+  <script type="module" src="assets/dashboard.js?v=20261105.2"></script>
 </body>
 </html>

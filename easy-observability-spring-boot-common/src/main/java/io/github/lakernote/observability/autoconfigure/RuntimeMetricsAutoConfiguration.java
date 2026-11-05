@@ -43,14 +43,15 @@ public class RuntimeMetricsAutoConfiguration {
             throw new IllegalArgumentException("easy.observability.metrics.max-storage-size must be positive");
         }
         return new MetricsArchive(storage.metricsDirectory(), metrics.getMaxStorageSize().toBytes(),
-                retentionDays(metrics.getRetention()), ZoneId.systemDefault());
+                retentionDays("metrics", metrics.getRetention()), ZoneId.systemDefault());
     }
 
-    static int retentionDays(Duration retention) {
+    /** Validates a {@code easy.observability.<group>.retention} setting: whole days between 1 and 365. */
+    static int retentionDays(String group, Duration retention) {
         if (retention == null || retention.toDays() < 1 || retention.toDays() > MAX_RETENTION_DAYS
                 || !retention.equals(Duration.ofDays(retention.toDays()))) {
-            throw new IllegalArgumentException("easy.observability.metrics.retention must be whole days between 1d and "
-                    + MAX_RETENTION_DAYS + "d");
+            throw new IllegalArgumentException("easy.observability." + group
+                    + ".retention must be whole days between 1d and " + MAX_RETENTION_DAYS + "d");
         }
         return (int) retention.toDays();
     }

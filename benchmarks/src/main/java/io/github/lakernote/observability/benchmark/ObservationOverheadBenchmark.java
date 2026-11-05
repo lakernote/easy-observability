@@ -5,7 +5,7 @@ import io.github.lakernote.observability.integration.observation.internal.Observ
 import io.github.lakernote.observability.metrics.internal.OperationStats;
 import io.github.lakernote.observability.trace.internal.TraceContext;
 import io.github.lakernote.observability.trace.internal.TraceIds;
-import io.github.lakernote.observability.trace.internal.store.RecentTraceStore;
+import io.github.lakernote.observability.trace.internal.store.TraceStore;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationHandler;
 import io.micrometer.observation.ObservationRegistry;
@@ -56,7 +56,7 @@ public class ObservationOverheadBenchmark {
 
         instrumented = ObservationRegistry.create();
         instrumented.observationConfig().observationHandler(new ObservationTraceHandler(
-                new RecentTraceStore(500), null, new EasyObservabilityProperties(), List.of(),
+                TraceStore.inMemory(500), new EasyObservabilityProperties(), List.of(),
                 stats ? new OperationStats(1_000) : null));
     }
 

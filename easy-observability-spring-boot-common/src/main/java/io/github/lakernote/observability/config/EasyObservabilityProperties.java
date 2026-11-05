@@ -90,6 +90,7 @@ public class EasyObservabilityProperties {
 
     public static class Web {
         private boolean enabled = true;
+        /** Newest stored traces kept in memory with their full call tree; older ones are read from disk. */
         private int traceLimit = 500;
 
         public boolean isEnabled() {
@@ -119,8 +120,11 @@ public class EasyObservabilityProperties {
         private Duration kafkaConsumerSlowThreshold = Duration.ofSeconds(1);
         private Duration cpuThreshold = Duration.ofMillis(500);
         private DataSize allocatedMemoryThreshold = DataSize.ofMegabytes(50);
-        private int diagnosticHistoryLimit = 1_000;
-        private DataSize diagnosticMaxSize = DataSize.ofMegabytes(8);
+        /** How long stored traces are kept, in whole days between 1 and 365. A bare number is read as days. */
+        @DurationUnit(ChronoUnit.DAYS)
+        private Duration retention = Duration.ofDays(7);
+        /** Disk budget for the trace files; the oldest files are deleted beyond it. */
+        private DataSize maxStorageSize = DataSize.ofMegabytes(128);
 
         public boolean isEnabled() {
             return enabled;
@@ -179,20 +183,20 @@ public class EasyObservabilityProperties {
                     : allocatedMemoryThreshold;
         }
 
-        public int getDiagnosticHistoryLimit() {
-            return diagnosticHistoryLimit;
+        public Duration getRetention() {
+            return retention;
         }
 
-        public void setDiagnosticHistoryLimit(int diagnosticHistoryLimit) {
-            this.diagnosticHistoryLimit = diagnosticHistoryLimit;
+        public void setRetention(Duration retention) {
+            this.retention = retention;
         }
 
-        public DataSize getDiagnosticMaxSize() {
-            return diagnosticMaxSize;
+        public DataSize getMaxStorageSize() {
+            return maxStorageSize;
         }
 
-        public void setDiagnosticMaxSize(DataSize diagnosticMaxSize) {
-            this.diagnosticMaxSize = diagnosticMaxSize;
+        public void setMaxStorageSize(DataSize maxStorageSize) {
+            this.maxStorageSize = maxStorageSize;
         }
 
     }

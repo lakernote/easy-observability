@@ -42,8 +42,8 @@ class ObservabilityDashboardResourceTest {
                         "easy-observability:auth-request", "easy-observability:auth-response",
                         "initializeEmbeddedAuth().then(() => Promise.all([loadPermissions(), refresh()]))",
                         "$('clear-history').hidden = !permissions.canClear",
-                        "if (!trace.slow && !trace.error && !resourceAlert) return false",
-                        "result === 'slow' && (!trace.slow || trace.error)",
+                        "kind: $('result-filter').value", "params.set('before', pageCursors[page])",
+                        "traces.scanLimited ? '继续搜索' : '下一页'", "notFoundMessage: '这条 Trace 已不在保留范围内'",
                         "formatAllocatedBytes(trace.allocatedBytes)", "formatAllocatedBytes(detail.allocatedBytes)",
                         "内存分配量", "不是当前堆占用", "条诊断 Trace",
                         "addFact($('facts'), '状态'")

@@ -1,6 +1,6 @@
 package io.github.lakernote.observability.starter.boot3;
 
-import io.github.lakernote.observability.trace.internal.store.RecentTraceStore;
+import io.github.lakernote.observability.trace.internal.store.TraceStore;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.SpringBootConfiguration;
@@ -57,7 +57,7 @@ class ReactiveApplicationE2ETest {
             assertThat(response.body()).isEqualTo("ok");
         }
 
-        assertThat(context.getBean(RecentTraceStore.class).size()).isZero();
+        assertThat(context.getBean(TraceStore.class).size()).isZero();
         assertThat(get(port, "/easy-observability/").statusCode()).isEqualTo(404);
         assertThat(get(port, "/api/easy-observability/traces").statusCode()).isEqualTo(404);
     }

@@ -5,10 +5,8 @@ import io.github.lakernote.observability.integration.observation.internal.Observ
 import io.github.lakernote.observability.integration.observation.ObservationTraceIdResolver;
 import io.github.lakernote.observability.metrics.internal.OperationStats;
 import io.github.lakernote.observability.storage.internal.StorageDirectory;
-import io.github.lakernote.observability.trace.internal.BoundedHistoryWriter;
 import io.github.lakernote.observability.trace.TraceContextTaskDecorator;
-import io.github.lakernote.observability.trace.internal.store.DiagnosticTraceStore;
-import io.github.lakernote.observability.trace.internal.store.RecentTraceStore;
+import io.github.lakernote.observability.trace.internal.store.TraceStore;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.config.BeanFactoryPostProcessor;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
@@ -57,30 +55,16 @@ public class ObservabilityAutoConfiguration {
     }
 
     /**
-     * 为 Trace 诊断归档提供有容量上限的写入器。
+     * 保存慢、错和资源超阈值的入口 Trace：内存索引 + 最近的完整记录 + 按天分段的本地文件。
      */
-    @Bean
-    BoundedHistoryWriter boundedHistoryWriter() {
-        return new BoundedHistoryWriter();
-    }
-
-    /**
-     * 保存供监控页面查询的近期 Trace 树。
-     */
-    @Bean
-    RecentTraceStore recentTraceStore(EasyObservabilityProperties properties) {
-        return new RecentTraceStore(properties.getWeb().getTraceLimit());
-    }
-
-    /**
-     * 持久化慢操作和错误 Trace，并按配置限制历史数量与文件容量。
-     */
-    @Bean
-    DiagnosticTraceStore diagnosticTraceStore(EasyObservabilityProperties properties, StorageDirectory storage,
-                                              BoundedHistoryWriter writer) {
+    @Bean(initMethod = "start", destroyMethod = "close")
+    TraceStore traceStore(EasyObservabilityProperties properties, StorageDirectory storage) {
         EasyObservabilityProperties.Trace trace = properties.getTrace();
-        return new DiagnosticTraceStore(storage.traceFile(), trace.getDiagnosticHistoryLimit(),
-                trace.getDiagnosticMaxSize().toBytes(), writer);
+        if (trace.getMaxStorageSize() == null || trace.getMaxStorageSize().toBytes() <= 0) {
+            throw new IllegalArgumentException("easy.observability.trace.max-storage-size must be positive");
+        }
+        return new TraceStore(storage.traceDirectory(), RuntimeMetricsAutoConfiguration.retentionDays("trace", trace.getRetention()),
+                trace.getMaxStorageSize().toBytes(), properties.getWeb().getTraceLimit());
     }
 
     /**
@@ -132,12 +116,11 @@ public class ObservabilityAutoConfiguration {
     @Bean
     @ConditionalOnProperty(prefix = "easy.observability.trace", name = "enabled",
             havingValue = "true", matchIfMissing = true)
-    ObservationTraceHandler observationTraceHandler(RecentTraceStore recentTraceStore,
-                                                    DiagnosticTraceStore diagnosticTraceStore,
+    ObservationTraceHandler observationTraceHandler(TraceStore traceStore,
                                                     EasyObservabilityProperties properties,
                                                     ObjectProvider<ObservationTraceIdResolver> resolvers,
                                                     ObjectProvider<OperationStats> operationStats) {
-        return new ObservationTraceHandler(recentTraceStore, diagnosticTraceStore, properties,
+        return new ObservationTraceHandler(traceStore, properties,
                 resolvers.orderedStream().toList(), operationStats.getIfAvailable());
     }
 }

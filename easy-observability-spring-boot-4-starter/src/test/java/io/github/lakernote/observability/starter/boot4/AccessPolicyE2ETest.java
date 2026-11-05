@@ -49,7 +49,7 @@ class AccessPolicyE2ETest {
         void allowsViewingAndDeniesClearing() throws Exception {
             HttpResponse<String> traces = send(port, "GET", "/api/easy-observability/traces", null);
             assertThat(traces.statusCode()).isEqualTo(200);
-            assertThat(traces.body()).isEqualTo("[]");
+            assertThat(traces.body()).contains("\"items\":[]");
             assertThat(send(port, "GET", "/api/easy-observability/metrics/storage", null).statusCode())
                     .isEqualTo(200);
 
@@ -98,7 +98,7 @@ class AccessPolicyE2ETest {
                     .isEqualTo("{\"canClear\":true}");
             HttpResponse<String> cleared = send(port, "POST", "/api/easy-observability/storage/clear", "ops");
             assertThat(cleared.statusCode()).isEqualTo(200);
-            assertThat(cleared.body()).contains("clearedRecentTraceCount");
+            assertThat(cleared.body()).contains("clearedTraceCount");
         }
     }
 

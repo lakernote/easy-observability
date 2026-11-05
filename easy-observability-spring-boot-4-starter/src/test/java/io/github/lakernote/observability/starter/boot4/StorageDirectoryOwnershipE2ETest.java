@@ -43,11 +43,11 @@ class StorageDirectoryOwnershipE2ETest {
                 assertThat(get(owner, "/slow/owner").statusCode()).isEqualTo(200);
 
                 assertThat(get(owner, "/api/easy-observability/traces/storage").body())
-                        .contains("\"diagnosticPersistenceEnabled\":true");
+                        .contains("\"persistent\":true");
                 assertThat(get(owner, "/api/easy-observability/metrics/storage").body())
                         .contains("\"persistent\":true");
                 assertThat(get(contender, "/api/easy-observability/traces/storage").body())
-                        .contains("\"diagnosticPersistenceEnabled\":false");
+                        .contains("\"persistent\":false");
                 assertThat(get(contender, "/api/easy-observability/metrics/storage").body())
                         .contains("\"persistent\":false");
                 // The contender still serves its in-memory history.
@@ -60,7 +60,7 @@ class StorageDirectoryOwnershipE2ETest {
 
         try (ConfigurableApplicationContext successor = start()) {
             assertThat(get(successor, "/api/easy-observability/traces/storage").body())
-                    .contains("\"diagnosticPersistenceEnabled\":true");
+                    .contains("\"persistent\":true");
             assertThat(awaitTrace(successor, "owner")).isEqualTo(200);
         }
     }
@@ -85,16 +85,24 @@ class StorageDirectoryOwnershipE2ETest {
     }
 
     private static String awaitArchiveContaining(String traceId) throws Exception {
-        Path archive = STORAGE_DIRECTORY.resolve("traces.jsonl");
+        Path traces = STORAGE_DIRECTORY.resolve("traces");
         long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+        String content;
         do {
-            if (Files.isRegularFile(archive)) {
-                String content = Files.readString(archive);
-                if (content.contains("\"traceId\":\"" + traceId + "\"")) return content;
-            }
+            content = readSegments(traces);
+            if (content.contains("\"traceId\":\"" + traceId + "\"")) return content;
             Thread.sleep(25);
         } while (System.nanoTime() < deadline);
-        return Files.isRegularFile(archive) ? Files.readString(archive) : "";
+        return content;
+    }
+
+    private static String readSegments(Path traces) throws IOException {
+        if (!Files.isDirectory(traces)) return "";
+        StringBuilder content = new StringBuilder();
+        try (var files = Files.list(traces)) {
+            for (Path file : files.sorted().toList()) content.append(Files.readString(file));
+        }
+        return content.toString();
     }
 
     private static HttpResponse<String> get(ConfigurableApplicationContext context, String path) throws Exception {

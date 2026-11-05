@@ -13,8 +13,8 @@ import io.github.lakernote.observability.trace.internal.ThreadResourceSnapshot;
 import io.github.lakernote.observability.trace.internal.TraceCompletion;
 import io.github.lakernote.observability.trace.internal.TraceContext;
 import io.github.lakernote.observability.trace.internal.TraceIds;
-import io.github.lakernote.observability.trace.internal.store.DiagnosticTraceStore;
-import io.github.lakernote.observability.trace.internal.store.RecentTraceStore;
+import io.github.lakernote.observability.trace.internal.store.TraceRecord;
+import io.github.lakernote.observability.trace.internal.store.TraceStore;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationHandler;
 import io.micrometer.observation.ObservationView;
@@ -32,26 +32,24 @@ import static io.github.lakernote.observability.integration.observation.internal
 public final class ObservationTraceHandler implements ObservationHandler<Observation.Context> {
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(ObservationTraceHandler.class);
     private static final Object STATE_KEY = ObservationTraceHandler.class.getName() + ".state";
-    private final RecentTraceStore recentTraceStore;
+    private final TraceStore traceStore;
     private final EasyObservabilityProperties properties;
-    private final DiagnosticTraceStore diagnosticTraceStore;
     private final List<ObservationTraceIdResolver> traceIdResolvers;
     private final OperationStats operationStats;
     private final AtomicBoolean callbackFailureLogged = new AtomicBoolean();
 
-    public ObservationTraceHandler(RecentTraceStore recentTraceStore, DiagnosticTraceStore diagnosticTraceStore,
+    public ObservationTraceHandler(TraceStore traceStore,
                                    EasyObservabilityProperties properties,
                                    List<ObservationTraceIdResolver> traceIdResolvers) {
-        this(recentTraceStore, diagnosticTraceStore, properties, traceIdResolvers, null);
+        this(traceStore, properties, traceIdResolvers, null);
     }
 
     /** {@code operationStats} may be null when call statistics are disabled. */
-    public ObservationTraceHandler(RecentTraceStore recentTraceStore, DiagnosticTraceStore diagnosticTraceStore,
+    public ObservationTraceHandler(TraceStore traceStore,
                                    EasyObservabilityProperties properties,
                                    List<ObservationTraceIdResolver> traceIdResolvers,
                                    OperationStats operationStats) {
-        this.recentTraceStore = recentTraceStore;
-        this.diagnosticTraceStore = diagnosticTraceStore;
+        this.traceStore = traceStore;
         this.properties = properties;
         this.traceIdResolvers = List.copyOf(traceIdResolvers);
         this.operationStats = operationStats;
@@ -216,7 +214,7 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
         boolean failed = outcome.failed || completion.error();
         // 内存近期列表和持久存储只保留慢、错或资源超阈值的入口 Trace；资源超阈值时即使耗时不高也保留。
         if (!slow && !failed && !outcome.resources.exceeded()) return;
-        RecentTraceStore.TraceRecord stored = recentTraceStore.add(RecentTraceStore.TraceRecord.builder()
+        TraceRecord trace = TraceRecord.builder()
                 .traceId(state.traceId)
                 .sourceType(state.type.name())
                 .name(outcome.displayName)
@@ -235,12 +233,11 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
                 .errorType(completion.errorType())
                 .errorMessage(completion.errorMessage())
                 .errorStackTrace(completion.stackTrace())
-                .build());
-        if (diagnosticTraceStore == null || stored == null) return;
+                .build();
         try {
-            diagnosticTraceStore.recordDiagnosticTrace(stored);
+            traceStore.add(trace);
         } catch (RuntimeException failure) {
-            logCallbackFailure("diagnostic trace persistence", failure);
+            logCallbackFailure("trace storage", failure);
         }
     }
 

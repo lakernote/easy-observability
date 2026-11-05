@@ -1,7 +1,7 @@
-package io.github.lakernote.observability.starter.boot3;
+package io.github.lakernote.observability.starter.boot4;
 
-import io.github.lakernote.observability.trace.internal.store.DiagnosticTraceStore;
-import io.github.lakernote.observability.trace.internal.store.RecentTraceStore;
+import io.github.lakernote.observability.trace.internal.store.TraceRecord;
+import io.github.lakernote.observability.trace.internal.store.TraceStore;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,24 +22,24 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * The trace archive is written by the component's own codec, so host JSON customizations must not change it,
  * while the dashboard API keeps following the host's JSON settings.
  */
-@SpringBootTest(classes = DiagnosticTraceArchiveFormatE2ETest.TestApplication.class,
+@SpringBootTest(classes = TraceArchiveFormatE2ETest.TestApplication.class,
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {
                 "spring.jackson.property-naming-strategy=SNAKE_CASE",
                 "easy.observability.metrics.enabled=false"
         })
-class DiagnosticTraceArchiveFormatE2ETest {
+class TraceArchiveFormatE2ETest {
     private static final Path STORAGE_DIRECTORY = createStorageDirectory();
-    private static final Path HISTORY_FILE = STORAGE_DIRECTORY.resolve("traces.jsonl");
+    private static final Path TRACE_DIRECTORY = STORAGE_DIRECTORY.resolve("traces");
     private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(5))
             .build();
@@ -48,7 +48,7 @@ class DiagnosticTraceArchiveFormatE2ETest {
     private int port;
 
     @Autowired
-    private DiagnosticTraceStore diagnosticTraceStore;
+    private TraceStore traceStore;
 
     @DynamicPropertySource
     static void traceStorage(DynamicPropertyRegistry registry) {
@@ -62,38 +62,58 @@ class DiagnosticTraceArchiveFormatE2ETest {
 
     @Test
     void archiveKeepsItsOwnFormatWhileTheApiFollowsTheHostJsonSettings() throws Exception {
-        diagnosticTraceStore.recordDiagnosticTrace(RecentTraceStore.TraceRecord.builder()
+        traceStore.add(TraceRecord.builder()
                 .id(1).traceId("archive-format-trace").sourceType("HTTP").name("GET /archive").method("GET")
-                .status(500).durationMs(12).error(true).finishedAt(Instant.parse("2026-10-21T10:00:00Z"))
+                .status(500).durationMs(12).error(true)
                 .threadId(7).threadName("worker").cpuTimeMs(1).allocatedBytes(2)
                 .errorType("HTTP_5XX").errorMessage("boom 中文")
                 .build());
 
         String line = awaitArchivedLine();
         assertThat(line)
-                .startsWith("{\"id\":1,\"traceId\":\"archive-format-trace\"")
-                .contains("\"finishedAt\":\"2026-10-21T10:00:00Z\"", "\"errorMessage\":\"boom 中文\"")
+                .startsWith("{\"id\":")
+                .contains("\"traceId\":\"archive-format-trace\"", "\"finishedAt\":\"", "\"errorMessage\":\"boom 中文\"")
                 .doesNotContain("trace_id", "finished_at");
 
-        DiagnosticTraceStore restored = new DiagnosticTraceStore(HISTORY_FILE, 100, 4 * 1024 * 1024);
-        restored.restoreHistory();
-        assertThat(restored.findByTraceId("archive-format-trace", "HTTP").errorMessage()).isEqualTo("boom 中文");
+        TraceStore restored = new TraceStore(TRACE_DIRECTORY, 7, 128L * 1024 * 1024, 10);
+        try {
+            restored.start();
+            long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+            while (restored.storageStatus().indexing() && System.nanoTime() < deadline) Thread.sleep(10);
+            assertThat(restored.find("archive-format-trace", "HTTP").errorMessage()).isEqualTo("boom 中文");
+        } finally {
+            restored.close();
+        }
 
         HttpResponse<String> api = get("/api/easy-observability/traces/archive-format-trace?source=HTTP");
         assertThat(api.statusCode()).isEqualTo(200);
         assertThat(api.body()).contains("\"trace_id\":\"archive-format-trace\"");
+        HttpResponse<String> list = get("/api/easy-observability/traces?kind=error");
+        assertThat(list.statusCode()).isEqualTo(200);
+        assertThat(list.body()).contains("\"trace_id\":\"archive-format-trace\"", "\"scan_limited\":false")
+                .doesNotContain("tree_nodes", "error_stack_trace");
+    }
+
+    @Test
+    void runsWithoutJackson2OnTheClasspath() {
+        assertThatThrownBy(() -> Class.forName("com.fasterxml.jackson.databind.ObjectMapper"))
+                .isInstanceOf(ClassNotFoundException.class);
     }
 
     private static String awaitArchivedLine() throws Exception {
         long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
         while (System.nanoTime() < deadline) {
-            if (Files.exists(HISTORY_FILE)) {
-                List<String> lines = Files.readAllLines(HISTORY_FILE, StandardCharsets.UTF_8);
-                if (!lines.isEmpty()) return lines.get(0);
+            if (Files.isDirectory(TRACE_DIRECTORY)) {
+                try (var files = Files.list(TRACE_DIRECTORY)) {
+                    for (Path file : files.toList()) {
+                        List<String> lines = Files.readAllLines(file, StandardCharsets.UTF_8);
+                        if (!lines.isEmpty()) return lines.get(0);
+                    }
+                }
             }
             Thread.sleep(20);
         }
-        throw new AssertionError("Trace was not archived to " + HISTORY_FILE);
+        throw new AssertionError("Trace was not archived to " + TRACE_DIRECTORY);
     }
 
     private HttpResponse<String> get(String path) throws IOException, InterruptedException {

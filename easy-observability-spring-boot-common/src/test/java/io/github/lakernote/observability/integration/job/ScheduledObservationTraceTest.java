@@ -2,7 +2,7 @@ package io.github.lakernote.observability.integration.job;
 
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
 import io.github.lakernote.observability.integration.observation.internal.ObservationTraceHandler;
-import io.github.lakernote.observability.trace.internal.store.RecentTraceStore;
+import io.github.lakernote.observability.trace.internal.store.TraceStore;
 import io.github.lakernote.observability.trace.internal.TraceNodeFixtures;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
@@ -16,8 +16,8 @@ class ScheduledObservationTraceTest {
         ObservationRegistry registry = ObservationRegistry.create();
         EasyObservabilityProperties properties = new EasyObservabilityProperties();
         properties.getTrace().setJobSlowThreshold(java.time.Duration.ofMillis(1));
-        RecentTraceStore history = new RecentTraceStore(10);
-        registry.observationConfig().observationHandler(new ObservationTraceHandler(history, null, properties, java.util.List.of()));
+        TraceStore history = TraceStore.inMemory(10);
+        registry.observationConfig().observationHandler(new ObservationTraceHandler(history, properties, java.util.List.of()));
 
         Observation.createNotStarted("tasks.scheduled.execution", registry)
                 .contextualName("nightly-reconciliation")

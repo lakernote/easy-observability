@@ -106,7 +106,7 @@ class DashboardContextPathE2ETest {
         assertThat(traceApi.getPath()).isEqualTo(APPLICATION_BASE + "/api/easy-observability/");
         HttpResponse<String> traces = get(traceApi.resolve("traces?limit=1"));
         assertThat(traces.statusCode()).isEqualTo(200);
-        assertThat(traces.body()).isEqualTo("[]");
+        assertThat(traces.body()).contains("\"items\":[]");
 
         URI metricsCommon = metricsScript.resolve("metrics-common.js");
         HttpResponse<String> metricsCommonResponse = get(metricsCommon);

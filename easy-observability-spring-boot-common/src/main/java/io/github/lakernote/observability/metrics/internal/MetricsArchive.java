@@ -49,7 +49,6 @@ public final class MetricsArchive {
     private static final Logger log = LoggerFactory.getLogger(MetricsArchive.class);
     private static final DateTimeFormatter FILE_DATE = DateTimeFormatter.BASIC_ISO_DATE;
     private static final String SUFFIX = ".tsv";
-    private static final String LEGACY_PREFIX = "common-metrics-";
 
     private final Path directory;
     private final long maxBytes;
@@ -87,7 +86,6 @@ public final class MetricsArchive {
         if (this.directory == null) return;
         try {
             Files.createDirectories(this.directory);
-            deleteLegacyFiles();
             available = true;
         } catch (IOException | RuntimeException failure) {
             disable("create the metrics directory", failure);
@@ -344,12 +342,6 @@ public final class MetricsArchive {
 
     private Path file(String kind, LocalDate date) {
         return directory.resolve(kind + "-" + FILE_DATE.format(date) + SUFFIX);
-    }
-
-    private void deleteLegacyFiles() throws IOException {
-        try (DirectoryStream<Path> stream = Files.newDirectoryStream(directory, LEGACY_PREFIX + "*")) {
-            for (Path file : stream) Files.deleteIfExists(file);
-        }
     }
 
     private static String header(String kind, long bucketSeconds) {

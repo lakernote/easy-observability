@@ -21,21 +21,21 @@ class TraceRecordJsonCodec {
     /** Guards the recursive tree parser against stack exhaustion from corrupted or hostile archive lines. */
     private static final int MAX_DEPTH = 256;
 
-    void write(OutputStream output, RecentTraceStore.TraceRecord trace) throws IOException {
+    void write(OutputStream output, TraceRecord trace) throws IOException {
         StringBuilder json = new StringBuilder(1024);
         writeRecord(json, trace);
         // Lone surrogates are already escaped, so UTF-8 encoding is lossless.
         output.write(json.toString().getBytes(StandardCharsets.UTF_8));
     }
 
-    RecentTraceStore.TraceRecord read(byte[] line) throws IOException {
+    TraceRecord read(byte[] line) throws IOException {
         Parser parser = new Parser(new String(line, StandardCharsets.UTF_8));
-        RecentTraceStore.TraceRecord trace = parser.readRecord();
+        TraceRecord trace = parser.readRecord();
         parser.expectEnd();
         return trace;
     }
 
-    private static void writeRecord(StringBuilder out, RecentTraceStore.TraceRecord trace){
+    private static void writeRecord(StringBuilder out, TraceRecord trace){
         out.append('{');
         field(out, "id", true); out.append(trace.id());
         field(out, "traceId", false); string(out, trace.traceId());
@@ -145,7 +145,7 @@ class TraceRecordJsonCodec {
             this.text = text;
         }
 
-        RecentTraceStore.TraceRecord readRecord() throws IOException {
+        TraceRecord readRecord() throws IOException {
             long id = 0;
             String traceId = "";
             String name = "";
@@ -198,7 +198,7 @@ class TraceRecordJsonCodec {
                 } while (consumeIf(','));
                 expect('}');
             }
-            return new RecentTraceStore.TraceRecord(id, traceId, name, method, status, durationMs, slow, error,
+            return new TraceRecord(id, traceId, name, method, status, durationMs, slow, error,
                     treeNodes, finishedAt, threadId, cpuTimeMs, allocatedBytes, sourceType, errorType, errorMessage,
                     threadName, errorStackTrace, highCpu, highAllocation);
         }

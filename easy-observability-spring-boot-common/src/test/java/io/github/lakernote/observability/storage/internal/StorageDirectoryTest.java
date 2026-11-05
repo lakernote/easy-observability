@@ -24,7 +24,7 @@ class StorageDirectoryTest {
         try (StorageDirectory storage = StorageDirectory.acquire(root)) {
             assertThat(storage.available()).isTrue();
             assertThat(root.resolve(StorageDirectory.LOCK_FILE)).isRegularFile();
-            assertThat(storage.traceFile()).isEqualTo(root.resolve("traces.jsonl"));
+            assertThat(storage.traceDirectory()).isEqualTo(root.resolve("traces"));
             assertThat(storage.metricsDirectory()).isEqualTo(root.resolve("metrics"));
         }
     }
@@ -36,7 +36,7 @@ class StorageDirectoryTest {
         try (StorageDirectory second = StorageDirectory.acquire(root)) {
             assertThat(first.available()).isTrue();
             assertThat(second.available()).isFalse();
-            assertThat(second.traceFile()).isNull();
+            assertThat(second.traceDirectory()).isNull();
             assertThat(second.metricsDirectory()).isNull();
         } finally {
             first.close();
@@ -77,7 +77,7 @@ class StorageDirectoryTest {
 
         try (StorageDirectory storage = StorageDirectory.acquire(blockingFile.resolve("app"))) {
             assertThat(storage.available()).isFalse();
-            assertThat(storage.traceFile()).isNull();
+            assertThat(storage.traceDirectory()).isNull();
         }
     }
 

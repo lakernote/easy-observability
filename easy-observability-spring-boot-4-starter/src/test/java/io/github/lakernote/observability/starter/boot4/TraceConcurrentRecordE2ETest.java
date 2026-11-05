@@ -1,13 +1,11 @@
-package io.github.lakernote.observability.starter.boot3;
+package io.github.lakernote.observability.starter.boot4;
 
-import io.github.lakernote.observability.trace.internal.BoundedHistoryWriter;
-import io.github.lakernote.observability.trace.internal.store.DiagnosticTraceStore;
-import io.github.lakernote.observability.trace.internal.store.DiagnosticTraceStoreTestSupport;
-import io.github.lakernote.observability.trace.internal.store.RecentTraceStore;
+import io.github.lakernote.observability.trace.internal.store.TraceStoreTestSupport;
+import io.github.lakernote.observability.trace.internal.store.TraceRecord;
+import io.github.lakernote.observability.trace.internal.store.TraceStore;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.boot.SpringBootConfiguration;
@@ -39,16 +37,16 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@SpringBootTest(classes = DiagnosticTraceConcurrentRecordE2ETest.TestApplication.class,
+@SpringBootTest(classes = TraceConcurrentRecordE2ETest.TestApplication.class,
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {
                 "easy.observability.metrics.enabled=false",
                 "easy.observability.trace.enabled=false",
                 "easy.observability.web.enabled=false"
         })
-class DiagnosticTraceConcurrentRecordE2ETest {
+class TraceConcurrentRecordE2ETest {
     private static final Path STORAGE_DIRECTORY = createStorageDirectory();
-    private static final Path HISTORY_FILE = STORAGE_DIRECTORY.resolve("traces.jsonl");
+    private static final Path TRACE_DIRECTORY = STORAGE_DIRECTORY.resolve("traces");
     private static final CountDownLatch SERIALIZATION_STARTED = new CountDownLatch(1);
     private static final CountDownLatch RELEASE_SERIALIZATION = new CountDownLatch(1);
     private static final CountDownLatch SERIALIZATION_FINISHED = new CountDownLatch(1);
@@ -61,7 +59,7 @@ class DiagnosticTraceConcurrentRecordE2ETest {
     private int port;
 
     @Autowired
-    private BoundedHistoryWriter historyWriter;
+    private TraceStore traceStore;
 
     @DynamicPropertySource
     static void traceStorage(DynamicPropertyRegistry registry) {
@@ -71,7 +69,7 @@ class DiagnosticTraceConcurrentRecordE2ETest {
     @AfterEach
     void releaseSerializerAndCloseWriter() {
         RELEASE_SERIALIZATION.countDown();
-        historyWriter.close();
+        traceStore.close();
     }
 
     @AfterAll
@@ -101,6 +99,8 @@ class DiagnosticTraceConcurrentRecordE2ETest {
         }
 
         assertThat(SERIALIZATION_FINISHED.await(5, TimeUnit.SECONDS)).isTrue();
+        assertThat(traceStore.find("trace-first", "HTTP")).isNotNull();
+        assertThat(traceStore.find("trace-second", "HTTP")).isNotNull();
         HttpResponse<String> probe = get("/probe");
         assertThat(probe.statusCode()).isEqualTo(200);
         assertThat(probe.body()).isEqualTo("ok");
@@ -135,14 +135,14 @@ class DiagnosticTraceConcurrentRecordE2ETest {
     static class TestApplication {
         /** Internal stores are not replaceable beans, so the test swaps in a hooked instance after creation. */
         @Bean
-        static BeanPostProcessor blockingDiagnosticTraceStore(ObjectProvider<BoundedHistoryWriter> writer) {
+        static BeanPostProcessor blockingTraceStore() {
             return new BeanPostProcessor() {
                 @Override
                 public Object postProcessAfterInitialization(Object bean, String beanName) {
-                    if (!(bean instanceof DiagnosticTraceStore)) return bean;
-                    return DiagnosticTraceStoreTestSupport.storeWithWriteHook(HISTORY_FILE, 1000,
-                            4 * 1024 * 1024, writer.getObject(),
-                            DiagnosticTraceConcurrentRecordE2ETest::blockFirstSerialization);
+                    if (!(bean instanceof TraceStore original)) return bean;
+                    original.close();
+                    return TraceStoreTestSupport.storeWithWriteHook(TRACE_DIRECTORY,
+                            TraceConcurrentRecordE2ETest::blockFirstSerialization);
                 }
             };
         }
@@ -150,15 +150,15 @@ class DiagnosticTraceConcurrentRecordE2ETest {
 
     @RestController
     static class ProbeController {
-        private final DiagnosticTraceStore store;
+        private final TraceStore store;
 
-        ProbeController(DiagnosticTraceStore store) {
+        ProbeController(TraceStore store) {
             this.store = store;
         }
 
         @GetMapping("/record/{id}")
         String record(@PathVariable String id) {
-            store.recordDiagnosticTrace(RecentTraceStore.TraceRecord.builder()
+            store.add(TraceRecord.builder()
                     .id(1).traceId("trace-" + id).sourceType("HTTP").name("/record/" + id).method("GET")
                     .status(200).durationMs(1).slow(true).finishedAt(Instant.now())
                     .threadId(Thread.currentThread().getId()).threadName(Thread.currentThread().getName())
@@ -173,7 +173,7 @@ class DiagnosticTraceConcurrentRecordE2ETest {
         }
     }
 
-    private static void blockFirstSerialization(RecentTraceStore.TraceRecord trace) throws IOException {
+    private static void blockFirstSerialization(TraceRecord trace) throws IOException {
         boolean firstSerialization = BLOCK_FIRST_SERIALIZATION.compareAndSet(true, false);
         try {
             if (firstSerialization) {

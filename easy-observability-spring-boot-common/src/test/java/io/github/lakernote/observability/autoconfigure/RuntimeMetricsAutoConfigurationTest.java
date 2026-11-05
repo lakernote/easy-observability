@@ -71,10 +71,10 @@ class RuntimeMetricsAutoConfigurationTest {
         contextRunner().withPropertyValues("easy.observability.metrics.max-storage-size=0").run(context ->
                 assertThat(context).hasFailed().getFailure().rootCause()
                         .hasMessageContaining("max-storage-size must be positive"));
-        assertThat(RuntimeMetricsAutoConfiguration.retentionDays(Duration.ofDays(365))).isEqualTo(365);
-        assertThatThrownBy(() -> RuntimeMetricsAutoConfiguration.retentionDays(Duration.ofHours(36)))
+        assertThat(RuntimeMetricsAutoConfiguration.retentionDays("metrics", Duration.ofDays(365))).isEqualTo(365);
+        assertThatThrownBy(() -> RuntimeMetricsAutoConfiguration.retentionDays("metrics", Duration.ofHours(36)))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> RuntimeMetricsAutoConfiguration.retentionDays(Duration.ofDays(366)))
+        assertThatThrownBy(() -> RuntimeMetricsAutoConfiguration.retentionDays("metrics", Duration.ofDays(366)))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 }

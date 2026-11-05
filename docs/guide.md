@@ -34,7 +34,7 @@ JDBC 采集会使用保留原数据源具体类型的代理，因此按 `HikariD
 | 配置 | 默认值 | 说明 |
 | --- | --- | --- |
 | `easy.observability.enabled` | `true` | Starter 总开关 |
-| `easy.observability.storage.directory` | `./data/easy-observability/{spring.application.name}` | 本地存储目录，存放诊断 Trace 归档 `traces.jsonl` 和运行指标历史 `metrics/`；相对路径基于工作目录，未设置应用名时使用 `application` |
+| `easy.observability.storage.directory` | `./data/easy-observability/{spring.application.name}` | 本地存储目录，存放诊断 Trace 分段文件 `traces/` 和运行指标历史 `metrics/`；相对路径基于工作目录，未设置应用名时使用 `application` |
 | `easy.observability.trace.enabled` | `true` | Trace 采集及上下文传播 |
 | `easy.observability.trace.header-name` | `X-Trace-Id` | HTTP 与受支持消息/客户端使用的 Trace ID 名称 |
 | `easy.observability.trace.http-slow-threshold` | `500ms` | HTTP 入口慢阈值 |
@@ -42,15 +42,15 @@ JDBC 采集会使用保留原数据源具体类型的代理，因此按 `HikariD
 | `easy.observability.trace.kafka-consumer-slow-threshold` | `1s` | Kafka 消费入口慢阈值 |
 | `easy.observability.trace.cpu-threshold` | `500ms` | 入口线程 CPU 时间资源告警阈值 |
 | `easy.observability.trace.allocated-memory-threshold` | `50MB` | 入口线程累计内存分配量资源告警阈值 |
-| `easy.observability.trace.diagnostic-history-limit` | `1000` | 归档索引的最大记录数 |
-| `easy.observability.trace.diagnostic-max-size` | `8MB` | 诊断归档大小上限 |
+| `easy.observability.trace.retention` | `7d` | 诊断 Trace 保留天数，整天，范围 `1d`～`365d` |
+| `easy.observability.trace.max-storage-size` | `128MB` | 诊断 Trace 磁盘占用上限，超出时删除最旧的分段文件 |
 | `easy.observability.metrics.enabled` | `true` | 运行指标（调用统计与资源指标）总开关 |
 | `easy.observability.metrics.max-operations` | `1000` | 所有类别合计最多统计的操作数，超出后新操作按类别并入“其他”行 |
 | `easy.observability.metrics.retention` | `30d` | 指标历史保留时长，须为整天数，范围 `1d` 至 `365d` |
 | `easy.observability.metrics.max-storage-size` | `64MB` | 指标历史文件的磁盘上限，超出后删除最早的日期 |
 | `easy.observability.metrics.include` | 空 | 额外记录的自定义 Micrometer 指标名或名称前缀，例如 `orders` 匹配 `orders` 和 `orders.*` |
 | `easy.observability.web.enabled` | `true` | 页面和查询 API 开关 |
-| `easy.observability.web.trace-limit` | `500` | 最近 Trace 的内存窗口容量 |
+| `easy.observability.web.trace-limit` | `500` | 内存中保留完整调用树的最新 Trace 数量；更早的记录在打开详情时从磁盘读取 |
 
 示例：
 
@@ -73,7 +73,15 @@ easy:
 
 存储目录由一个实例独占：启动时会在目录中创建 `.lock` 并持有操作系统文件锁，应用关闭时释放。同一台机器上第二个指向同一目录的实例（包括同一应用的多个副本）不会写入该目录，而是记录警告，并把诊断 Trace 和指标历史只保存在内存中，宿主应用照常启动。目录无法创建或不可写时同样降级为仅内存。同机部署多个副本时，请为每个实例配置不同的 `storage.directory`，例如在路径中加入实例编号。
 
-诊断 Trace 归档超过 `diagnostic-max-size` 后会流式裁剪到约一半容量，只保留最新的有界记录，不会把异常增大的文件整体载入内存。单条记录编码后若超过 `diagnostic-max-size` 或 16MB（取较小值），仍保留在内存窗口中，但不会写入本地归档。后台序列化、裁剪和文件 I/O 不持有业务记录入口的状态锁，慢磁盘不会让请求、Kafka 消费或任务线程等待归档 I/O。若运行时存储 I/O 失败，归档会降级到仅内存模式直到应用重启，`/api/easy-observability/traces/storage` 的 `diagnosticPersistenceEnabled` 会返回 `false`。
+只有慢调用、错误及 CPU 时间或内存分配量超阈值的入口（HTTP、定时任务、Kafka 消费）会被保存。诊断 Trace 以 JSON Lines 追加写入 `traces/traces-yyyyMMdd-N.jsonl`，按天滚动，单个分段达到 `max-storage-size` 的 1/8（256KB～8MB）时也会滚动。超过 `retention` 的整天分段、以及总占用超过 `max-storage-size` 时最旧的分段会被整文件删除，不改写正在使用的文件。重启后在后台线程扫描分段重建轻量索引（最多 5 万条，不含调用树），重建期间页面可用，旧记录逐步出现；打开详情时再从磁盘读取完整记录。单条记录编码后超过一个分段大小时只保留在内存中。
+
+后台序列化和文件 I/O 不持有业务记录入口的锁，写入队列满时丢弃该条持久化而不阻塞请求、Kafka 消费或任务线程。若运行时存储 I/O 失败，Trace 存储会降级到仅内存模式直到应用重启，`/api/easy-observability/traces/storage` 的 `persistent` 会返回 `false`。
+
+Trace 查询 API（均为 `GET`，前缀 `/api/easy-observability`）：
+
+- `/traces?kind=all|slow|error|resource&source=HTTP|JOB|KAFKA_CONSUMER&q=&before=&limit=50`：按完成时间倒序分页，返回 `items`（不含调用树）、`nextCursor`（作为下一页的 `before`）、`total` 和 `scanLimited`。`q` 匹配入口名称、Trace ID、错误信息、线程名以及调用树中的 SQL、远程地址等节点；文本搜索需要扫描磁盘，每次请求最多读取 32MB，达到上限时 `scanLimited` 为 `true`，用 `nextCursor` 继续搜索，此时 `total` 为 `-1`。`limit` 最大 200。
+- `/traces/{traceId}?source=`：完整调用树，不存在时返回 404。
+- `/traces/storage`：`persistent`、`storageBytes`、`maxStorageBytes`、`retentionDays`、`traceCount`、`indexing`。
 
 `retention`、`max-storage-size` 等无效配置会阻止应用启动，以便尽早暴露配置错误。运行时因目录权限、只读文件系统、磁盘 I/O 导致指标历史写入失败时，组件会记录警告并改为只保存在内存，不会中断宿主应用；页面会显示“存储降级”。修复存储问题后需要重启应用以恢复历史保存。
 

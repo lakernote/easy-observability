@@ -5,7 +5,7 @@ import io.github.lakernote.observability.config.EasyObservabilityProperties;
 import io.github.lakernote.observability.storage.internal.StorageDirectory;
 import io.github.lakernote.observability.trace.TraceContextTaskDecorator;
 import io.github.lakernote.observability.trace.internal.TraceSpanAspect;
-import io.github.lakernote.observability.trace.internal.store.DiagnosticTraceStore;
+import io.github.lakernote.observability.trace.internal.store.TraceStore;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.micrometer.observation.Observation;
@@ -48,8 +48,18 @@ class ObservabilityAutoConfigurationTest {
     void storesTraceHistoryInTheOwnedStorageDirectory(@TempDir Path storage) {
         contextRunner.withPropertyValues("easy.observability.storage.directory=" + storage).run(context -> {
             assertThat(context.getBean(StorageDirectory.class).available()).isTrue();
-            assertThat(context.getBean(DiagnosticTraceStore.class).storageStatus().persistenceEnabled()).isTrue();
+            assertThat(context.getBean(TraceStore.class).storageStatus().persistent()).isTrue();
         });
+    }
+
+    @Test
+    void rejectsInvalidTraceStorageSettings() {
+        contextRunner.withPropertyValues("easy.observability.trace.retention=12h")
+                .run(context -> assertThat(context).getFailure().rootCause()
+                        .hasMessageContaining("easy.observability.trace.retention"));
+        contextRunner.withPropertyValues("easy.observability.trace.max-storage-size=0B")
+                .run(context -> assertThat(context).getFailure().rootCause()
+                        .hasMessageContaining("easy.observability.trace.max-storage-size"));
     }
 
     @Test
@@ -58,9 +68,9 @@ class ObservabilityAutoConfigurationTest {
                 contextRunner.withPropertyValues("easy.observability.storage.directory=" + storage).run(second -> {
                     assertThat(second).hasNotFailed();
                     assertThat(second.getBean(StorageDirectory.class).available()).isFalse();
-                    assertThat(second.getBean(DiagnosticTraceStore.class).storageStatus().persistenceEnabled())
+                    assertThat(second.getBean(TraceStore.class).storageStatus().persistent())
                             .isFalse();
-                    assertThat(first.getBean(DiagnosticTraceStore.class).storageStatus().persistenceEnabled())
+                    assertThat(first.getBean(TraceStore.class).storageStatus().persistent())
                             .isTrue();
                 }));
     }
@@ -72,7 +82,8 @@ class ObservabilityAutoConfigurationTest {
                 "easy.observability.trace.job-slow-threshold=1500",
                 "easy.observability.trace.kafka-consumer-slow-threshold=1m",
                 "easy.observability.trace.cpu-threshold=0",
-                "easy.observability.trace.diagnostic-max-size=1MB",
+                "easy.observability.trace.max-storage-size=1MB",
+                "easy.observability.trace.retention=3",
                 "easy.observability.metrics.retention=14",
                 "easy.observability.metrics.max-storage-size=32MB").run(context -> {
             EasyObservabilityProperties properties = context.getBean(EasyObservabilityProperties.class);
@@ -80,7 +91,9 @@ class ObservabilityAutoConfigurationTest {
             assertThat(properties.getTrace().getJobSlowThreshold()).isEqualTo(Duration.ofMillis(1500));
             assertThat(properties.getTrace().getKafkaConsumerSlowThreshold()).isEqualTo(Duration.ofMinutes(1));
             assertThat(properties.getTrace().getCpuThreshold()).isZero();
-            assertThat(properties.getTrace().getDiagnosticMaxSize()).isEqualTo(DataSize.ofMegabytes(1));
+            assertThat(properties.getTrace().getMaxStorageSize()).isEqualTo(DataSize.ofMegabytes(1));
+            assertThat(properties.getTrace().getRetention()).isEqualTo(Duration.ofDays(3));
+            assertThat(context.getBean(TraceStore.class).storageStatus().retentionDays()).isEqualTo(3);
             assertThat(properties.getMetrics().getRetention()).isEqualTo(Duration.ofDays(14));
             assertThat(properties.getMetrics().getMaxStorageSize()).isEqualTo(DataSize.ofMegabytes(32));
         });
@@ -166,7 +179,7 @@ class ObservabilityAutoConfigurationTest {
                 .run(context -> {
                     assertThat(context).hasNotFailed();
                     assertThat(context).hasSingleBean(io.github.lakernote.observability.config.EasyObservabilityProperties.class);
-                    assertThat(context).hasSingleBean(io.github.lakernote.observability.trace.internal.store.RecentTraceStore.class);
+                    assertThat(context).hasSingleBean(TraceStore.class);
                     assertThat(context).doesNotHaveBean("traceOperationRecorder");
                     assertThat(context).doesNotHaveBean(MeterRegistry.class);
                 });
@@ -199,7 +212,7 @@ class ObservabilityAutoConfigurationTest {
     @Test
     void doesNotContributeOrConsumeAJsonMapper() {
         contextRunner.run(context -> {
-            assertThat(context).hasSingleBean(DiagnosticTraceStore.class);
+            assertThat(context).hasSingleBean(TraceStore.class);
             assertThat(context).doesNotHaveBean(ObjectMapper.class);
         });
     }
@@ -209,7 +222,7 @@ class ObservabilityAutoConfigurationTest {
         contextRunner.withClassLoader(new FilteredClassLoader("com.fasterxml.jackson", "tools.jackson"))
                 .run(context -> {
                     assertThat(context).hasNotFailed();
-                    assertThat(context).hasSingleBean(DiagnosticTraceStore.class);
+                    assertThat(context).hasSingleBean(TraceStore.class);
                 });
     }
 }
