@@ -4,12 +4,12 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
     <groupId>io.github.lakernote</groupId>
-    <artifactId>easy-observability</artifactId>
+    <artifactId>meerkat</artifactId>
     <version>${revision}</version>
     <packaging>pom</packaging>
-    <name>Easy Observability</name>
+    <name>Meerkat</name>
     <description>Spring Boot tracing and application diagnostics</description>
-    <url>https://github.com/lakernote/easy-observability</url>
+    <url>https://github.com/lakernote/meerkat</url>
     <licenses>
         <license>
             <name>Apache License, Version 2.0</name>
@@ -25,18 +25,18 @@
         </developer>
     </developers>
     <scm>
-        <connection>scm:git:https://github.com/lakernote/easy-observability.git</connection>
-        <developerConnection>scm:git:ssh://git@github.com/lakernote/easy-observability.git</developerConnection>
-        <url>https://github.com/lakernote/easy-observability</url>
+        <connection>scm:git:https://github.com/lakernote/meerkat.git</connection>
+        <developerConnection>scm:git:ssh://git@github.com/lakernote/meerkat.git</developerConnection>
+        <url>https://github.com/lakernote/meerkat</url>
     </scm>
     <modules>
-        <module>easy-observability-spring-boot-common</module>
-        <module>easy-observability-spring-boot-3-autoconfigure</module>
-        <module>easy-observability-spring-boot-3-starter</module>
-        <module>easy-observability-spring-boot-4-autoconfigure</module>
-        <module>easy-observability-spring-boot-4-starter</module>
-        <module>examples/easy-observability-example-spring-boot-3</module>
-        <module>examples/easy-observability-example-spring-boot-4</module>
+        <module>meerkat-spring-boot-common</module>
+        <module>meerkat-spring-boot-3-autoconfigure</module>
+        <module>meerkat-spring-boot-3-starter</module>
+        <module>meerkat-spring-boot-4-autoconfigure</module>
+        <module>meerkat-spring-boot-4-starter</module>
+        <module>examples/meerkat-example-spring-boot-3</module>
+        <module>examples/meerkat-example-spring-boot-4</module>
         <module>benchmarks</module>
     </modules>
     <properties>

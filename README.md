@@ -1,12 +1,16 @@
-# Easy Observability
+<p align="center">
+  <img src="docs/images/meerkat-icon.png" alt="Meerkat observability icon" width="112">
+</p>
+
+# Meerkat
 
 **Spring Boot 3/4 内嵌式 Trace 诊断与运行指标。**
 
-Easy Observability 帮助应用开发者快速回答两个问题：一次请求慢在哪里、异常从哪里开始；服务的请求量、错误和依赖耗时最近有什么变化。引入一个 Starter，即可在应用内查看 Trace 时间线和常用运行指标，不必先部署一套独立观测平台。
+Meerkat 帮助应用开发者快速回答两个问题：一次请求慢在哪里、异常从哪里开始；服务的请求量、错误和依赖耗时最近有什么变化。引入一个 Starter，即可在应用内查看 Trace 时间线和常用运行指标，不必先部署一套独立观测平台。
 
-[![CI](https://github.com/lakernote/easy-observability/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/lakernote/easy-observability/actions/workflows/ci.yml)
-[![Boot 3 Starter](https://img.shields.io/maven-central/v/io.github.lakernote/easy-observability-spring-boot-3-starter?label=Boot%203%20Starter&logo=apachemaven)](https://central.sonatype.com/artifact/io.github.lakernote/easy-observability-spring-boot-3-starter)
-[![Boot 4 Starter](https://img.shields.io/maven-central/v/io.github.lakernote/easy-observability-spring-boot-4-starter?label=Boot%204%20Starter&logo=apachemaven)](https://central.sonatype.com/artifact/io.github.lakernote/easy-observability-spring-boot-4-starter)
+[![CI](https://github.com/lakernote/meerkat/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/lakernote/meerkat/actions/workflows/ci.yml)
+[![Boot 3 Starter](https://img.shields.io/maven-central/v/io.github.lakernote/meerkat-spring-boot-3-starter?label=Boot%203%20Starter&logo=apachemaven)](https://central.sonatype.com/artifact/io.github.lakernote/meerkat-spring-boot-3-starter)
+[![Boot 4 Starter](https://img.shields.io/maven-central/v/io.github.lakernote/meerkat-spring-boot-4-starter?label=Boot%204%20Starter&logo=apachemaven)](https://central.sonatype.com/artifact/io.github.lakernote/meerkat-spring-boot-4-starter)
 
 ## 解决什么问题
 
@@ -46,7 +50,7 @@ Easy Observability 帮助应用开发者快速回答两个问题：一次请求�
 <!-- Spring Boot 3 -->
 <dependency>
     <groupId>io.github.lakernote</groupId>
-    <artifactId>easy-observability-spring-boot-3-starter</artifactId>
+    <artifactId>meerkat-spring-boot-3-starter</artifactId>
     <version>0.1.0-alpha.4</version>
 </dependency>
 ```
@@ -55,17 +59,17 @@ Easy Observability 帮助应用开发者快速回答两个问题：一次请求�
 <!-- Spring Boot 4 -->
 <dependency>
     <groupId>io.github.lakernote</groupId>
-    <artifactId>easy-observability-spring-boot-4-starter</artifactId>
+    <artifactId>meerkat-spring-boot-4-starter</artifactId>
     <version>0.1.0-alpha.4</version>
 </dependency>
 ```
 
-默认启用 Trace、运行指标和嵌入页面。应用启动完成时日志会打印页面地址（`Easy Observability dashboard: http://localhost:8080/easy-observability/`），也可直接访问：
+默认启用 Trace、运行指标和嵌入页面。应用启动完成时日志会打印页面地址（`Meerkat dashboard: http://localhost:8080/meerkat/`），也可直接访问：
 
-- Trace 诊断：`/easy-observability/`
-- 调用排行：`/easy-observability/stats/`
-- 指标趋势：`/easy-observability/metrics/`
-- 实时诊断：`/easy-observability/live/`
+- Trace 诊断：`/meerkat/`
+- 调用排行：`/meerkat/stats/`
+- 指标趋势：`/meerkat/metrics/`
+- 实时诊断：`/meerkat/live/`
 
 生产环境请通过应用现有的 Spring Security 或网关保护页面和 API；Starter 不创建独立账号或登录系统。常用配置、采集范围和访问控制说明见[接入与配置指南](docs/guide.md)。
 
@@ -87,15 +91,15 @@ Easy Observability 帮助应用开发者快速回答两个问题：一次请求�
 
 ```bash
 docker compose -f examples/docker-compose.yml up -d --wait
-mvn -pl examples/easy-observability-example-spring-boot-3 -am package
-java -jar examples/easy-observability-example-spring-boot-3/target/easy-observability-example-spring-boot-3-0.1.0-alpha.4.jar
+mvn -pl examples/meerkat-example-spring-boot-3 -am package
+java -jar examples/meerkat-example-spring-boot-3/target/meerkat-example-spring-boot-3-0.1.0-alpha.4.jar
 ```
 
 打开 `http://localhost:8083/` 查看示例入口。更多场景和 Boot 4 启动方式见[示例说明](examples/README.md)。
 
 ## 与其他方案的定位
 
-| | Easy Observability | JavaMelody | SkyWalking / Pinpoint 等 APM | Prometheus + Grafana |
+| | Meerkat | JavaMelody | SkyWalking / Pinpoint 等 APM | Prometheus + Grafana |
 |---|---|---|---|---|
 | 部署 | 应用内 Starter，无额外服务 | 应用内依赖，无额外服务 | Java Agent + 独立收集端、存储和 UI | 独立的 Prometheus、Grafana |
 | 单次请求调用树 | 有：慢、错、资源超阈值的入口，含异步线程、SQL、Redis、远程调用、Kafka | 无，侧重汇总统计 | 有，且支持跨服务链路 | 无 |
@@ -103,5 +107,5 @@ java -jar examples/easy-observability-example-spring-boot-3/target/easy-observab
 | 实时诊断 | 进行中请求的当前步骤、线程 CPU、死锁、线程 Dump | 当前请求、线程、堆直方图等 | 部分产品提供 | 无 |
 | 适合 | 单体或少量服务，想在应用内直接看到慢在哪、错在哪 | 传统 Java Web 应用的运行概览 | 多服务分布式链路、集中运维 | 集中化指标监控与告警 |
 
-Easy Observability 不替代集中式 APM 或指标平台；应用已有的 Micrometer 指标导出不受影响，可以和它们并存。
+Meerkat 不替代集中式 APM 或指标平台；应用已有的 Micrometer 指标导出不受影响，可以和它们并存。
 

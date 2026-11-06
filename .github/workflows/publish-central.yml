@@ -53,7 +53,7 @@ jobs:
             echo "Requested version ${requested_version} does not match Maven version ${version}."
             exit 1
           fi
-          central_pom="https://repo.maven.apache.org/maven2/io/github/lakernote/easy-observability/${version}/easy-observability-${version}.pom"
+          central_pom="https://repo.maven.apache.org/maven2/io/github/lakernote/meerkat/${version}/meerkat-${version}.pom"
           status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --head "${central_pom}")"
           if [[ "${status}" == "200" ]]; then
             echo "Version ${version} is already present in Maven Central and cannot be overwritten."

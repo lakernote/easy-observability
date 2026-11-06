@@ -1,6 +1,6 @@
 # 行为准则
 
-Easy Observability 的协作交流应保持尊重、专业并围绕事实。所有 Issue、Pull Request、评论和文档讨论都适用本准则。
+Meerkat 的协作交流应保持尊重、专业并围绕事实。所有 Issue、Pull Request、评论和文档讨论都适用本准则。
 
 ## 鼓励的行为
 

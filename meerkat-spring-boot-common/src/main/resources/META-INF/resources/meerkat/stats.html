@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Meerkat · 调用排行</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="../assets/dashboard.css?v=20261106.10">
+  <link rel="stylesheet" href="../assets/uplot.min.css?v=1.6.32">
+  <link rel="stylesheet" href="../assets/metrics.css?v=20261106.10">
+  <link rel="stylesheet" href="../assets/stats.css?v=20261106.10">
+</head>
+<body>
+  <a class="skip-link" href="#main-content">跳到主要内容</a>
+  <header class="masthead">
+    <a class="brand" href="../">
+      <span class="brand-mark" aria-hidden="true">↗</span>
+      <span><strong>Meerkat</strong><small>运行指标</small></span>
+    </a>
+    <nav class="view-nav" aria-label="可观测性视图">
+      <a href="../">Trace 诊断</a>
+      <a class="active" href="./">运行指标</a>
+      <a href="../live/">实时诊断</a>
+    </nav>
+    <div class="toolbar">
+      <span id="instance" class="instance-pill"><i></i>连接中</span>
+      <button id="refresh" type="button">刷新</button>
+    </div>
+  </header>
+  <main id="main-content" class="report">
+    <section class="intro">
+      <p class="eyebrow">RUNTIME METRICS</p>
+      <h1>调用排行</h1>
+      <p>按 HTTP 接口、SQL、远程调用、Redis 命令、定时任务和 Kafka 汇总每个操作的次数、耗时和错误，快速找出最耗时、最慢和最常出错的地方。点击一行可展开它的次数、错误和耗时趋势。</p>
+    </section>
+    <nav class="sub-nav" aria-label="运行指标视图">
+      <a class="active" aria-current="page" href="./">调用排行</a>
+      <a href="../metrics/">指标趋势</a>
+    </nav>
+    <div id="notice" class="notice" role="status" hidden></div>
+    <section class="metrics-controls stats-controls" aria-label="统计筛选">
+      <label><span>时间范围</span><select id="window"><option value="1h" selected>最近 1 小时</option><option value="today">今天</option><option value="7d">最近 7 天</option><option value="30d">最近 30 天</option></select></label>
+      <label class="stats-search"><span>搜索名称</span><input id="search" type="search" maxlength="200" placeholder="例如 /api/orders 或 select"></label>
+      <div id="summary" class="storage-summary" role="status">读取中</div>
+    </section>
+    <nav id="categories" class="metric-categories" aria-label="统计类别"></nav>
+    <section class="trace-list" aria-label="操作统计排行">
+      <p class="scroll-hint">表格可横向滚动查看全部字段</p>
+      <div class="table-scroll"><table class="stats-table">
+        <caption class="sr-only">按所选列排序的操作统计；选择一行展开它的趋势</caption>
+        <thead><tr id="stats-head"></tr></thead>
+        <tbody id="stats-rows"></tbody>
+      </table></div>
+      <p id="empty" class="empty" hidden></p>
+    </section>
+    <div class="page-actions"><button id="reset-stats" class="quiet-button" type="button" hidden>重置统计</button></div>
+    <footer>每个实例各自统计，每 10 分钟保存到存储目录（metrics/），重启后各时间范围都保留，保留天数由 meerkat.metrics.retention 决定。“最近 1 小时”按 10 分钟分片滚动，实际覆盖 50 到 60 分钟；重启前的部分在分钟曲线上按 10 分钟均摊。P95 由对数分桶直方图估算，误差约 ±20%。SQL 已去除字面量，IN 列表和多行 VALUES 会合并为同一条。</footer>
+  </main>
+  <dialog id="reset-dialog" class="confirm-dialog">
+    <h2>重置调用统计？</h2>
+    <p>将清空当前实例的全部调用统计，包括已保存的历史；Trace 历史和资源指标不受影响。</p>
+    <div class="dialog-actions"><button id="cancel-reset" type="button">取消</button><button id="confirm-reset" class="danger" type="button">重置</button></div>
+  </dialog>
+  <script src="../assets/uplot.min.js?v=1.6.32"></script>
+  <script type="module" src="../assets/stats.js?v=20261106.10"></script>
+</body>
+</html>

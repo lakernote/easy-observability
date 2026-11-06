@@ -1,6 +1,6 @@
 # 接入与配置
 
-引入与应用 Spring Boot 主版本匹配的 Starter 后，Easy Observability 会自动注册 Trace 采集、运行指标和嵌入页面。通常不需要额外配置。Starter 依赖 `spring-boot-starter-actuator`，资源指标直接复用 Spring Boot 已绑定的 Micrometer 指标；它只额外加入一个只接收固定指标的注册表，不替换应用已有的 `MeterRegistry`、`ObservationRegistry`，也不影响应用原有的指标导出。
+引入与应用 Spring Boot 主版本匹配的 Starter 后，Meerkat 会自动注册 Trace 采集、运行指标和嵌入页面。通常不需要额外配置。Starter 依赖 `spring-boot-starter-actuator`，资源指标直接复用 Spring Boot 已绑定的 Micrometer 指标；它只额外加入一个只接收固定指标的注册表，不替换应用已有的 `MeterRegistry`、`ObservationRegistry`，也不影响应用原有的指标导出。
 
 ## 运行环境
 
@@ -35,40 +35,39 @@ JDBC 采集会使用保留原数据源具体类型的代理，因此按 `HikariD
 
 | 配置 | 默认值 | 说明 |
 | --- | --- | --- |
-| `easy.observability.enabled` | `true` | Starter 总开关 |
-| `easy.observability.storage.directory` | `./data/easy-observability/{spring.application.name}` | 本地存储目录，存放诊断 Trace 分段文件 `traces/` 和运行指标历史 `metrics/`；相对路径基于工作目录，未设置应用名时使用 `application` |
-| `easy.observability.trace.enabled` | `true` | Trace 采集及上下文传播 |
-| `easy.observability.trace.header-name` | `X-Trace-Id` | HTTP 与受支持消息/客户端使用的 Trace ID 名称 |
-| `easy.observability.trace.http-slow-threshold` | `500ms` | HTTP 入口慢阈值 |
-| `easy.observability.trace.job-slow-threshold` | `1s` | 定时任务入口慢阈值 |
-| `easy.observability.trace.kafka-consumer-slow-threshold` | `1s` | Kafka 消费入口慢阈值 |
-| `easy.observability.trace.cpu-threshold` | `500ms` | 入口线程 CPU 时间资源告警阈值 |
-| `easy.observability.trace.allocated-memory-threshold` | `50MB` | 入口线程累计内存分配量资源告警阈值 |
-| `easy.observability.trace.retention` | `7d` | 诊断 Trace 保留天数，整天，范围 `1d`～`365d` |
-| `easy.observability.trace.max-storage-size` | `128MB` | 诊断 Trace 磁盘占用上限，超出时删除最旧的分段文件 |
-| `easy.observability.trace.max-memory-size` | `32MB` | 内存中缓存最新 Trace 完整调用树的堆内存上限（按估算大小淘汰最旧的）；更早的记录在打开详情时从磁盘读取，存储不可用时直接丢弃 |
-| `easy.observability.metrics.enabled` | `true` | 运行指标（调用统计与资源指标）总开关 |
-| `easy.observability.metrics.max-operations` | `1000` | 所有类别合计最多统计的操作数，超出后新操作按类别并入“其他”行；2 小时没有调用的操作会释放名额 |
-| `easy.observability.metrics.retention` | `30d` | 指标历史保留时长，须为整天数，范围 `1d` 至 `365d` |
-| `easy.observability.metrics.max-storage-size` | `64MB` | 指标历史文件的磁盘上限，超出后删除最早的日期 |
-| `easy.observability.metrics.include` | 空 | 额外记录的自定义 Micrometer 指标名或名称前缀，例如 `orders` 匹配 `orders` 和 `orders.*` |
-| `easy.observability.web.enabled` | `true` | 页面和查询 API 开关 |
+| `meerkat.enabled` | `true` | Starter 总开关 |
+| `meerkat.storage.directory` | `./data/meerkat/{spring.application.name}` | 本地存储目录，存放诊断 Trace 分段文件 `traces/` 和运行指标历史 `metrics/`；相对路径基于工作目录，未设置应用名时使用 `application` |
+| `meerkat.trace.enabled` | `true` | Trace 采集及上下文传播 |
+| `meerkat.trace.header-name` | `X-Trace-Id` | HTTP 与受支持消息/客户端使用的 Trace ID 名称 |
+| `meerkat.trace.http-slow-threshold` | `500ms` | HTTP 入口慢阈值 |
+| `meerkat.trace.job-slow-threshold` | `1s` | 定时任务入口慢阈值 |
+| `meerkat.trace.kafka-consumer-slow-threshold` | `1s` | Kafka 消费入口慢阈值 |
+| `meerkat.trace.cpu-threshold` | `500ms` | 入口线程 CPU 时间资源告警阈值 |
+| `meerkat.trace.allocated-memory-threshold` | `50MB` | 入口线程累计内存分配量资源告警阈值 |
+| `meerkat.trace.retention` | `7d` | 诊断 Trace 保留天数，整天，范围 `1d`～`365d` |
+| `meerkat.trace.max-storage-size` | `128MB` | 诊断 Trace 磁盘占用上限，超出时删除最旧的分段文件 |
+| `meerkat.trace.max-memory-size` | `32MB` | 内存中缓存最新 Trace 完整调用树的堆内存上限（按估算大小淘汰最旧的）；更早的记录在打开详情时从磁盘读取，存储不可用时直接丢弃 |
+| `meerkat.metrics.enabled` | `true` | 运行指标（调用统计与资源指标）总开关 |
+| `meerkat.metrics.max-operations` | `1000` | 所有类别合计最多统计的操作数，超出后新操作按类别并入“其他”行；2 小时没有调用的操作会释放名额 |
+| `meerkat.metrics.retention` | `30d` | 指标历史保留时长，须为整天数，范围 `1d` 至 `365d` |
+| `meerkat.metrics.max-storage-size` | `64MB` | 指标历史文件的磁盘上限，超出后删除最早的日期 |
+| `meerkat.metrics.include` | 空 | 额外记录的自定义 Micrometer 指标名或名称前缀，例如 `orders` 匹配 `orders` 和 `orders.*` |
+| `meerkat.web.enabled` | `true` | 页面和查询 API 开关 |
 
 示例：
 
 ```yaml
-easy:
-  observability:
-    metrics:
-      retention: 30d
-      max-storage-size: 64MB
-      include: orders, payment.
-    trace:
-      http-slow-threshold: 500ms
-      job-slow-threshold: 1s
-      kafka-consumer-slow-threshold: 1s
-      cpu-threshold: 500ms
-      allocated-memory-threshold: 50MB
+meerkat:
+  metrics:
+    retention: 30d
+    max-storage-size: 64MB
+    include: orders, payment.
+  trace:
+    http-slow-threshold: 500ms
+    job-slow-threshold: 1s
+    kafka-consumer-slow-threshold: 1s
+    cpu-threshold: 500ms
+    allocated-memory-threshold: 50MB
 ```
 
 时长配置使用 Spring Boot 的 `Duration` 格式（如 `500ms`、`2s`、`30d`）；阈值写纯数字时按毫秒解析，`retention` 写纯数字时按天解析。四个时长阈值设为 `0` 或负数、`allocated-memory-threshold` 设为 `0B`，可关闭对应的慢操作或资源告警触发。
@@ -77,9 +76,9 @@ easy:
 
 只有慢调用、错误及 CPU 时间或内存分配量超阈值的入口（HTTP、定时任务、Kafka 消费）会被保存。诊断 Trace 以 JSON Lines 追加写入 `traces/traces-yyyyMMdd-N.jsonl`，按天滚动，单个分段达到 `max-storage-size` 的 1/8（256KB～8MB）时也会滚动。超过 `retention` 的整天分段、以及总占用超过 `max-storage-size` 时最旧的分段会被整文件删除，不改写正在使用的文件。重启后在后台线程扫描分段重建轻量索引（不含调用树，最多 5 万条、约 16MB 堆内存，超出时列表中只保留最新的），重建期间页面可用，旧记录逐步出现；打开详情时再从磁盘读取完整记录。单条记录编码后超过一个分段大小时只保留在内存中。
 
-后台序列化和文件 I/O 不持有业务记录入口的锁，写入队列满时丢弃该条持久化而不阻塞请求、Kafka 消费或任务线程。若运行时存储 I/O 失败，Trace 存储会降级到仅内存模式直到应用重启，`/api/easy-observability/traces/storage` 的 `persistent` 会返回 `false`。
+后台序列化和文件 I/O 不持有业务记录入口的锁，写入队列满时丢弃该条持久化而不阻塞请求、Kafka 消费或任务线程。若运行时存储 I/O 失败，Trace 存储会降级到仅内存模式直到应用重启，`/api/meerkat/traces/storage` 的 `persistent` 会返回 `false`。
 
-Trace 查询 API（均为 `GET`，前缀 `/api/easy-observability`）：
+Trace 查询 API（均为 `GET`，前缀 `/api/meerkat`）：
 
 - `/traces?kind=all|slow|error|resource&source=HTTP|JOB|KAFKA_CONSUMER&q=&before=&limit=50`：按完成时间倒序分页，返回 `items`（不含调用树）、`nextCursor`（作为下一页的 `before`）、`total` 和 `scanLimited`。`q` 匹配入口名称、Trace ID、错误信息、线程名以及调用树中的 SQL、远程地址等节点；文本搜索需要扫描磁盘，每次请求最多读取 32MB，达到上限时 `scanLimited` 为 `true`，用 `nextCursor` 继续搜索，此时 `total` 为 `-1`。`limit` 最大 200。
 - `/traces/{traceId}?source=`：完整调用树，不存在时返回 404。
@@ -91,8 +90,8 @@ Trace 查询 API（均为 `GET`，前缀 `/api/easy-observability`）：
 
 运行指标回答“这个实例整体怎么样、哪个操作最慢最多”，Trace 诊断回答“这一次请求慢在哪里”。两者共用采集点，但各自独立：指标覆盖全部调用，Trace 只保留慢、错或资源超阈值的请求。运行指标有两个页面：
 
-- **调用排行**（`/easy-observability/stats/`）：按类别列出每个操作的调用次数、错误数和错误率、平均耗时、P95、最大耗时、总耗时及其在本类别中的占比，点击列头排序；点击一行展开该操作的调用次数和耗时趋势。HTTP、定时任务和 Kafka 消费入口还显示每次调用平均消耗的入口线程 CPU 时间和内存分配量，用来找出“耗 CPU 的接口”和“分配大量对象、引起频繁 GC 的接口”；这两个值复用入口本来就采集的数据，不增加开销，转为异步处理的请求不计入。适合回答“哪个接口最耗时”“哪条 SQL 调用最多”“哪个远程服务最常出错”“哪个接口最吃 CPU 或内存”。
-- **指标趋势**（`/easy-observability/metrics/`）：JVM 内存与 GC、CPU、线程、Hikari 连接池（含获取连接平均等待时间）、线程池等资源曲线；单个操作的调用趋势在调用排行中点开查看。
+- **调用排行**（`/meerkat/stats/`）：按类别列出每个操作的调用次数、错误数和错误率、平均耗时、P95、最大耗时、总耗时及其在本类别中的占比，点击列头排序；点击一行展开该操作的调用次数和耗时趋势。HTTP、定时任务和 Kafka 消费入口还显示每次调用平均消耗的入口线程 CPU 时间和内存分配量，用来找出“耗 CPU 的接口”和“分配大量对象、引起频繁 GC 的接口”；这两个值复用入口本来就采集的数据，不增加开销，转为异步处理的请求不计入。适合回答“哪个接口最耗时”“哪条 SQL 调用最多”“哪个远程服务最常出错”“哪个接口最吃 CPU 或内存”。
+- **指标趋势**（`/meerkat/metrics/`）：JVM 内存与 GC、CPU、线程、Hikari 连接池（含获取连接平均等待时间）、线程池等资源曲线；单个操作的调用趋势在调用排行中点开查看。
 
 ### 调用统计
 
@@ -136,29 +135,29 @@ Trace 查询 API（均为 `GET`，前缀 `/api/easy-observability`）：
 - 存储目录不可用（被其他实例占用或不可写）时只保存在内存，长范围只包含最近 2 小时，页面会提示。
 - 每个实例各自保存，不跨实例汇总。`canClear()` 允许时调用排行页显示“重置统计”，会清空内存中和已保存的调用统计，资源指标历史保留。
 
-查询 API（均为 `GET`，前缀 `/api/easy-observability/metrics`）：`/operations?window=1h|today|7d|30d`、`/operations/trend?category=HTTP&name=...&period=1h|24h|7d|30d`、`/operations/trends?period=...`、`/resources?period=...`、`/storage`；重置为 `POST /operations/reset`。
+查询 API（均为 `GET`，前缀 `/api/meerkat/metrics`）：`/operations?window=1h|today|7d|30d`、`/operations/trend?category=HTTP&name=...&period=1h|24h|7d|30d`、`/operations/trends?period=...`、`/resources?period=...`、`/storage`；重置为 `POST /operations/reset`。
 
 ## 实时诊断
 
-页面 `/easy-observability/live/` 回答“现在正在发生什么”，适合接口卡住、CPU 突然升高、线程池被占满时排查。数据在打开页面或点击刷新时读取，不在后台采样，也不写入磁盘。
+页面 `/meerkat/live/` 回答“现在正在发生什么”，适合接口卡住、CPU 突然升高、线程池被占满时排查。数据在打开页面或点击刷新时读取，不在后台采样，也不写入磁盘。
 
 - **进行中请求：** 列出正在执行的 HTTP、定时任务和 Kafka 消费入口，按已执行时间排序，显示入口线程已消耗的 CPU 时间、当前正在执行的最内层步骤（例如某条 SQL 或远程调用及其已执行时间）和线程状态；展开一行查看该线程此刻的堆栈和正在等待的锁。默认每 5 秒刷新。请求转为异步处理、入口线程已返回后，只显示耗时和当前步骤，不显示线程堆栈。最多显示 200 个，诊断页面自身的请求不计入。
 - **线程：** 对全部平台线程采样 1 秒，按 CPU 使用率（100% 表示占满一个核心）排序，显示状态、累计 CPU、等待的锁及持有者，展开查看堆栈；检测到死锁时在顶部列出相关线程。勾选“合并相同堆栈”可以把状态和堆栈相同的线程合为一行，便于发现大量线程卡在同一处。可下载 jstack 格式的线程 Dump 文本。虚拟线程不在列表中。
 
 每个入口只在开始和结束时各做一次并发集合的增删，不影响请求耗时。线程采样同一时间只允许一个，正在采样时再次请求返回 429。
 
-查询 API（均为 `GET`，前缀 `/api/easy-observability/live`）：`/requests`、`/threads?sampleMs=0..5000`（默认 1000）、`/threads/dump`（`text/plain` 附件；同一时间只生成一份，且两次间隔至少 5 秒，否则返回 429）。
+查询 API（均为 `GET`，前缀 `/api/meerkat/live`）：`/requests`、`/threads?sampleMs=0..5000`（默认 1000）、`/threads/dump`（`text/plain` 附件；同一时间只生成一份，且两次间隔至少 5 秒，否则返回 429）。
 
 ## 页面和 API 访问
 
-页面路径为 `/easy-observability/`，调用排行页面为 `/easy-observability/stats/`，指标趋势页面为 `/easy-observability/metrics/`，实时诊断页面为 `/easy-observability/live/`，查询 API 位于 `/api/easy-observability/`。组件不提供用户名、密码或登录系统，认证由应用现有的 Spring Security、Servlet 容器或网关负责。
+页面路径为 `/meerkat/`，调用排行页面为 `/meerkat/stats/`，指标趋势页面为 `/meerkat/metrics/`，实时诊断页面为 `/meerkat/live/`，查询 API 位于 `/api/meerkat/`。组件不提供用户名、密码或登录系统，认证由应用现有的 Spring Security、Servlet 容器或网关负责。
 
 API 授权由 `ObservabilityAccessPolicy` 决定，应用定义该类型的 Bean 即可替换默认实现：
 
 | 方法 | 控制范围 | 默认 |
 | --- | --- | --- |
 | `canView()` | 查询 Trace、Metrics、存储状态和当前权限 | `true`，允许所有请求 |
-| `canClear()` | 清空 Trace 历史（`POST /api/easy-observability/traces/clear`）和重置调用统计（`POST /api/easy-observability/metrics/operations/reset`），并且需要同时通过 `canView()` | `false`，拒绝所有请求；页面隐藏“清空历史”和“重置统计”按钮 |
+| `canClear()` | 清空 Trace 历史（`POST /api/meerkat/traces/clear`）和重置调用统计（`POST /api/meerkat/metrics/operations/reset`），并且需要同时通过 `canView()` | `false`，拒绝所有请求；页面隐藏“清空历史”和“重置统计”按钮 |
 
 `canClear()` 是默认方法，只需要限制查看时可以直接用 lambda，清空历史仍保持关闭：
 
@@ -169,7 +168,7 @@ ObservabilityAccessPolicy observabilityAccessPolicy() {
 }
 ```
 
-**默认情况下任何能访问应用端口的人都可以查看 Trace 和 Metrics。** 生产环境务必由应用的 Security Filter Chain 或网关保护 `/easy-observability/**` 和 `/api/easy-observability/**`，或自定义 `canView()`。两个方法都在请求线程上调用，可以读取 Spring Security 上下文或当前请求。例如只允许开发和运维角色查看、只允许运维角色清空：
+**默认情况下任何能访问应用端口的人都可以查看 Trace 和 Metrics。** 生产环境务必由应用的 Security Filter Chain 或网关保护 `/meerkat/**` 和 `/api/meerkat/**`，或自定义 `canView()`。两个方法都在请求线程上调用，可以读取 Spring Security 上下文或当前请求。例如只允许开发和运维角色查看、只允许运维角色清空：
 
 ```java
 @Bean
@@ -198,15 +197,15 @@ private static boolean hasAnyRole(String... roles) {
 
 ## 日志中的 Trace ID
 
-当前 Trace ID 写在 SLF4J MDC 的 `easyTraceId` 键中，可在日志格式中用 `%X{easyTraceId}` 输出。Spring Boot 可直接配置：
+当前 Trace ID 写在 SLF4J MDC 的 `meerkatTraceId` 键中，可在日志格式中用 `%X{meerkatTraceId}` 输出。Spring Boot 可直接配置：
 
 ```yaml
 logging:
   pattern:
-    correlation: "[%X{easyTraceId:-}] "
+    correlation: "[%X{meerkatTraceId:-}] "
 ```
 
-该键与 Micrometer Tracing 使用的 `traceId`、`spanId` 不同。应用同时接入 Micrometer Tracing（OpenTelemetry 或 Brave）时，两套 ID 并存、互不覆盖，可在格式中同时输出 `%X{traceId}` 与 `%X{easyTraceId}`。代码中读取当前 ID 请使用 `TraceIdContext.currentTraceId()`。
+该键与 Micrometer Tracing 使用的 `traceId`、`spanId` 不同。应用同时接入 Micrometer Tracing（OpenTelemetry 或 Brave）时，两套 ID 并存、互不覆盖，可在格式中同时输出 `%X{traceId}` 与 `%X{meerkatTraceId}`。代码中读取当前 ID 请使用 `TraceIdContext.currentTraceId()`。
 
 ## Kafka 与线程池
 
@@ -254,8 +253,8 @@ executorService.submit(decorator.decorate(task));
 | `web.ObservabilityAccessPolicy` | 页面和 API 授权扩展点 |
 | `integration.observation.ObservationTraceIdResolver` | 从其他框架的 Observation 上下文提取已传播的 Trace ID，定义该类型的 Bean 即可生效 |
 | `integration.feign.TraceIdRequestInterceptor`、`integration.kafka.TraceIdRecordInterceptor` | 通过 `Feign.builder()` 手动组装客户端或自定义 Kafka `RecordInterceptor` 时注册 |
-| `config.EasyObservabilityProperties` | `easy.observability.*` 配置项 |
+| `config.MeerkatProperties` | `meerkat.*` 配置项 |
 
-包名均以 `io.github.lakernote.observability` 开头。自动配置类（`autoconfigure` 包）只用于按名称排除。
+包名均以 `io.github.lakernote.meerkat` 开头。自动配置类（`autoconfigure` 包）只用于按名称排除。
 
 包路径中含 `internal` 的类型是内部实现，例如 Trace 存储、指标存储、Controller 和 Filter。它们即使是 `public`，也可能在任何版本中调整，请不要直接依赖。这些内部组件对应的 Bean 也不支持用同类型 Bean 替换；需要定制时请使用上表中的扩展点或配置项。

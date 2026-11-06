@@ -1,0 +1,11 @@
+io.github.lakernote.meerkat.autoconfigure.ObservabilityAutoConfiguration
+io.github.lakernote.meerkat.autoconfigure.RuntimeMetricsAutoConfiguration
+io.github.lakernote.meerkat.autoconfigure.ObservabilityWebAutoConfiguration
+io.github.lakernote.meerkat.autoconfigure.TraceIdAutoConfiguration
+io.github.lakernote.meerkat.autoconfigure.TraceSpanAutoConfiguration
+io.github.lakernote.meerkat.autoconfigure.TransactionTraceAutoConfiguration
+io.github.lakernote.meerkat.autoconfigure.KafkaTraceAutoConfiguration
+io.github.lakernote.meerkat.autoconfigure.FeignTraceAutoConfiguration
+io.github.lakernote.meerkat.autoconfigure.OkHttpObservationAutoConfiguration
+io.github.lakernote.meerkat.autoconfigure.JdbcTraceAutoConfiguration
+io.github.lakernote.meerkat.autoconfigure.RestTemplateObservationAutoConfiguration

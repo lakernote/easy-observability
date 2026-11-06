@@ -4,11 +4,11 @@ labels: [bug]
 body:
   - type: markdown
     attributes:
-      value: 安全漏洞请不要在此公开，按 [SECURITY.md](https://github.com/lakernote/easy-observability/blob/main/SECURITY.md) 私下报告。
+      value: 安全漏洞请不要在此公开，按 [SECURITY.md](https://github.com/lakernote/meerkat/blob/main/SECURITY.md) 私下报告。
   - type: input
     id: version
     attributes:
-      label: Easy Observability 版本
+      label: Meerkat 版本
       placeholder: 0.1.0-alpha.4
     validations:
       required: true
@@ -36,6 +36,6 @@ body:
     id: reproduce
     attributes:
       label: 复现步骤
-      description: 最好提供可运行的最小示例，以及相关的 `easy.observability.*` 配置。
+      description: 最好提供可运行的最小示例，以及相关的 `meerkat.*` 配置。
     validations:
       required: true

@@ -4,7 +4,7 @@
 
 ## 影响范围
 
-- [ ] 配置项（`easy.observability.*`）
+- [ ] 配置项（`meerkat.*`）
 - [ ] 公共 API
 - [ ] 页面或查询 API
 - [ ] 归档或 Metrics 存储格式

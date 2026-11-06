@@ -55,8 +55,8 @@ jobs:
         with:
           name: coverage-report
           path: |
-            easy-observability-spring-boot-3-starter/target/site/jacoco-aggregate/
-            easy-observability-spring-boot-4-starter/target/site/jacoco-aggregate/
+            meerkat-spring-boot-3-starter/target/site/jacoco-aggregate/
+            meerkat-spring-boot-4-starter/target/site/jacoco-aggregate/
           retention-days: 14
 
   release-check:
@@ -97,11 +97,11 @@ jobs:
       - name: Spring Boot 3.5.0
         run: >-
           mvn --batch-mode --no-transfer-progress -Djacoco.skip=true -Dspring-boot-3.version=3.5.0
-          -pl easy-observability-spring-boot-3-starter -am clean verify
+          -pl meerkat-spring-boot-3-starter -am clean verify
 
       - name: Spring Boot 4.0.0
         # redisson-spring-data-41 targets Spring Data Redis 4.1, so its fixture test only runs on Boot 4.1+.
         run: >-
           mvn --batch-mode --no-transfer-progress -Djacoco.skip=true -Dspring-boot-4.version=4.0.0
           -Dtest='!RedissonCommandProviderTracingE2ETest' -Dsurefire.failIfNoSpecifiedTests=false
-          -pl easy-observability-spring-boot-4-starter -am clean verify
+          -pl meerkat-spring-boot-4-starter -am clean verify

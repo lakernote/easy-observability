@@ -1,0 +1,3 @@
+io.github.lakernote.meerkat.autoconfigure.boot3.RestClientTraceAutoConfiguration
+io.github.lakernote.meerkat.autoconfigure.boot3.RedisTraceAutoConfiguration
+io.github.lakernote.meerkat.autoconfigure.boot3.KafkaProducerTraceAutoConfiguration

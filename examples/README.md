@@ -1,7 +1,7 @@
 # 示例应用
 
-- `easy-observability-example-spring-boot-3`：Spring Boot 3，默认 `http://localhost:8083/`
-- `easy-observability-example-spring-boot-4`：Spring Boot 4，默认 `http://localhost:8084/`
+- `meerkat-example-spring-boot-3`：Spring Boot 3，默认 `http://localhost:8083/`
+- `meerkat-example-spring-boot-4`：Spring Boot 4，默认 `http://localhost:8084/`
 
 两个示例代码相同。主页按“在哪个页面看效果”分组列出全部场景，点击即可触发真实调用。
 
@@ -16,14 +16,14 @@ docker compose -f examples/docker-compose.yml up -d --wait
 然后在仓库根目录选择一个 Spring Boot 版本启动：
 
 ```bash
-mvn -pl examples/easy-observability-example-spring-boot-3 -am package
-java -jar examples/easy-observability-example-spring-boot-3/target/easy-observability-example-spring-boot-3-0.1.0-alpha.4.jar
+mvn -pl examples/meerkat-example-spring-boot-3 -am package
+java -jar examples/meerkat-example-spring-boot-3/target/meerkat-example-spring-boot-3-0.1.0-alpha.4.jar
 
-mvn -pl examples/easy-observability-example-spring-boot-4 -am package
-java -jar examples/easy-observability-example-spring-boot-4/target/easy-observability-example-spring-boot-4-0.1.0-alpha.4.jar
+mvn -pl examples/meerkat-example-spring-boot-4 -am package
+java -jar examples/meerkat-example-spring-boot-4/target/meerkat-example-spring-boot-4-0.1.0-alpha.4.jar
 ```
 
-页面入口：Trace 诊断 `/easy-observability/`、调用排行 `/easy-observability/stats/`、指标趋势 `/easy-observability/metrics/`、实时诊断 `/easy-observability/live/`。
+页面入口：Trace 诊断 `/meerkat/`、调用排行 `/meerkat/stats/`、指标趋势 `/meerkat/metrics/`、实时诊断 `/meerkat/live/`。
 
 示例阈值：HTTP 和定时任务慢阈值 250 ms，入口线程 CPU 时间 100 ms，内存分配量 8 MB（见 `application.yaml`）。
 
@@ -42,7 +42,7 @@ java -jar examples/easy-observability-example-spring-boot-4/target/easy-observab
 | Kafka 正常 / 慢 / 错误 | `/kafka`、`/kafka?mode=slow`、`/kafka?mode=error` | 发送并等待消费；consumer 是独立的 Kafka 入口 Trace。未消费完可查 `/kafka/status` |
 | 完整链路 | `/full-flow` | 一个请求依次经过 H2、Redis、远程 HTTP、Kafka |
 
-远程 HTTP 需要访问 httpbingo，可用 `EASY_OBSERVABILITY_DEMO_HTTPBINGO_BASE_URL` 换成兼容服务。示例通过 Spring 管理的 `RestClient.Builder` 创建客户端，`RestClient.create()` 创建的客户端不会被观测。
+远程 HTTP 需要访问 httpbingo，可用 `MEERKAT_DEMO_HTTPBINGO_BASE_URL` 换成兼容服务。示例通过 Spring 管理的 `RestClient.Builder` 创建客户端，`RestClient.create()` 创建的客户端不会被观测。
 
 ## Trace：跨线程（`/api/demo/async`）
 

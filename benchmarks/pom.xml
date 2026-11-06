@@ -5,12 +5,12 @@
     <modelVersion>4.0.0</modelVersion>
     <parent>
         <groupId>io.github.lakernote</groupId>
-        <artifactId>easy-observability</artifactId>
+        <artifactId>meerkat</artifactId>
         <version>${revision}</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
-    <artifactId>easy-observability-benchmarks</artifactId>
-    <name>Easy Observability Benchmarks</name>
+    <artifactId>meerkat-benchmarks</artifactId>
+    <name>Meerkat Benchmarks</name>
     <description>JMH benchmarks for the per-request overhead of the instrumentation. Not published.</description>
     <properties>
         <jmh.version>1.37</jmh.version>
@@ -29,7 +29,7 @@
     <dependencies>
         <dependency>
             <groupId>io.github.lakernote</groupId>
-            <artifactId>easy-observability-spring-boot-common</artifactId>
+            <artifactId>meerkat-spring-boot-common</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>

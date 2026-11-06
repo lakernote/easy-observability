@@ -1,2 +1,0 @@
-org.springframework.boot.EnvironmentPostProcessor=\
-io.github.lakernote.observability.autoconfigure.boot4.RuntimeMetricsEnvironmentPostProcessor
