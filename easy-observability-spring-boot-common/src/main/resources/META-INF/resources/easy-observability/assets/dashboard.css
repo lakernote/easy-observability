@@ -16,6 +16,7 @@
 }
 
 * { box-sizing: border-box; }
+html { scrollbar-gutter: stable; }
 body { min-width: 320px; margin: 0; }
 button, input, select { font: inherit; }
 button { cursor: pointer; touch-action: manipulation; }
@@ -81,8 +82,8 @@ select option { color: var(--ink); font-weight: 500; }
 .brand strong { font-size: 14px; }
 .brand small { margin-top: 2px; color: var(--muted); font-size: 11px; }
 .toolbar { display: flex; align-items: center; gap: 8px; }
-.toolbar button:hover, .table-footer button:hover:not(:disabled), .dialog-actions button:hover { background: #f5f8fd; }
-.toolbar button, .table-footer button, .dialog-actions button {
+.toolbar button:hover, .table-footer button:hover:not(:disabled), .dialog-actions button:hover, .page-actions button:hover { background: #f5f8fd; }
+.toolbar button, .table-footer button, .dialog-actions button, .page-actions button {
   min-height: 34px;
   padding: 6px 12px;
   font-size: 12px;
@@ -93,6 +94,8 @@ select option { color: var(--ink); font-weight: 500; }
   color: var(--ink);
 }
 .quiet-button { color: var(--muted) !important; }
+.page-actions { display: flex; justify-content: flex-end; margin-top: 12px; }
+.page-actions:not(:has(> :not([hidden]))) { display: none; }
 .instance-pill { display: flex; align-items: center; gap: 7px; margin-right: 8px; color: var(--muted); font-size: 12px; }
 .instance-pill i { width: 7px; height: 7px; border-radius: 50%; background: #d18a1f; }
 .instance-pill.connected i { background: #15966a; }

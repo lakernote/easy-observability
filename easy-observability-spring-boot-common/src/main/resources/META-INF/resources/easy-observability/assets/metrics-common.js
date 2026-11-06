@@ -1,7 +1,7 @@
 // Shared by the call ranking, metric trend and live pages: metric labels, formatting and uPlot line charts.
-import { node, request as apiRequest } from './common.js?v=20261106.8'
+import { node, request as apiRequest } from './common.js?v=20261106.9'
 
-export { $, api, initializeEmbeddedAuth, kindName, node, showNotice } from './common.js?v=20261106.8'
+export { $, api, initializeEmbeddedAuth, kindName, node, showNotice } from './common.js?v=20261106.9'
 export const DISABLED_MESSAGE = '运行指标未启用：请确认 easy.observability.metrics.enabled 为 true'
 export const categoryNames = {
   HTTP: 'HTTP 接口', SQL: 'SQL', REMOTE: '远程调用', REDIS: 'Redis',

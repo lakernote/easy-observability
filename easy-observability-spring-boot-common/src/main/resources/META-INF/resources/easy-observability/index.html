@@ -6,7 +6,7 @@
   <meta name="color-scheme" content="light">
   <title>Easy Observability · Trace</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="assets/dashboard.css?v=20261106.8">
+  <link rel="stylesheet" href="assets/dashboard.css?v=20261106.9">
 </head>
 <body>
   <a class="skip-link" href="#main-content">跳到主要内容</a>
@@ -23,7 +23,6 @@
     <div class="toolbar">
       <span id="instance" class="instance-pill"><i></i>连接中</span>
       <button id="refresh" type="button">刷新</button>
-      <button id="clear-history" class="quiet-button" type="button" hidden>清空历史</button>
     </div>
   </header>
   <main id="main-content" class="report">
@@ -49,6 +48,7 @@
       <p id="empty" class="empty" hidden>暂无诊断 Trace；正常请求不会显示在此列表中</p>
       <div class="table-footer"><span id="page-label"></span><button id="previous" type="button">上一页</button><button id="next" type="button">下一页</button></div>
     </section>
+    <div class="page-actions"><button id="clear-history" class="quiet-button" type="button" hidden>清空历史</button></div>
     <footer>Trace 历史来自当前应用实例。Spring Boot Actuator 指标仍由应用自身配置管理。</footer>
   </main>
   <dialog id="detail-dialog" aria-labelledby="detail-title">
@@ -76,6 +76,6 @@
     <p>将删除当前实例内存中的近期记录和诊断 Trace 归档文件。</p>
     <div class="dialog-actions"><button id="cancel-clear" type="button">取消</button><button id="confirm-clear" class="danger" type="button">清空</button></div>
   </dialog>
-  <script type="module" src="assets/dashboard.js?v=20261106.8"></script>
+  <script type="module" src="assets/dashboard.js?v=20261106.9"></script>
 </body>
 </html>
