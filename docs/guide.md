@@ -10,6 +10,20 @@
 - 非 Web 应用（如只消费 Kafka 或只运行定时任务）可以采集 Trace 和运行指标，但没有页面可以查看。
 - 暂不支持 GraalVM Native Image；组件未提供 AOT 运行时提示，也未在 Native Image 下验证。
 
+### 兼容性验证
+
+每次提交都会在 CI 中跑以下组合；中间件测试使用 Testcontainers 启动真实服务，本地没有 Docker 时自动跳过。
+
+| 维度 | 验证范围 |
+| --- | --- |
+| JDK | 17、21、25 |
+| Spring Boot | 3.5.0（最低）、3.5.x 最新；4.0.0（最低）、4.1.x 最新 |
+| HTTP 客户端 | `RestTemplate`、`RestClient`、`OkHttpClient` Bean：客户端 Span 与 Trace ID 传播 |
+| Kafka | 真实 Kafka（`apache/kafka` 4.1）：生产 Span、消费入口 Trace 与生产端 Trace ID 一致 |
+| Redis | 真实 Redis 7.4（Lettuce）：命令 Span 挂在请求 Trace 下；Redisson 另有专门的兼容性测试 |
+| JDBC | H2 + HikariCP：SQL Span、参数脱敏、保留具体数据源类型 |
+| Micrometer Tracing | Brave：根请求与 Micrometer 使用同一 Trace ID，接受上游 `traceparent` |
+
 ## 自动采集范围
 
 | 场景 | 采集内容 | 说明 |

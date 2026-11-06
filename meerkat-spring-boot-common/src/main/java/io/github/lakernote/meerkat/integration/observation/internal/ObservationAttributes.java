@@ -30,6 +30,12 @@ final class ObservationAttributes {
             String listenerId = lowCardinality(context, "spring.kafka.listener.id");
             if (!listenerId.isBlank()) return safe(listenerId, 200);
         }
+        if (type == ObservationType.REMOTE) {
+            // The contextual name ("http get") is only set at stop; method, host and URI template exist at start.
+            String remote = joinNonBlank(" ", firstLowCardinality(context, METHOD_KEYS),
+                    firstLowCardinality(context, HOST_KEYS), meaningful(firstLowCardinality(context, URI_KEYS)), "");
+            if (!remote.isBlank()) return safe(remote, 200);
+        }
         String operation = firstLowCardinality(context, OPERATION_KEYS);
         if (operation.isBlank()) operation = nullToEmpty(context.getContextualName());
         if (operation.isBlank()) operation = nullToEmpty(context.getName());
