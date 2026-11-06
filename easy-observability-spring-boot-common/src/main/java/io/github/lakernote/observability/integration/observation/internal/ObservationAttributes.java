@@ -12,6 +12,15 @@ import io.micrometer.observation.Observation;
 final class ObservationAttributes {
     private static final String REACTIVE_SERVER_CONTEXT =
             "org.springframework.http.server.reactive.observation.ServerRequestObservationContext";
+    // Shared key lists keep the varargs arrays off the per-Observation allocation path.
+    private static final String[] METHOD_KEYS = {"http.request.method", "http.method", "method"};
+    private static final String[] OPERATION_KEYS = {"db.operation", "http.method", "http.request.method",
+            "messaging.operation", "spring.kafka.listener.id"};
+    private static final String[] TARGET_KEYS = {"http.route", "uri", "messaging.destination.name", "executor.name"};
+    private static final String[] STATUS_KEYS = {"http.response.status_code", "status"};
+    private static final String[] ROUTE_KEYS = {"http.route", "uri"};
+    private static final String[] HOST_KEYS = {"client.name", "server.address", "target.host", "host"};
+    private static final String[] URI_KEYS = {"uri", "url.template", "http.route"};
 
     private ObservationAttributes() {
     }
@@ -21,8 +30,7 @@ final class ObservationAttributes {
             String listenerId = lowCardinality(context, "spring.kafka.listener.id");
             if (!listenerId.isBlank()) return safe(listenerId, 200);
         }
-        String operation = firstLowCardinality(context, "db.operation", "http.method", "http.request.method",
-                "messaging.operation", "spring.kafka.listener.id");
+        String operation = firstLowCardinality(context, OPERATION_KEYS);
         if (operation.isBlank()) operation = nullToEmpty(context.getContextualName());
         if (operation.isBlank()) operation = nullToEmpty(context.getName());
         if (operation.isBlank()) operation = type.name();
@@ -37,7 +45,7 @@ final class ObservationAttributes {
         if (type == ObservationType.HTTP) {
             String route = lowCardinality(context, "http.route");
             if (route.isBlank()) route = withoutQuery(detail);
-            String method = firstLowCardinality(context, "http.request.method", "http.method", "method");
+            String method = firstLowCardinality(context, METHOD_KEYS);
             if (method.isBlank() && !"http.server.requests".equals(operation)) method = operation;
             if (!route.isBlank()) return safe(route + (method.isBlank() ? "" : " · " + method), 256);
         }
@@ -69,9 +77,9 @@ final class ObservationAttributes {
             case KAFKA_PRODUCER -> joinNonBlank(" · ", lowCardinality(context, "messaging.destination.name"),
                     operation);
             case REMOTE -> joinNonBlank(" ",
-                    firstLowCardinality(context, "http.request.method", "http.method", "method"),
-                    firstLowCardinality(context, "client.name", "server.address", "target.host", "host"),
-                    meaningful(firstLowCardinality(context, "uri", "url.template", "http.route")), operation);
+                    firstLowCardinality(context, METHOD_KEYS),
+                    firstLowCardinality(context, HOST_KEYS),
+                    meaningful(firstLowCardinality(context, URI_KEYS)), operation);
             case REDIS -> operation.toUpperCase(java.util.Locale.ROOT);
             case ELASTICSEARCH -> "Elasticsearch " + operation;
             case DATABASE, TRANSACTION -> operation;
@@ -114,8 +122,7 @@ final class ObservationAttributes {
             appendDetail(details, "listener", lowCardinality(context, "spring.kafka.listener.id"));
             if (!details.isEmpty()) return details.toString();
         }
-        String target = firstLowCardinality(context, "http.route", "uri", "messaging.destination.name",
-                "executor.name");
+        String target = firstLowCardinality(context, TARGET_KEYS);
         if (!target.isBlank()) return safe(target, 256);
         String sql = normalizedSql(context);
         if (sql.isBlank()) return "";
@@ -125,7 +132,7 @@ final class ObservationAttributes {
 
     /** Returns the numeric HTTP status, or 0 when the observation carries none. */
     static int httpStatus(Observation.Context context) {
-        String status = firstLowCardinality(context, "http.response.status_code", "status");
+        String status = firstLowCardinality(context, STATUS_KEYS);
         // Most observations carry no numeric status; parsing by hand avoids an exception on every stop.
         if (status.isEmpty() || status.length() > 3) return 0;
         int code = 0;
@@ -145,12 +152,12 @@ final class ObservationAttributes {
     }
 
     static boolean isDashboardRequest(Observation.Context context) {
-        return isDashboardPath(firstLowCardinality(context, "http.route", "uri"));
+        return isDashboardPath(firstLowCardinality(context, ROUTE_KEYS));
     }
 
     static boolean isDashboardPath(String route) {
         if (route == null || route.isBlank()) return false;
-        String path = route.split("[?#]", 2)[0];
+        String path = withoutQuery(route);
         return "/easy-observability".equals(path) || path.startsWith("/easy-observability/")
                 || "/api/easy-observability".equals(path) || path.startsWith("/api/easy-observability/");
     }
@@ -178,7 +185,7 @@ final class ObservationAttributes {
         return "";
     }
 
-    private static String firstLowCardinality(Observation.Context context, String... keys) {
+    private static String firstLowCardinality(Observation.Context context, String[] keys) {
         for (String key : keys) {
             String value = lowCardinality(context, key);
             if (!value.isBlank()) return value;

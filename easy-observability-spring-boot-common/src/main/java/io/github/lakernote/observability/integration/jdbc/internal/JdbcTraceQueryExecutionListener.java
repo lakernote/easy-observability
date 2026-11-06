@@ -9,6 +9,7 @@ import net.ttddyy.dsproxy.QueryInfo;
 import net.ttddyy.dsproxy.listener.QueryExecutionListener;
 
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BooleanSupplier;
 
 /**
@@ -21,6 +22,13 @@ public final class JdbcTraceQueryExecutionListener implements QueryExecutionList
     private final BooleanSupplier multipleDataSources;
     /** Resolved on the first query, once every DataSource bean is defined. */
     private volatile Boolean showDataSourceName;
+    /**
+     * Normalizing SQL costs microseconds while prepared statements repeat the same text, so the result is cached
+     * per raw SQL. SQL with inlined literals can be unbounded; the cache is cleared when full instead of evicting.
+     */
+    static final int MAX_CACHED_SQL = 1_024;
+    static final int MAX_CACHED_SQL_LENGTH = 2_048;
+    private final ConcurrentHashMap<String, SqlNames> sqlNames = new ConcurrentHashMap<>();
 
     public JdbcTraceQueryExecutionListener() {
         this(null, () -> true);
@@ -42,16 +50,15 @@ public final class JdbcTraceQueryExecutionListener implements QueryExecutionList
             boolean traceActive = TraceContext.active();
             if (!traceActive && operationStats == null) return;
 
-            String sql = JdbcTraceSql.describe(queryInfoList);
+            SqlNames names = sqlNames(queryInfoList);
             ScopedSpan span = null;
             if (traceActive) {
                 String dataSource = showDataSourceName() ? executionInfo.getDataSourceName() : null;
-                String detail = dataSource == null || dataSource.isBlank() ? sql : dataSource + " · " + sql;
-                span = TraceContext.startScopedSpan("SQL " + JdbcTraceSql.commandOf(sql), SpanKind.DATABASE, detail);
+                String detail = dataSource == null || dataSource.isBlank() ? names.sql() : dataSource + " · " + names.sql();
+                span = TraceContext.startScopedSpan(names.spanName(), SpanKind.DATABASE, detail);
             }
             try {
-                executionInfo.addCustomValue(TRACE_STATE_KEY, new TraceState(span,
-                        operationStats == null ? null : JdbcTraceSql.statsName(queryInfoList, sql),
+                executionInfo.addCustomValue(TRACE_STATE_KEY, new TraceState(span, names.statsName(),
                         System.nanoTime()));
             } catch (RuntimeException | Error failure) {
                 if (span != null) span.close();
@@ -61,6 +68,30 @@ public final class JdbcTraceQueryExecutionListener implements QueryExecutionList
             // Trace 回调不能影响 JDBC 调用。
         }
     }
+
+    private SqlNames sqlNames(List<QueryInfo> queries) {
+        QueryInfo single = queries != null && queries.size() == 1 ? queries.get(0) : null;
+        String raw = single == null ? null : single.getQuery();
+        boolean cacheable = raw != null && raw.length() <= MAX_CACHED_SQL_LENGTH;
+        if (cacheable) {
+            SqlNames cached = sqlNames.get(raw);
+            if (cached != null) return cached;
+        }
+        String sql = JdbcTraceSql.describe(queries);
+        SqlNames names = new SqlNames(sql, "SQL " + JdbcTraceSql.commandOf(sql),
+                operationStats == null ? null : JdbcTraceSql.statsName(queries, sql));
+        if (cacheable) {
+            if (sqlNames.size() >= MAX_CACHED_SQL) sqlNames.clear();
+            sqlNames.put(raw, names);
+        }
+        return names;
+    }
+
+    int cachedSqlCount() {
+        return sqlNames.size();
+    }
+
+    private record SqlNames(String sql, String spanName, String statsName) { }
 
     private boolean showDataSourceName() {
         Boolean show = showDataSourceName;

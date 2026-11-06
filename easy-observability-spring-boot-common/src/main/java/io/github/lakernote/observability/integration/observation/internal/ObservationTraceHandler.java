@@ -82,15 +82,16 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
             String currentTraceId = TraceIdContext.currentTraceId();
             String propagatedTraceId = resolveTraceId(context);
             boolean traceIdRequired = root || traceActive || parentState != null;
-            installedTraceId = !TraceIds.isValidTraceId(currentTraceId)
-                    && (traceIdRequired || TraceIds.isValidTraceId(propagatedTraceId));
+            boolean currentValid = TraceIds.isValidTraceId(currentTraceId);
+            boolean propagatedValid = TraceIds.isValidTraceId(propagatedTraceId);
+            installedTraceId = !currentValid && (traceIdRequired || propagatedValid);
             // Kafka 的 Observation 在 RecordInterceptor 之前启动；此处先从消息头恢复同一 Trace ID。
-            String traceId = TraceIds.isValidTraceId(propagatedTraceId)
+            String traceId = propagatedValid
                     ? propagatedTraceId
                     : parentState != null && TraceIds.isValidTraceId(parentState.traceId)
                     ? parentState.traceId
                     : traceIdRequired ? TraceIds.getOrCreateTraceId() : "";
-            if (TraceIds.isValidTraceId(propagatedTraceId) && !TraceIds.isValidTraceId(currentTraceId)) {
+            if (propagatedValid && !currentValid) {
                 TraceIds.putTraceId(propagatedTraceId);
             }
             String name = operationName(context, type);

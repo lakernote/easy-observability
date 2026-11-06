@@ -50,6 +50,34 @@ class JdbcTraceQueryExecutionListenerTest {
     }
 
     @Test
+    void cachesNormalizedSqlPerStatementAndStaysBounded() {
+        var stats = new io.github.lakernote.observability.metrics.internal.OperationStats(10);
+        var counting = new JdbcTraceQueryExecutionListener(stats, () -> false);
+        List<QueryInfo> repeated = List.of(new QueryInfo("SELECT * FROM orders WHERE id IN (?, ?)"));
+        for (int i = 0; i < 3; i++) run(counting, repeated);
+        run(counting, List.of(new QueryInfo("SELECT 1"), new QueryInfo("SELECT 2")));
+        assertThat(counting.cachedSqlCount()).isEqualTo(1);
+        assertThat(stats.snapshot(io.github.lakernote.observability.metrics.internal.OperationStats.Window.HOUR)
+                .categories().stream().filter(category -> category.category()
+                        == io.github.lakernote.observability.metrics.internal.OperationStats.Category.SQL)
+                .findFirst().orElseThrow().rows())
+                .extracting(row -> row.name(), row -> row.count())
+                .containsExactlyInAnyOrder(org.assertj.core.groups.Tuple.tuple("SELECT * FROM orders WHERE id IN (?…)", 3L),
+                        org.assertj.core.groups.Tuple.tuple("SELECT ? [batch]", 1L));
+
+        for (int i = 0; i <= JdbcTraceQueryExecutionListener.MAX_CACHED_SQL; i++) {
+            run(counting, List.of(new QueryInfo("SELECT " + i)));
+        }
+        assertThat(counting.cachedSqlCount()).isBetween(1, JdbcTraceQueryExecutionListener.MAX_CACHED_SQL);
+    }
+
+    private static void run(JdbcTraceQueryExecutionListener target, List<QueryInfo> queries) {
+        ExecutionInfo execution = new ExecutionInfo();
+        target.beforeQuery(execution, queries);
+        target.afterQuery(execution, queries);
+    }
+
+    @Test
     void recordsOnlyTheRedactedSqlTemplate() {
         ExecutionInfo execution = new ExecutionInfo();
         execution.setDataSourceName("primary");
