@@ -68,16 +68,7 @@ select option { color: var(--ink); font-weight: 500; }
   backdrop-filter: blur(14px);
 }
 .brand { display: flex; align-items: center; gap: 11px; color: inherit; text-decoration: none; }
-.brand-mark {
-  display: grid;
-  width: 36px;
-  height: 36px;
-  place-items: center;
-  border-radius: 10px;
-  background: #315fd1;
-  color: #fff;
-  font-size: 23px;
-}
+.brand-mark { width: 36px; height: 36px; flex: none; }
 .brand strong, .brand small { display: block; }
 .brand strong { font-size: 14px; }
 .brand small { margin-top: 2px; color: var(--muted); font-size: 11px; }
@@ -333,7 +324,7 @@ body:has(dialog[open]) { overflow: hidden; }
 @media (max-width: 680px) {
   .masthead { min-height: 58px; padding: 0 12px; }
   .brand { gap: 8px; }
-  .brand-mark { width: 32px; height: 32px; font-size: 20px; }
+  .brand-mark { width: 32px; height: 32px; }
   .toolbar { gap: 5px; }
   .view-nav { margin-right: 6px; }
   .view-nav a { padding: 7px 6px; font-size: 10px; }
