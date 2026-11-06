@@ -12,7 +12,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import java.io.IOException;
 
 /**
- * 为每个 Servlet 请求接收或生成 Trace ID，并写入响应头和 MDC。
+ * 为每个 Servlet 请求接收（{@code X-Trace-Id} 或 W3C {@code traceparent}）或生成 Trace ID，并写入响应头和 MDC。
  */
 public final class TraceIdFilter extends OncePerRequestFilter {
     private final MeerkatProperties properties;
@@ -24,9 +24,14 @@ public final class TraceIdFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
-        // 校验并规范化外部传入的 ID；无效值会被替换，保证后续链路使用统一格式。
+        // 优先沿用上游的 Trace ID 请求头，其次是 W3C traceparent；无效值会被替换，保证后续链路使用统一格式。
         String headerName = properties.getTrace().getHeaderName();
-        String traceId = TraceIds.resolve(request.getHeader(headerName));
+        String traceId = request.getHeader(headerName);
+        if (!TraceIds.isValidTraceId(traceId)) traceId = TraceIds.fromTraceparent(request.getHeader(TraceIds.TRACEPARENT_HEADER));
+        if (traceId == null) {
+            traceId = TraceIds.newTraceId();
+            request.setAttribute(TraceIds.GENERATED_REQUEST_ATTRIBUTE, Boolean.TRUE);
+        }
         response.setHeader(headerName, traceId);
         try (MdcContext.Scope ignored = MdcContext.scope()) {
             TraceIds.putTraceId(traceId);

@@ -13,6 +13,10 @@ public final class TraceIds {
      * 预留业务前缀后将上限定为 64，避免外部输入无限放大日志、JSONL 与 JFR 事件。
      */
     public static final int MAX_TRACE_ID_LENGTH = 64;
+    /** W3C Trace Context 请求头；OpenTelemetry、Micrometer Tracing 等默认使用。 */
+    public static final String TRACEPARENT_HEADER = "traceparent";
+    /** 入口过滤器在没有上游 ID、自行生成时设置，供 Observation 回调换成 Micrometer Tracing 的 ID。 */
+    public static final String GENERATED_REQUEST_ATTRIBUTE = TraceIds.class.getName() + ".generated";
 
     private TraceIds() {
     }
@@ -48,6 +52,34 @@ public final class TraceIds {
 
     public static String resolve(String traceId) {
         return isValidTraceId(traceId) ? traceId : newTraceId();
+    }
+
+    /**
+     * 从 {@code traceparent}（{@code version-traceId-parentId-flags}）取出 32 位 trace id；
+     * 格式不符、版本为 {@code ff} 或 trace id 全零时返回 {@code null}。
+     */
+    public static String fromTraceparent(String header) {
+        if (header == null) return null;
+        String value = header.strip();
+        if (value.length() < 55 || value.charAt(2) != '-' || value.charAt(35) != '-' || value.charAt(52) != '-') {
+            return null;
+        }
+        if (!isLowerHex(value, 0, 2) || value.startsWith("ff") || !isLowerHex(value, 36, 52)
+                || !isLowerHex(value, 53, 55)) {
+            return null;
+        }
+        if (value.length() > 55 && (value.startsWith("00") || value.charAt(55) != '-')) return null;
+        String traceId = value.substring(3, 35);
+        if (!isLowerHex(traceId, 0, 32) || traceId.chars().allMatch(c -> c == '0')) return null;
+        return traceId;
+    }
+
+    private static boolean isLowerHex(String value, int from, int to) {
+        for (int i = from; i < to; i++) {
+            char c = value.charAt(i);
+            if (!(c >= '0' && c <= '9') && !(c >= 'a' && c <= 'f')) return false;
+        }
+        return true;
     }
 
     public static String newTraceId() {

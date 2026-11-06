@@ -86,13 +86,21 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
             boolean traceIdRequired = root || traceActive || parentState != null;
             boolean currentValid = TraceIds.isValidTraceId(currentTraceId);
             boolean propagatedValid = TraceIds.isValidTraceId(propagatedTraceId);
+            // 没有上游 ID 的入口沿用 Micrometer Tracing 的 trace id，两套日志和外部 Tracing 平台按同一 ID 关联。
+            String tracingTraceId = root && !propagatedValid ? TracingTraceIds.of(context) : null;
+            if (tracingTraceId != null && currentValid && type == ObservationType.HTTP
+                    && HttpEntryRequest.replaceGeneratedTraceId(context, properties.getTrace().getHeaderName(), tracingTraceId)) {
+                TraceIds.putTraceId(tracingTraceId);
+            }
             installedTraceId = !currentValid && (traceIdRequired || propagatedValid);
             // Kafka 的 Observation 在 RecordInterceptor 之前启动；此处先从消息头恢复同一 Trace ID。
             String traceId = propagatedValid
                     ? propagatedTraceId
                     : parentState != null && TraceIds.isValidTraceId(parentState.traceId)
                     ? parentState.traceId
-                    : traceIdRequired ? TraceIds.getOrCreateTraceId() : "";
+                    : !traceIdRequired ? ""
+                    : !currentValid && tracingTraceId != null ? TraceIds.putOrCreateTraceId(tracingTraceId)
+                    : TraceIds.getOrCreateTraceId();
             if (propagatedValid && !currentValid) {
                 TraceIds.putTraceId(propagatedTraceId);
             }
@@ -333,11 +341,13 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
                 // 可选集成的解析异常不能影响 Observation 和业务调用。
             }
         }
-        // 通用兜底：任何携带 getter 的 ReceiverContext（gRPC、消息消费等）都按配置的请求头读取。
+        // 通用兜底：任何携带 getter 的 ReceiverContext（gRPC、消息消费等）按配置的请求头或 W3C traceparent 读取。
         if (context instanceof ReceiverContext<?> receiver) {
             try {
                 String traceId = readHeader(receiver, properties.getTrace().getHeaderName());
                 if (TraceIds.isValidTraceId(traceId)) return traceId;
+                traceId = TraceIds.fromTraceparent(readHeader(receiver, TraceIds.TRACEPARENT_HEADER));
+                if (traceId != null) return traceId;
             } catch (RuntimeException ignored) {
                 // 载体读取失败时按无上游 Trace ID 处理。
             }

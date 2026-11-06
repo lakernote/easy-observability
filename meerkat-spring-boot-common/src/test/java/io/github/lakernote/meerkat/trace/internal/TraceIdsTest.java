@@ -106,4 +106,18 @@ class TraceIdsTest {
         assertThat(TraceIds.isValidTraceId("trace\"id")).isFalse();
         assertThat(TraceIds.isValidTraceId("链路-1")).isFalse();
     }
+
+    @Test
+    void extractsTraceIdFromW3cTraceparent() {
+        assertThat(TraceIds.fromTraceparent("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"))
+                .isEqualTo("4bf92f3577b34da6a3ce929d0e0e4736");
+        assertThat(TraceIds.fromTraceparent("01-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01-extra"))
+                .isEqualTo("4bf92f3577b34da6a3ce929d0e0e4736");
+        assertThat(TraceIds.fromTraceparent(null)).isNull();
+        assertThat(TraceIds.fromTraceparent("00-00000000000000000000000000000000-00f067aa0ba902b7-01")).isNull();
+        assertThat(TraceIds.fromTraceparent("ff-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01")).isNull();
+        assertThat(TraceIds.fromTraceparent("00-4BF92F3577B34DA6A3CE929D0E0E4736-00f067aa0ba902b7-01")).isNull();
+        assertThat(TraceIds.fromTraceparent("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01-x")).isNull();
+        assertThat(TraceIds.fromTraceparent("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7")).isNull();
+    }
 }

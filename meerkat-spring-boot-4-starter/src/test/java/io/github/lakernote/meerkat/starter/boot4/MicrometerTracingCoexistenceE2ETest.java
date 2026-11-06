@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.MDC;
 import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
+import org.springframework.boot.micrometer.tracing.test.autoconfigure.AutoConfigureTracing;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Bean;
@@ -33,7 +34,8 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** Hosts that already use Micrometer Tracing keep their own MDC trace ID next to the component's. */
+/** Hosts that use Micrometer Tracing see the same trace ID in both MDC keys, the response header and the tracer. */
+@AutoConfigureTracing
 @SpringBootTest(classes = MicrometerTracingCoexistenceE2ETest.TestApplication.class,
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {
@@ -60,8 +62,8 @@ class MicrometerTracingCoexistenceE2ETest {
     }
 
     @Test
-    void componentAndMicrometerTraceIdsDoNotOverwriteEachOther() throws Exception {
-        HttpResponse<String> response = get("/coexistence");
+    void componentAdoptsTheMicrometerTraceIdForRootRequests() throws Exception {
+        HttpResponse<String> response = get("/coexistence", Map.of());
 
         assertThat(response.statusCode()).isEqualTo(500);
         String componentTraceId = response.headers().firstValue("X-Trace-Id").orElseThrow();
@@ -73,27 +75,48 @@ class MicrometerTracingCoexistenceE2ETest {
         assertThat(seen.get("micrometerMdcBefore")).isEqualTo(seen.get("tracerBefore"));
         assertThat(seen.get("micrometerMdcInSpan")).isEqualTo(seen.get("tracerBefore"));
         assertThat(seen.get("micrometerMdcAfter")).isEqualTo(seen.get("tracerBefore"));
+        assertThat(componentTraceId).isEqualTo(seen.get("tracerBefore"));
 
         assertThat(awaitTrace(componentTraceId).statusCode()).isEqualTo(200);
+    }
+
+    @Test
+    void upstreamTraceparentDrivesBothTraceIds() throws Exception {
+        String upstream = "0af7651916cd43dd8448eb211c80319c";
+        HttpResponse<String> response = get("/coexistence",
+                Map.of("traceparent", "00-" + upstream + "-b7ad6b7169203331-01"));
+
+        Map<String, String> seen = parse(response.body());
+        assertThat(response.headers().firstValue("X-Trace-Id")).hasValue(upstream);
+        assertThat(seen.get("tracerBefore")).isEqualTo(upstream);
+        assertThat(seen.get("componentBefore")).isEqualTo(upstream);
+    }
+
+    @Test
+    void explicitTraceIdHeaderStillWinsForTheComponent() throws Exception {
+        HttpResponse<String> response = get("/coexistence", Map.of("X-Trace-Id", "gateway-42"));
+
+        assertThat(response.headers().firstValue("X-Trace-Id")).hasValue("gateway-42");
+        assertThat(parse(response.body()).get("componentBefore")).isEqualTo("gateway-42");
     }
 
     private HttpResponse<String> awaitTrace(String traceId) throws Exception {
         long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
         HttpResponse<String> response;
         do {
-            response = get("/api/meerkat/traces/" + traceId + "?source=HTTP");
+            response = get("/api/meerkat/traces/" + traceId + "?source=HTTP", Map.of());
             if (response.statusCode() == 200) return response;
             Thread.sleep(25);
         } while (System.nanoTime() < deadline);
         return response;
     }
 
-    private HttpResponse<String> get(String path) throws Exception {
-        HttpRequest request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + path))
+    private HttpResponse<String> get(String path, Map<String, String> headers) throws Exception {
+        HttpRequest.Builder request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + path))
                 .timeout(Duration.ofSeconds(5))
-                .GET()
-                .build();
-        return HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
+                .GET();
+        headers.forEach(request::header);
+        return HTTP_CLIENT.send(request.build(), HttpResponse.BodyHandlers.ofString());
     }
 
     private static Map<String, String> parse(String body) {

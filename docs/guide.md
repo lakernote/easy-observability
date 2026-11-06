@@ -205,7 +205,16 @@ logging:
     correlation: "[%X{meerkatTraceId:-}] "
 ```
 
-该键与 Micrometer Tracing 使用的 `traceId`、`spanId` 不同。应用同时接入 Micrometer Tracing（OpenTelemetry 或 Brave）时，两套 ID 并存、互不覆盖，可在格式中同时输出 `%X{traceId}` 与 `%X{meerkatTraceId}`。代码中读取当前 ID 请使用 `TraceIdContext.currentTraceId()`。
+MDC 键名与 Micrometer Tracing 的 `traceId`、`spanId` 不同，但取值会对齐：应用同时接入 Micrometer Tracing（OpenTelemetry 或 Brave）时，根请求、消息消费和定时任务直接沿用 Micrometer Tracing 的 Trace ID，`%X{traceId}` 与 `%X{meerkatTraceId}` 输出相同的值，在 Zipkin、Jaeger、Tempo 中可用同一个 ID 检索。代码中读取当前 ID 请使用 `TraceIdContext.currentTraceId()`。
+
+入站 Trace ID 的优先级依次为：
+
+1. `meerkat.trace.header-name` 指定的请求头（默认 `X-Trace-Id`）；
+2. W3C `traceparent` 请求头中的 trace-id；
+3. Micrometer Tracing 当前 Span 的 Trace ID；
+4. 以上都没有时，新生成一个。
+
+出站只写 `X-Trace-Id`。`traceparent`、B3 等标准头由 Micrometer Tracing 负责写入，Meerkat 不重复写，以免改动下游服务的采样决策。SkyWalking 的 `sw8` 头目前不识别。
 
 ## Kafka 与线程池
 
