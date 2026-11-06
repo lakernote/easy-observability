@@ -33,7 +33,7 @@ class TraceStoreTest {
 
     @Test
     void keepsOnlySlowFailedOrResourceHeavyEntryTraces() {
-        TraceStore store = TraceStore.inMemory(10);
+        TraceStore store = TraceStore.inMemory(1024 * 1024);
 
         assertThat(store.add(trace("ok").slow(false).build())).isNull();
         assertThat(store.add(trace("redis").sourceType("REDIS").build())).isNull();
@@ -45,7 +45,7 @@ class TraceStoreTest {
 
     @Test
     void memoryOnlyStoreForgetsTracesBeyondTheHotWindow() {
-        TraceStore store = TraceStore.inMemory(2);
+        TraceStore store = TraceStore.inMemory(2 * trace("a").build().estimatedBytes());
         store.add(trace("a").build());
         store.add(trace("b").build());
         store.add(trace("c").build());
@@ -57,8 +57,54 @@ class TraceStoreTest {
     }
 
     @Test
+    void hotWindowIsBoundedByEstimatedSizeButAlwaysKeepsTheNewestTrace() {
+        TraceRecord.Builder nPlusOne = trace("n-plus-one").treeNodes(java.util.stream.IntStream.range(0, 512)
+                .mapToObj(i -> sql("select * from order_item where order_id = " + i + " and note = '" + "x".repeat(400) + "'"))
+                .toList());
+        long oneLargeTrace = nPlusOne.build().estimatedBytes();
+        assertThat(oneLargeTrace).isGreaterThan(512 * 800);
+
+        TraceStore store = TraceStore.inMemory(oneLargeTrace * 2);
+        store.add(nPlusOne.traceId("large-1").build());
+        store.add(nPlusOne.traceId("large-2").build());
+        store.add(trace("small").build());
+
+        assertThat(store.find("large-1", "")).isNull();
+        assertThat(store.find("large-2", "")).isNotNull();
+        assertThat(store.find("small", "")).isNotNull();
+
+        TraceStore tiny = TraceStore.inMemory(1);
+        tiny.add(nPlusOne.traceId("only").build());
+        assertThat(tiny.find("only", "")).isNotNull();
+        tiny.add(trace("next").build());
+        assertThat(tiny.find("only", "")).isNull();
+        assertThat(tiny.size()).isEqualTo(1);
+    }
+
+    @Test
+    void listIndexIsBoundedByEstimatedSizeOnAddAndOnRestore() throws Exception {
+        long rowBytes = TraceSummary.of(trace("t0").finishedAt(START).build()).estimatedBytes();
+        TraceStore store = store(10, 128 * MB);
+        store.maxIndexBytes(3 * rowBytes);
+        store.start();
+        for (int i = 0; i < 5; i++) store.add(trace("t" + i).build());
+
+        assertThat(store.size()).isEqualTo(3);
+        assertThat(store.search(query("all", "", "", "")).items()).extracting(TraceSummary::traceId)
+                .containsExactly("t4", "t3", "t2");
+        store.close();
+
+        TraceStore restarted = store(10, 128 * MB);
+        restarted.maxIndexBytes(2 * rowBytes);
+        restarted.start();
+        awaitIndexed(restarted);
+        assertThat(restarted.search(query("all", "", "", "")).items()).extracting(TraceSummary::traceId)
+                .containsExactly("t4", "t3");
+    }
+
+    @Test
     void prefersHttpEntryWhenSourceIsNotGiven() {
-        TraceStore store = TraceStore.inMemory(10);
+        TraceStore store = TraceStore.inMemory(1024 * 1024);
         store.add(trace("shared").sourceType("HTTP").name("GET /orders").build());
         store.add(trace("shared").sourceType("KAFKA_CONSUMER").name("orders-topic").build());
 
@@ -96,7 +142,7 @@ class TraceStoreTest {
 
     @Test
     void filtersByKindAndSourceAndPagesWithCursors() {
-        TraceStore store = TraceStore.inMemory(100);
+        TraceStore store = TraceStore.inMemory(1024 * 1024);
         for (int i = 0; i < 5; i++) {
             store.add(trace("slow" + i).build());
             clock.advance(Duration.ofMillis(1));
@@ -267,7 +313,7 @@ class TraceStoreTest {
                 throw new IOException("disk full");
             }
         };
-        TraceStore store = new TraceStore(failing, root.resolve("traces"), 7, 128 * MB, 10, task -> {
+        TraceStore store = new TraceStore(failing, root.resolve("traces"), 7, 128 * MB, hotBytes(10), task -> {
             task.run();
             return true;
         }, () -> { }, clock);
@@ -284,7 +330,7 @@ class TraceStoreTest {
     void unusableDirectoryFallsBackToMemoryOnly() throws Exception {
         Path notADirectory = root.resolve("file");
         Files.writeString(notADirectory, "x");
-        TraceStore store = new TraceStore(TraceRecordJsonCodec.INSTANCE, notADirectory, 7, 128 * MB, 10,
+        TraceStore store = new TraceStore(TraceRecordJsonCodec.INSTANCE, notADirectory, 7, 128 * MB, hotBytes(10),
                 task -> true, () -> { }, clock);
         store.start();
 
@@ -295,7 +341,11 @@ class TraceStoreTest {
 
     @Test
     void oversizedTraceIsKeptInMemoryButNotWritten() throws Exception {
-        TraceStore store = store(10, 1 * MB);
+        TraceStore store = new TraceStore(TraceRecordJsonCodec.INSTANCE, root.resolve("traces"), 7, 1 * MB, 4 * MB,
+                task -> {
+                    task.run();
+                    return true;
+                }, () -> { }, clock);
         store.start();
         store.add(trace("huge").errorStackTrace("z".repeat(400 * 1024)).build());
         store.add(trace("small").build());
@@ -306,7 +356,7 @@ class TraceStoreTest {
 
     @Test
     void rejectsInvalidQueries() {
-        TraceStore store = TraceStore.inMemory(10);
+        TraceStore store = TraceStore.inMemory(1024 * 1024);
 
         assertThatThrownBy(() -> store.search(query("bogus", "", "", ""))).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> store.search(query("all", "", "", "abc"))).isInstanceOf(IllegalArgumentException.class);
@@ -336,6 +386,11 @@ class TraceStoreTest {
         assertThat(summary.errorMessage()).hasSize(301);
     }
 
+    /** Budget for {@code hot} records the size of a typical test trace with one SQL span. */
+    private static long hotBytes(int hot) {
+        return hot * trace("t0").treeNodes(List.of(sql("select * from orders_0"))).build().estimatedBytes();
+    }
+
     private TraceStore store(int hot, long maxBytes) {
         return store(hot, maxBytes, task -> {
             task.run();
@@ -344,7 +399,7 @@ class TraceStoreTest {
     }
 
     private TraceStore store(int hot, long maxBytes, Predicate<Runnable> writer) {
-        return new TraceStore(TraceRecordJsonCodec.INSTANCE, root.resolve("traces"), 7, maxBytes, hot, writer,
+        return new TraceStore(TraceRecordJsonCodec.INSTANCE, root.resolve("traces"), 7, maxBytes, hotBytes(hot), writer,
                 () -> { }, clock);
     }
 

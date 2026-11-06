@@ -21,6 +21,16 @@ public record TraceSummary(String traceId, String sourceType, String name, Strin
                 message, trace.threadName(), trace.finishedAt());
     }
 
+    /** Rough heap footprint of a list row including its index entry; two bytes per character. */
+    long estimatedBytes() {
+        return 320 + 2L * (length(traceId) + length(sourceType) + length(name) + length(tag) + length(errorType)
+                + length(errorMessage) + length(threadName));
+    }
+
+    private static int length(String value) {
+        return value == null ? 0 : value.length();
+    }
+
     private static int unfinished(List<TraceNode> nodes) {
         int count = 0;
         for (TraceNode node : nodes) count += (node.unfinishedAtTraceEnd() ? 1 : 0) + unfinished(node.children());

@@ -47,6 +47,8 @@ import java.util.regex.Pattern;
  */
 public final class TraceStore implements AutoCloseable {
     static final int MAX_INDEXED_TRACES = 50_000;
+    /** Heap budget for the list index; past it the oldest traces are dropped from the list, like the count cap. */
+    static final long MAX_INDEX_BYTES = 16L * 1024 * 1024;
     static final long MAX_SEGMENT_BYTES = 8L * 1024 * 1024;
     static final long MIN_SEGMENT_BYTES = 256L * 1024;
     static final long SEARCH_SCAN_BYTES = 32L * 1024 * 1024;
@@ -62,7 +64,7 @@ public final class TraceStore implements AutoCloseable {
     private final int retentionDays;
     private final long maxStorageBytes;
     private final long segmentBytes;
-    private final int hotCapacity;
+    private final long hotBudgetBytes;
     private final Predicate<Runnable> writer;
     private final Runnable writerShutdown;
     private final Clock clock;
@@ -72,7 +74,10 @@ public final class TraceStore implements AutoCloseable {
     /** Newest first. Values are mutated only while holding {@link #stateLock}. */
     private final ConcurrentSkipListMap<Key, Entry> index = new ConcurrentSkipListMap<>();
     private final AtomicInteger indexSize = new AtomicInteger();
+    private long indexBytes;
+    private long maxIndexBytes = MAX_INDEX_BYTES;
     private final ArrayDeque<Entry> hot = new ArrayDeque<>();
+    private long hotBytes;
     private final AtomicLong nextId = new AtomicLong();
     private final AtomicLong restoredSequence = new AtomicLong();
     private final Object stateLock = new Object();
@@ -90,26 +95,27 @@ public final class TraceStore implements AutoCloseable {
 
     /**
      * @param directory     segment directory, or {@code null} to keep traces in memory only
-     * @param hotCapacity   number of newest full records kept in memory
+     * @param hotBudgetBytes estimated heap budget for the newest full records kept in memory; the newest record is
+     *                       always kept
      */
-    public TraceStore(Path directory, int retentionDays, long maxStorageBytes, int hotCapacity) {
-        this(directory, retentionDays, maxStorageBytes, hotCapacity, new BoundedHistoryWriter());
+    public TraceStore(Path directory, int retentionDays, long maxStorageBytes, long hotBudgetBytes) {
+        this(directory, retentionDays, maxStorageBytes, hotBudgetBytes, new BoundedHistoryWriter());
     }
 
-    private TraceStore(Path directory, int retentionDays, long maxStorageBytes, int hotCapacity,
+    private TraceStore(Path directory, int retentionDays, long maxStorageBytes, long hotBudgetBytes,
                        BoundedHistoryWriter writer) {
-        this(TraceRecordJsonCodec.INSTANCE, directory, retentionDays, maxStorageBytes, hotCapacity,
+        this(TraceRecordJsonCodec.INSTANCE, directory, retentionDays, maxStorageBytes, hotBudgetBytes,
                 writer::execute, writer::close, Clock.systemDefaultZone());
     }
 
-    TraceStore(TraceRecordJsonCodec codec, Path directory, int retentionDays, long maxStorageBytes, int hotCapacity,
+    TraceStore(TraceRecordJsonCodec codec, Path directory, int retentionDays, long maxStorageBytes, long hotBudgetBytes,
                Predicate<Runnable> writer, Runnable writerShutdown, Clock clock) {
         this.codec = codec;
         this.directory = directory == null ? null : directory.toAbsolutePath().normalize();
         this.retentionDays = Math.max(1, retentionDays);
         this.maxStorageBytes = Math.max(MIN_SEGMENT_BYTES, maxStorageBytes);
         this.segmentBytes = Math.max(MIN_SEGMENT_BYTES, Math.min(MAX_SEGMENT_BYTES, this.maxStorageBytes / 8));
-        this.hotCapacity = Math.max(1, hotCapacity);
+        this.hotBudgetBytes = Math.max(0, hotBudgetBytes);
         this.writer = writer;
         this.writerShutdown = writerShutdown;
         this.clock = clock;
@@ -117,9 +123,9 @@ public final class TraceStore implements AutoCloseable {
         this.persistent = directory != null;
     }
 
-    /** A store that keeps only the newest {@code capacity} traces in memory. */
-    public static TraceStore inMemory(int capacity) {
-        return new TraceStore(TraceRecordJsonCodec.INSTANCE, null, 1, MIN_SEGMENT_BYTES, capacity,
+    /** A store that keeps only the newest traces that fit in {@code budgetBytes} of estimated heap. */
+    public static TraceStore inMemory(long budgetBytes) {
+        return new TraceStore(TraceRecordJsonCodec.INSTANCE, null, 1, MIN_SEGMENT_BYTES, budgetBytes,
                 task -> false, () -> { }, Clock.systemDefaultZone());
     }
 
@@ -160,7 +166,12 @@ public final class TraceStore implements AutoCloseable {
             insertLocked(entry);
             entry.hot = true;
             hot.addFirst(entry);
-            while (hot.size() > hotCapacity) evictLocked(hot.pollLast());
+            hotBytes += entry.estimatedBytes;
+            while (hotBytes > hotBudgetBytes && hot.size() > 1) {
+                Entry oldest = hot.pollLast();
+                hotBytes -= oldest.estimatedBytes;
+                evictLocked(oldest);
+            }
             if (!persistent) return stored;
             entry.pendingWrite = true;
             writeGeneration = generation;
@@ -289,8 +300,10 @@ public final class TraceStore implements AutoCloseable {
             synchronized (stateLock) {
                 generation++;
                 cleared = indexSize.getAndSet(0);
+                indexBytes = 0;
                 index.clear();
                 hot.clear();
+                hotBytes = 0;
             }
             closeCurrent();
             for (Segment segment : segments.values()) deleteQuietly(segment);
@@ -312,6 +325,18 @@ public final class TraceStore implements AutoCloseable {
         searchScanBytes = bytes;
     }
 
+    void maxIndexBytes(long bytes) {
+        synchronized (stateLock) {
+            maxIndexBytes = bytes;
+        }
+    }
+
+    private boolean indexFull() {
+        synchronized (stateLock) {
+            return indexSize.get() >= MAX_INDEXED_TRACES || indexBytes >= maxIndexBytes;
+        }
+    }
+
     public static boolean isEntrySource(String sourceType) {
         return "HTTP".equals(sourceType) || "KAFKA_CONSUMER".equals(sourceType) || "JOB".equals(sourceType);
     }
@@ -323,18 +348,24 @@ public final class TraceStore implements AutoCloseable {
     // ---- in-memory index ----
 
     private void insertLocked(Entry entry) {
-        if (index.put(entry.key, entry) == null && indexSize.incrementAndGet() > MAX_INDEXED_TRACES) {
+        if (index.put(entry.key, entry) != null) return;
+        indexSize.incrementAndGet();
+        indexBytes += entry.indexBytes;
+        while ((indexSize.get() > MAX_INDEXED_TRACES || indexBytes > maxIndexBytes) && indexSize.get() > 1) {
             var oldest = index.pollLastEntry();
-            if (oldest != null) {
-                indexSize.decrementAndGet();
-                oldest.getValue().removed = true;
-            }
+            if (oldest == null) break;
+            indexSize.decrementAndGet();
+            indexBytes -= oldest.getValue().indexBytes;
+            oldest.getValue().removed = true;
         }
     }
 
     private void removeLocked(Entry entry) {
         entry.removed = true;
-        if (index.remove(entry.key, entry)) indexSize.decrementAndGet();
+        if (index.remove(entry.key, entry)) {
+            indexSize.decrementAndGet();
+            indexBytes -= entry.indexBytes;
+        }
     }
 
     /** A record leaving the hot window stays listed only when it can be read back from disk. */
@@ -504,7 +535,7 @@ public final class TraceStore implements AutoCloseable {
     private void restoreIndex(List<Segment> newestFirst, long startGeneration) {
         try {
             for (Segment segment : newestFirst) {
-                if (indexSize.get() >= MAX_INDEXED_TRACES || segment.deleted) break;
+                if (indexFull() || segment.deleted) break;
                 List<Restored> lines = readSegment(segment);
                 // Older segments get lower sequences, and later lines of a segment higher ones, so records that
                 // finished in the same millisecond keep their file order.
@@ -707,6 +738,8 @@ public final class TraceStore implements AutoCloseable {
         final TraceSummary summary;
         volatile TraceRecord full;
         volatile Location location;
+        final long estimatedBytes;
+        final long indexBytes;
         boolean hot;
         boolean pendingWrite;
         boolean removed;
@@ -715,6 +748,8 @@ public final class TraceStore implements AutoCloseable {
             this.key = key;
             this.summary = summary;
             this.full = full;
+            this.estimatedBytes = full == null ? 0 : full.estimatedBytes();
+            this.indexBytes = summary.estimatedBytes();
         }
     }
 

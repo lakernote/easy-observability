@@ -74,7 +74,7 @@ class TraceArchiveFormatE2ETest {
                 .contains("\"traceId\":\"archive-format-trace\"", "\"finishedAt\":\"", "\"errorMessage\":\"boom 中文\"")
                 .doesNotContain("trace_id", "finished_at");
 
-        TraceStore restored = new TraceStore(TRACE_DIRECTORY, 7, 128L * 1024 * 1024, 10);
+        TraceStore restored = new TraceStore(TRACE_DIRECTORY, 7, 128L * 1024 * 1024, 32L * 1024 * 1024);
         try {
             restored.start();
             long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();

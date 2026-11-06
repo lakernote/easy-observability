@@ -4,7 +4,7 @@
 
 ## 运行环境
 
-- Java 17 及以上；Spring Boot 3 与 Spring Boot 4 分别使用对应的 Starter。
+- Java 17 及以上；Spring Boot 3.5+ 与 Spring Boot 4.0+ 分别使用对应的 Starter（CI 同时以最低版本 3.5.0、4.0.0 构建测试）。
 - Web 应用须为 Servlet 栈（Spring MVC）。Trace 上下文绑定在线程上，与"一个请求由一个线程处理"的 Servlet 模型匹配。
 - **不支持 WebFlux 等响应式应用。** 引入 Starter 后应用仍可正常启动，但响应式 HTTP 请求不会生成入口 Trace，页面和查询 API 也不会注册；在响应式链路中切换线程的调用无法关联到同一 Trace。
 - 非 Web 应用（如只消费 Kafka 或只运行定时任务）可以采集 Trace 和运行指标，但没有页面可以查看。
@@ -46,7 +46,7 @@ JDBC 采集会使用保留原数据源具体类型的代理，因此按 `HikariD
 | `easy.observability.trace.allocated-memory-threshold` | `50MB` | 入口线程累计内存分配量资源告警阈值 |
 | `easy.observability.trace.retention` | `7d` | 诊断 Trace 保留天数，整天，范围 `1d`～`365d` |
 | `easy.observability.trace.max-storage-size` | `128MB` | 诊断 Trace 磁盘占用上限，超出时删除最旧的分段文件 |
-| `easy.observability.trace.memory-cache-size` | `500` | 内存中保留完整调用树的最新 Trace 数量；更早的记录在打开详情时从磁盘读取 |
+| `easy.observability.trace.max-memory-size` | `32MB` | 内存中缓存最新 Trace 完整调用树的堆内存上限（按估算大小淘汰最旧的）；更早的记录在打开详情时从磁盘读取，存储不可用时直接丢弃 |
 | `easy.observability.metrics.enabled` | `true` | 运行指标（调用统计与资源指标）总开关 |
 | `easy.observability.metrics.max-operations` | `1000` | 所有类别合计最多统计的操作数，超出后新操作按类别并入“其他”行 |
 | `easy.observability.metrics.retention` | `30d` | 指标历史保留时长，须为整天数，范围 `1d` 至 `365d` |
@@ -75,7 +75,7 @@ easy:
 
 存储目录由一个实例独占：启动时会在目录中创建 `.lock` 并持有操作系统文件锁，应用关闭时释放。同一台机器上第二个指向同一目录的实例（包括同一应用的多个副本）不会写入该目录，而是记录警告，并把诊断 Trace 和指标历史只保存在内存中，宿主应用照常启动。目录无法创建或不可写时同样降级为仅内存。同机部署多个副本时，请为每个实例配置不同的 `storage.directory`，例如在路径中加入实例编号。
 
-只有慢调用、错误及 CPU 时间或内存分配量超阈值的入口（HTTP、定时任务、Kafka 消费）会被保存。诊断 Trace 以 JSON Lines 追加写入 `traces/traces-yyyyMMdd-N.jsonl`，按天滚动，单个分段达到 `max-storage-size` 的 1/8（256KB～8MB）时也会滚动。超过 `retention` 的整天分段、以及总占用超过 `max-storage-size` 时最旧的分段会被整文件删除，不改写正在使用的文件。重启后在后台线程扫描分段重建轻量索引（最多 5 万条，不含调用树），重建期间页面可用，旧记录逐步出现；打开详情时再从磁盘读取完整记录。单条记录编码后超过一个分段大小时只保留在内存中。
+只有慢调用、错误及 CPU 时间或内存分配量超阈值的入口（HTTP、定时任务、Kafka 消费）会被保存。诊断 Trace 以 JSON Lines 追加写入 `traces/traces-yyyyMMdd-N.jsonl`，按天滚动，单个分段达到 `max-storage-size` 的 1/8（256KB～8MB）时也会滚动。超过 `retention` 的整天分段、以及总占用超过 `max-storage-size` 时最旧的分段会被整文件删除，不改写正在使用的文件。重启后在后台线程扫描分段重建轻量索引（不含调用树，最多 5 万条、约 16MB 堆内存，超出时列表中只保留最新的），重建期间页面可用，旧记录逐步出现；打开详情时再从磁盘读取完整记录。单条记录编码后超过一个分段大小时只保留在内存中。
 
 后台序列化和文件 I/O 不持有业务记录入口的锁，写入队列满时丢弃该条持久化而不阻塞请求、Kafka 消费或任务线程。若运行时存储 I/O 失败，Trace 存储会降级到仅内存模式直到应用重启，`/api/easy-observability/traces/storage` 的 `persistent` 会返回 `false`。
 

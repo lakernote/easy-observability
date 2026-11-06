@@ -36,7 +36,7 @@ public final class TraceStoreTestSupport {
             }
         };
         BoundedHistoryWriter writer = new BoundedHistoryWriter();
-        TraceStore store = new TraceStore(codec, directory, 7, 128L * 1024 * 1024, 500, writer::execute,
+        TraceStore store = new TraceStore(codec, directory, 7, 128L * 1024 * 1024, 32L * 1024 * 1024, writer::execute,
                 writer::close, Clock.systemDefaultZone());
         store.start();
         return store;

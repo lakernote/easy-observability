@@ -26,7 +26,7 @@ class ObservationTraceHandlerStatsTest {
     private final ObservationRegistry registry = ObservationRegistry.create();
 
     ObservationTraceHandlerStatsTest() {
-        registry.observationConfig().observationHandler(new ObservationTraceHandler(TraceStore.inMemory(10),
+        registry.observationConfig().observationHandler(new ObservationTraceHandler(TraceStore.inMemory(1024 * 1024),
                 new EasyObservabilityProperties(), List.of(), stats));
     }
 
@@ -146,7 +146,7 @@ class ObservationTraceHandlerStatsTest {
         EasyObservabilityProperties properties = new EasyObservabilityProperties();
         properties.getTrace().setHttpSlowThreshold(Duration.ofMillis(1));
         ObservationRegistry slowRegistry = ObservationRegistry.create();
-        slowRegistry.observationConfig().observationHandler(new ObservationTraceHandler(TraceStore.inMemory(10),
+        slowRegistry.observationConfig().observationHandler(new ObservationTraceHandler(TraceStore.inMemory(1024 * 1024),
                 properties, List.of(), stats));
         Logger logger = (Logger) LoggerFactory.getLogger(TraceContext.class);
         ListAppender<ILoggingEvent> appender = new ListAppender<>();

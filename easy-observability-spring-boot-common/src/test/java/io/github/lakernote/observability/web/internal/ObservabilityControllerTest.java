@@ -14,7 +14,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class ObservabilityControllerTest {
     @Test
     void listsStoredTraceSummariesWithoutTheirCallTrees() {
-        TraceStore store = TraceStore.inMemory(10);
+        TraceStore store = TraceStore.inMemory(1024 * 1024);
         store.add(trace().traceId("trace-1").sourceType("HTTP")
                 .name("OrdersController#create").tag("POST /orders").status(201).durationMs(12).build());
         store.add(trace().traceId("trace-2").sourceType("HTTP")
@@ -32,7 +32,7 @@ class ObservabilityControllerTest {
 
     @Test
     void rejectsInvalidQueriesWithBadRequest() {
-        ObservabilityController controller = new ObservabilityController(TraceStore.inMemory(10), allowAll());
+        ObservabilityController controller = new ObservabilityController(TraceStore.inMemory(1024 * 1024), allowAll());
 
         assertThatThrownBy(() -> controller.traces("bogus", "", "", "", 50))
                 .isInstanceOf(ResponseStatusException.class).hasMessageContaining("400 BAD_REQUEST");
@@ -42,7 +42,7 @@ class ObservabilityControllerTest {
 
     @Test
     void returnsNotFoundForUnknownTrace() {
-        ObservabilityController controller = new ObservabilityController(TraceStore.inMemory(10), allowAll());
+        ObservabilityController controller = new ObservabilityController(TraceStore.inMemory(1024 * 1024), allowAll());
 
         assertThatThrownBy(() -> controller.trace("missing", ""))
                 .isInstanceOf(ResponseStatusException.class).hasMessageContaining("404 NOT_FOUND");
@@ -50,7 +50,7 @@ class ObservabilityControllerTest {
 
     @Test
     void rejectsRequestsWhenThePolicyDeniesViewing() {
-        ObservabilityController controller = new ObservabilityController(TraceStore.inMemory(10), denyView());
+        ObservabilityController controller = new ObservabilityController(TraceStore.inMemory(1024 * 1024), denyView());
 
         assertThatThrownBy(() -> controller.traces("all", "", "", "", 10))
                 .isInstanceOf(ResponseStatusException.class).hasMessageContaining("403 FORBIDDEN");
@@ -62,7 +62,7 @@ class ObservabilityControllerTest {
 
     @Test
     void clearsStoredTracesThroughProtectedClearAction() {
-        TraceStore store = TraceStore.inMemory(10);
+        TraceStore store = TraceStore.inMemory(1024 * 1024);
         store.add(trace().traceId("trace-1").sourceType("HTTP").name("GET /orders").durationMs(900).slow(true)
                 .build());
         ObservabilityController controller = new ObservabilityController(store, allowAll());
@@ -73,7 +73,7 @@ class ObservabilityControllerTest {
 
     @Test
     void deniesClearActionWhenThePolicyDeniesViewing() {
-        ObservabilityController controller = new ObservabilityController(TraceStore.inMemory(10), denyView());
+        ObservabilityController controller = new ObservabilityController(TraceStore.inMemory(1024 * 1024), denyView());
 
         assertThatThrownBy(controller::clearTraces)
                 .isInstanceOf(ResponseStatusException.class).hasMessageContaining("403 FORBIDDEN");
@@ -81,7 +81,7 @@ class ObservabilityControllerTest {
 
     @Test
     void deniesClearActionByDefaultEvenWhenViewIsAllowed() {
-        TraceStore store = TraceStore.inMemory(10);
+        TraceStore store = TraceStore.inMemory(1024 * 1024);
         store.add(trace().traceId("trace-1").sourceType("HTTP").name("GET /orders").durationMs(900).slow(true)
                 .build());
         ObservabilityController controller = new ObservabilityController(store, () -> true);
@@ -94,17 +94,17 @@ class ObservabilityControllerTest {
 
     @Test
     void reportsClearPermissionToTheDashboard() {
-        assertThat(new ObservabilityController(TraceStore.inMemory(10), allowAll()).permissions().canClear())
+        assertThat(new ObservabilityController(TraceStore.inMemory(1024 * 1024), allowAll()).permissions().canClear())
                 .isTrue();
-        assertThat(new ObservabilityController(TraceStore.inMemory(10), () -> true).permissions().canClear())
+        assertThat(new ObservabilityController(TraceStore.inMemory(1024 * 1024), () -> true).permissions().canClear())
                 .isFalse();
-        assertThatThrownBy(new ObservabilityController(TraceStore.inMemory(10), denyView())::permissions)
+        assertThatThrownBy(new ObservabilityController(TraceStore.inMemory(1024 * 1024), denyView())::permissions)
                 .isInstanceOf(ResponseStatusException.class).hasMessageContaining("403 FORBIDDEN");
     }
 
     @Test
     void filtersByKindAndEntrySource() {
-        TraceStore store = TraceStore.inMemory(10);
+        TraceStore store = TraceStore.inMemory(1024 * 1024);
         store.add(trace().traceId("http-slow").sourceType("HTTP").name("OrdersController#list")
                 .durationMs(900).slow(true).build());
         store.add(trace().traceId("job-error").sourceType("JOB").name("NightlyJob#run").status(500)
@@ -120,7 +120,7 @@ class ObservabilityControllerTest {
 
     @Test
     void neverExposesDependencyOperationsAsRoots() {
-        TraceStore store = TraceStore.inMemory(10);
+        TraceStore store = TraceStore.inMemory(1024 * 1024);
         store.add(trace().traceId("redis-1").sourceType("REDIS").name("Redis get").slow(true).build());
         store.add(trace().traceId("transaction-1").sourceType("TRANSACTION").name("OrderService#create")
                 .error(true).build());
@@ -132,7 +132,7 @@ class ObservabilityControllerTest {
 
     @Test
     void keepsDistinctEntryRootsWhenHttpAndKafkaShareOneTraceId() {
-        TraceStore store = TraceStore.inMemory(10);
+        TraceStore store = TraceStore.inMemory(1024 * 1024);
         store.add(trace().traceId("shared-trace").sourceType("HTTP").name("/api/demo/kafka/error")
                 .durationMs(900).slow(true).build());
         store.add(trace().traceId("shared-trace").sourceType("KAFKA_CONSUMER").name("receive")
@@ -147,7 +147,7 @@ class ObservabilityControllerTest {
 
     @Test
     void searchesTraceTreesForSqlAndThreadNames() {
-        TraceStore store = TraceStore.inMemory(10);
+        TraceStore store = TraceStore.inMemory(1024 * 1024);
         store.add(trace().traceId("sql-trace").sourceType("HTTP").name("GET /orders").durationMs(400).slow(true)
                 .treeNodes(TraceNodeFixtures.named("`- [Database] query tag=\"select * from orders where id = ?\" 7ms"))
                 .build());
@@ -163,7 +163,7 @@ class ObservabilityControllerTest {
 
     @Test
     void reportsMemoryOnlyStorage() {
-        TraceStore store = TraceStore.inMemory(12);
+        TraceStore store = TraceStore.inMemory(1024 * 1024);
         store.add(trace().traceId("trace-1").sourceType("HTTP").name("GET /orders").durationMs(900).slow(true)
                 .build());
         ObservabilityController controller = new ObservabilityController(store, allowAll());

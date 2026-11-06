@@ -35,6 +35,27 @@ public record TraceRecord(long id, String traceId, String name, String tag, int 
                 errorStackTrace, highCpu, highAllocation);
     }
 
+    /**
+     * Rough heap footprint used to bound the in-memory cache: object headers plus two bytes per character, which
+     * errs on the high side for Latin-1 strings.
+     */
+    long estimatedBytes() {
+        long bytes = 256 + chars(traceId) + chars(name) + chars(tag) + chars(sourceType) + chars(errorType)
+                + chars(errorMessage) + chars(threadName) + chars(errorStackTrace);
+        for (TraceNode node : treeNodes) bytes += estimatedBytes(node);
+        return bytes;
+    }
+
+    private static long estimatedBytes(TraceNode node) {
+        long bytes = 160 + chars(node.name()) + chars(node.tag()) + chars(node.errorType()) + chars(node.threadName());
+        for (TraceNode child : node.children()) bytes += estimatedBytes(child);
+        return bytes;
+    }
+
+    private static long chars(String value) {
+        return value == null ? 0 : 2L * value.length();
+    }
+
     /** Names every field so call sites cannot transpose the many adjacent strings, numbers and flags. */
     public static final class Builder {
         private long id;

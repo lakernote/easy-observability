@@ -77,3 +77,31 @@ jobs:
 
       - name: Package with the release profile
         run: mvn --batch-mode --no-transfer-progress -Pcentral-release -Dgpg.skip -DskipTests clean verify
+
+  minimum-versions:
+    # The starters are built against the latest Boot releases; this keeps the documented minimums honest.
+    name: Test minimum Spring Boot versions
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Spring Boot 3.5.0
+        run: >-
+          mvn --batch-mode --no-transfer-progress -Djacoco.skip=true -Dspring-boot-3.version=3.5.0
+          -pl easy-observability-spring-boot-3-starter -am clean verify
+
+      - name: Spring Boot 4.0.0
+        # redisson-spring-data-41 targets Spring Data Redis 4.1, so its fixture test only runs on Boot 4.1+.
+        run: >-
+          mvn --batch-mode --no-transfer-progress -Djacoco.skip=true -Dspring-boot-4.version=4.0.0
+          -Dtest='!RedissonCommandProviderTracingE2ETest' -Dsurefire.failIfNoSpecifiedTests=false
+          -pl easy-observability-spring-boot-4-starter -am clean verify

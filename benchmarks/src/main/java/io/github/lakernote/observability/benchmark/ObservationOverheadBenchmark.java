@@ -56,7 +56,7 @@ public class ObservationOverheadBenchmark {
 
         instrumented = ObservationRegistry.create();
         instrumented.observationConfig().observationHandler(new ObservationTraceHandler(
-                TraceStore.inMemory(500), new EasyObservabilityProperties(), List.of(),
+                TraceStore.inMemory(32L * 1024 * 1024), new EasyObservabilityProperties(), List.of(),
                 stats ? new OperationStats(1_000) : null));
     }
 

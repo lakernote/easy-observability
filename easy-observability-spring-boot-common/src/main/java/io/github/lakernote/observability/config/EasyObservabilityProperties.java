@@ -115,8 +115,11 @@ public class EasyObservabilityProperties {
         private Duration retention = Duration.ofDays(7);
         /** Disk budget for the trace files; the oldest files are deleted beyond it. */
         private DataSize maxStorageSize = DataSize.ofMegabytes(128);
-        /** Newest stored traces kept in memory with their full call tree; older ones are read from disk. */
-        private int memoryCacheSize = 500;
+        /**
+         * Heap budget for the newest stored traces kept in memory with their full call tree; older ones are read
+         * from disk. Without usable storage, traces beyond it are dropped.
+         */
+        private DataSize maxMemorySize = DataSize.ofMegabytes(32);
 
         public boolean isEnabled() {
             return enabled;
@@ -191,12 +194,12 @@ public class EasyObservabilityProperties {
             this.maxStorageSize = maxStorageSize;
         }
 
-        public int getMemoryCacheSize() {
-            return memoryCacheSize;
+        public DataSize getMaxMemorySize() {
+            return maxMemorySize;
         }
 
-        public void setMemoryCacheSize(int memoryCacheSize) {
-            this.memoryCacheSize = memoryCacheSize;
+        public void setMaxMemorySize(DataSize maxMemorySize) {
+            this.maxMemorySize = maxMemorySize;
         }
     }
 }

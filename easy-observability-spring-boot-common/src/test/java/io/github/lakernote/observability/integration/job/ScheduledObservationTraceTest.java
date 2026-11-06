@@ -16,7 +16,7 @@ class ScheduledObservationTraceTest {
         ObservationRegistry registry = ObservationRegistry.create();
         EasyObservabilityProperties properties = new EasyObservabilityProperties();
         properties.getTrace().setJobSlowThreshold(java.time.Duration.ofMillis(1));
-        TraceStore history = TraceStore.inMemory(10);
+        TraceStore history = TraceStore.inMemory(1024 * 1024);
         registry.observationConfig().observationHandler(new ObservationTraceHandler(history, properties, java.util.List.of()));
 
         Observation.createNotStarted("tasks.scheduled.execution", registry)

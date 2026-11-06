@@ -63,8 +63,11 @@ public class ObservabilityAutoConfiguration {
         if (trace.getMaxStorageSize() == null || trace.getMaxStorageSize().toBytes() <= 0) {
             throw new IllegalArgumentException("easy.observability.trace.max-storage-size must be positive");
         }
+        if (trace.getMaxMemorySize() == null || trace.getMaxMemorySize().toBytes() <= 0) {
+            throw new IllegalArgumentException("easy.observability.trace.max-memory-size must be positive");
+        }
         return new TraceStore(storage.traceDirectory(), RuntimeMetricsAutoConfiguration.retentionDays("trace", trace.getRetention()),
-                trace.getMaxStorageSize().toBytes(), trace.getMemoryCacheSize());
+                trace.getMaxStorageSize().toBytes(), trace.getMaxMemorySize().toBytes());
     }
 
     /**
