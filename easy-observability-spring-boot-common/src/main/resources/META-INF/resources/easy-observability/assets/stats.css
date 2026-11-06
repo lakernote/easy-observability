@@ -1,7 +1,9 @@
 .stats-controls { align-items:end; justify-content:flex-start; }
 .stats-controls .storage-summary { margin-left:auto; }
 .stats-search { flex:1; max-width:420px; }
-.stats-search input { width:100%; height:40px; padding:0 10px; border:1px solid #d6dee9; border-radius:6px; background:#fff; color:var(--ink); font:inherit; font-size:13px; }
+.stats-search input { width:100%; height:40px; padding:0 12px; border:1px solid #d6dee9; border-radius:7px; background:#fff; color:var(--ink); font:inherit; font-size:13px; font-weight:400; transition:border-color 120ms ease, box-shadow 120ms ease; }
+.stats-search input:hover { border-color:#9eacc0; }
+.stats-search input:focus { outline:none; border-color:var(--blue); box-shadow:0 0 0 3px rgb(49 95 209 / 16%); }
 .metric-categories button small { margin-left:6px; color:#8a96a8; font-weight:600; font-variant-numeric:tabular-nums; }
 .metric-categories button.active small { color:#5d7fd0; }
 .stats-table th.numeric, .stats-table td.numeric { text-align:right; font-variant-numeric:tabular-nums; }

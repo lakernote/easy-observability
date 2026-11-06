@@ -1,7 +1,7 @@
 .metric-semantics { margin:5px 0 0; color:#68788f; font-size:12px; line-height:1.6; }
 .metrics-controls { display:flex; align-items:end; justify-content:space-between; gap:18px; margin:16px 0 12px; padding:14px; border:1px solid var(--line); border-radius:9px; background:var(--surface); }
 .metrics-controls label { display:grid; gap:6px; color:#56677f; font-size:12px; font-weight:650; }
-.metrics-controls select { min-width:180px; height:40px; padding:0 10px; border:1px solid #d6dee9; border-radius:6px; background:#fff; color:var(--ink); font:inherit; font-size:13px; }
+.metrics-controls select { min-width:180px; }
 .storage-summary { color:var(--muted); font-size:12px; font-variant-numeric:tabular-nums; }
 .metric-categories { display:flex; flex-wrap:wrap; gap:7px; margin:0 0 12px; }
 .metric-categories button { min-height:40px; padding:8px 14px; border:1px solid var(--line); border-radius:20px; background:#fff; color:#5e6d82; font-size:12px; font-weight:650; cursor:pointer; transition:background-color 140ms ease,border-color 140ms ease,color 140ms ease; }

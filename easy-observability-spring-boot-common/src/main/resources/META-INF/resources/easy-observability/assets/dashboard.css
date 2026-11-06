@@ -22,6 +22,25 @@ button { cursor: pointer; touch-action: manipulation; }
 button:disabled { cursor: default; opacity: .5; }
 :focus-visible { outline: 3px solid #3972e8; outline-offset: 2px; }
 
+/* One dropdown style for every page: custom chevron, compact text and the same hover/focus as text inputs. */
+select {
+  height: 40px;
+  padding: 0 34px 0 12px;
+  border: 1px solid #d6dee9;
+  border-radius: 7px;
+  background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none'%3E%3Cpath d='M3 4.5 6 7.5 9 4.5' stroke='%2356677f' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 12px center / 12px 12px;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+select:hover { border-color: #9eacc0; }
+select:focus, select:focus-visible { outline: none; border-color: var(--blue); box-shadow: 0 0 0 3px rgb(49 95 209 / 16%); }
+select option { color: var(--ink); font-weight: 500; }
+
 .skip-link {
   position: fixed;
   z-index: 10;
@@ -120,17 +139,21 @@ button:disabled { cursor: default; opacity: .5; }
 .segmented button { padding: 0 13px; border: 0; border-radius: 5px; background: transparent; color: #56677f; font-size: 12px; font-weight: 650; white-space: nowrap; }
 .segmented button:hover { color: var(--ink); }
 .segmented button[aria-pressed="true"] { background: #fff; color: var(--blue); box-shadow: 0 1px 3px rgb(30 48 78 / 14%); }
-.filters select, .filters input {
+.filters select { width: 100%; min-width: 0; }
+.filters input {
   width: 100%;
   min-width: 0;
   height: 40px;
-  padding: 0 10px;
+  padding: 0 12px;
   border: 1px solid #d6dee9;
-  border-radius: 6px;
+  border-radius: 7px;
   background: #fff;
   color: var(--ink);
+  font-size: 13px;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
 }
-.filters select:hover, .filters input:hover { border-color: #9eacc0; }
+.filters input:hover { border-color: #9eacc0; }
+.filters input:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 3px rgb(49 95 209 / 16%); }
 .filters input::placeholder { color: #8693a5; }
 .count { margin-bottom: 11px; color: var(--muted); font-size: 12px; white-space: nowrap; }
 
