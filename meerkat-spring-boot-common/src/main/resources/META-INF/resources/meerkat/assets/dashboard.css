@@ -94,6 +94,8 @@ select option { color: var(--ink); font-weight: 500; }
   color: var(--ink);
 }
 .quiet-button { color: var(--muted) !important; }
+.toolbar .lang-toggle { color: var(--muted); white-space: nowrap; }
+html[lang="en"] .lang-toggle [lang="en"], html:not([lang="en"]) .lang-toggle [lang="zh"] { color: var(--ink); }
 .page-actions { display: flex; justify-content: flex-end; margin-top: 12px; }
 .page-actions:not(:has(> :not([hidden]))) { display: none; }
 .instance-pill { display: flex; align-items: center; gap: 7px; margin-right: 8px; color: var(--muted); font-size: 12px; }

@@ -1,8 +1,8 @@
-import { authHeaders } from './common.js?v=20261106.10'
-import { $, api, formatBytes, formatMs, initializeEmbeddedAuth, kindName, node, request, showNotice } from './metrics-common.js?v=20261106.10'
+import { authHeaders } from './common.js?v=20261106.11'
+import { $, api, formatBytes, formatMs, initializeEmbeddedAuth, kindName, node, request, showNotice } from './metrics-common.js?v=20261106.11'
 
-const DENIED = '没有查看实时诊断的权限，请登录或检查 ObservabilityAccessPolicy'
-const SOURCES = { HTTP: 'HTTP', JOB: '定时任务', KAFKA_CONSUMER: 'Kafka 消费' }
+const DENIED = t('没有查看实时诊断的权限，请登录或检查 ObservabilityAccessPolicy')
+const SOURCES = { HTTP: 'HTTP', JOB: t('定时任务'), KAFKA_CONSUMER: t('Kafka 消费') }
 const REFRESH_MS = 5000
 const expandedRequests = new Set()
 const expandedThreads = new Set()
@@ -14,7 +14,7 @@ let loading = false
 
 function connected(ok) {
   $('instance').classList.toggle('connected', ok)
-  $('instance').lastChild.textContent = ok ? '已连接' : '连接失败'
+  $('instance').lastChild.textContent = t(ok ? '已连接' : '连接失败')
 }
 
 
@@ -38,16 +38,16 @@ function clipped(className, text, title = text) {
 }
 
 function stateBadge(state) {
-  return node('span', `live-state ${state || ''}`, state || '异步')
+  return node('span', `live-state ${state || ''}`, state || t('异步'))
 }
 
 function stackBlock(lines) {
-  return node('pre', 'live-stack', lines && lines.length ? lines.join('\n') : '没有可用的堆栈')
+  return node('pre', 'live-stack', lines && lines.length ? lines.join('\n') : t('没有可用的堆栈'))
 }
 
 function fact(label, value) {
   const item = node('span')
-  item.append(`${label}：`, node('b', '', value))
+  item.append(t('{label}：', { label }), node('b', '', value))
   return item
 }
 
@@ -65,8 +65,9 @@ function renderRequests() {
   const min = Number($('min-elapsed').value)
   const items = requests.items.filter(item => item.elapsedMs >= min)
   const hidden = requests.total - requests.items.length
-  $('requests-summary').textContent = `${requests.total} 个进行中${hidden > 0 ? `，显示最久的 ${requests.items.length} 个` : ''}`
-    + ` · ${new Date(requests.capturedAt).toLocaleTimeString('zh-CN')}`
+  $('requests-summary').textContent = t('{n} 个进行中', { n: requests.total })
+    + (hidden > 0 ? t('，显示最久的 {n} 个', { n: requests.items.length }) : '')
+    + ` · ${new Date(requests.capturedAt).toLocaleTimeString(MeerkatI18n.locale)}`
   $('requests-empty').hidden = items.length > 0
   for (const item of items) {
     const key = `${item.traceId}|${item.threadId}|${item.startedAt}`
@@ -80,7 +81,7 @@ function renderRequests() {
     const stepCell = clipped('mono', step ? `[${kindName(step.kind)}] ${step.detail || step.name} · ${formatMs(step.elapsedMs)}` : '—',
       step ? step.detail || step.name : '')
     const thread = node('td')
-    thread.append(stateBadge(item.async ? null : item.threadState), ' ', item.async ? '入口线程已返回' : item.threadName)
+    thread.append(stateBadge(item.async ? null : item.threadState), ' ', item.async ? t('入口线程已返回') : item.threadName)
     row.append(entry, elapsed, node('td', 'numeric', cpuText(item.cpuTimeMs)), stepCell, thread,
       node('td', 'mono', item.traceId || '—'))
     const expanded = expandedRequests.has(key)
@@ -103,16 +104,17 @@ function requestDetail(item) {
   const cell = node('td')
   cell.colSpan = 6
   const facts = node('div', 'live-facts')
-  facts.append(fact('开始', new Date(item.startedAt).toLocaleTimeString('zh-CN')), fact('路径', item.path || '—'),
-    fact('已记录节点', String(item.spanCount)), fact('内存分配', formatBytes(item.allocatedBytes)))
-  if (item.lockName) facts.append(fact('等待锁', item.lockName + (item.lockOwnerName ? `（持有者 ${item.lockOwnerName}）` : '')))
+  facts.append(fact(t('开始'), new Date(item.startedAt).toLocaleTimeString(MeerkatI18n.locale)), fact(t('路径'), item.path || '—'),
+    fact(t('已记录节点'), String(item.spanCount)), fact(t('内存分配'), formatBytes(item.allocatedBytes)))
+  if (item.lockName) facts.append(fact(t('等待锁'), item.lockName + (item.lockOwnerName ? t('（持有者 {owner}）', { owner: item.lockOwnerName }) : '')))
   cell.append(facts)
   if (item.currentStep) {
     const step = item.currentStep
-    cell.append(node('pre', 'live-stack', `当前步骤 [${kindName(step.kind)}] ${step.name}，已执行 ${formatMs(step.elapsedMs)}\n${step.detail || ''}`))
+    cell.append(node('pre', 'live-stack', `${t('当前步骤 [{kind}] {name}，已执行 {elapsed}', {
+      kind: kindName(step.kind), name: step.name, elapsed: formatMs(step.elapsedMs) })}\n${step.detail || ''}`))
     cell.lastChild.style.marginBottom = '8px'
   }
-  cell.append(item.async ? node('p', 'stats-detail-status', '请求已转为异步处理，入口线程已返回，没有对应的线程堆栈') : stackBlock(item.stack))
+  cell.append(item.async ? node('p', 'stats-detail-status', t('请求已转为异步处理，入口线程已返回，没有对应的线程堆栈')) : stackBlock(item.stack))
   row.append(cell)
   return row
 }
@@ -120,7 +122,7 @@ function requestDetail(item) {
 // ---- threads ----
 
 async function loadThreads() {
-  $('thread-cards').replaceChildren(node('p', 'stats-detail-status', '正在采样 1 秒…'))
+  $('thread-cards').replaceChildren(node('p', 'stats-detail-status', t('正在采样 1 秒…')))
   try {
     threadReport = await request('live/threads?sampleMs=1000', {}, DENIED)
   } catch (error) {
@@ -145,19 +147,19 @@ function renderThreads() {
   if (!threadReport) return
   const report = threadReport
   const waiting = (report.states.WAITING || 0) + (report.states.TIMED_WAITING || 0)
-  const cards = [['线程', report.threadCount], ['RUNNABLE', report.states.RUNNABLE || 0],
-    ['BLOCKED', report.states.BLOCKED || 0], ['WAITING', waiting], ['死锁', report.deadlockedThreadIds.length]]
+  // Each card is [label, value, filter state, alert when non-zero].
+  const cards = [[t('线程'), report.threadCount, ''], ['RUNNABLE', report.states.RUNNABLE || 0, 'RUNNABLE'],
+    ['BLOCKED', report.states.BLOCKED || 0, 'BLOCKED', true], ['WAITING', waiting], [t('死锁'), report.deadlockedThreadIds.length, null, true]]
   // Thread and state cards double as filters; the WAITING card covers both waiting states, so it stays informational.
-  const filters = { 线程: '', RUNNABLE: 'RUNNABLE', BLOCKED: 'BLOCKED' }
-  $('thread-cards').replaceChildren(...cards.map(([label, value]) => {
-    const clickable = label in filters
-    const card = node(clickable ? 'button' : 'div', `live-card ${(label === '死锁' || label === 'BLOCKED') && value > 0 ? 'bad' : ''}`)
+  $('thread-cards').replaceChildren(...cards.map(([label, value, filter, alert]) => {
+    const clickable = filter != null
+    const card = node(clickable ? 'button' : 'div', `live-card ${alert && value > 0 ? 'bad' : ''}`)
     card.append(node('small', '', label), node('strong', '', value.toLocaleString()))
     if (clickable) {
       card.type = 'button'
-      card.setAttribute('aria-pressed', String($('thread-state').value === filters[label]))
-      card.title = label === '线程' ? '显示全部线程' : `只看 ${label} 线程`
-      card.addEventListener('click', () => { $('thread-state').value = filters[label]; renderThreads() })
+      card.setAttribute('aria-pressed', String($('thread-state').value === filter))
+      card.title = filter ? t('只看 {state} 线程', { state: label }) : t('显示全部线程')
+      card.addEventListener('click', () => { $('thread-state').value = filter; renderThreads() })
     }
     return card
   }))
@@ -166,16 +168,17 @@ function renderThreads() {
   if (!deadlocks.hidden) {
     const list = node('ul')
     for (const thread of report.threads.filter(item => item.deadlocked)) {
-      list.append(node('li', '', `${thread.name} 等待 ${thread.lockName || '?'}，持有者 ${thread.lockOwnerName || '?'}`))
+      list.append(node('li', '', t('{name} 等待 {lock}，持有者 {owner}',
+        { name: thread.name, lock: thread.lockName || '?', owner: thread.lockOwnerName || '?' })))
     }
-    deadlocks.replaceChildren(node('strong', '', `检测到 ${report.deadlockedThreadIds.length} 个线程死锁`), list)
+    deadlocks.replaceChildren(node('strong', '', t('检测到 {n} 个线程死锁', { n: report.deadlockedThreadIds.length })), list)
   }
   const grouped = $('group-stacks').checked
   const head = node('tr')
-  for (const [label, numeric] of grouped
+  for (const [label, numeric, context] of grouped
     ? [['线程数', true], ['状态', false], ['线程', false], ['栈顶', false]]
-    : [['线程', false], ['状态', false], ['CPU', true], ['累计 CPU', true], ['锁', false]]) {
-    head.append(node('th', numeric ? 'numeric' : '', label))
+    : [['线程', false, 'one'], ['状态', false], ['CPU', true], ['累计 CPU', true], ['锁', false]]) {
+    head.append(node('th', numeric ? 'numeric' : '', t(label, null, context)))
   }
   $('thread-head').replaceChildren(head)
   const threads = filteredThreads()
@@ -225,10 +228,10 @@ function appendThread(rows, thread) {
 // A lock with an owner is contention worth reading; ownerless waits are idle pools parked on a condition.
 function lockCell(thread) {
   const text = thread.lockName
-    ? `${thread.deadlocked ? '死锁 · ' : ''}${shortLock(thread.lockName)}${thread.lockOwnerName ? ` ← ${thread.lockOwnerName}` : ''}` : ''
+    ? `${thread.deadlocked ? `${t('死锁')} · ` : ''}${shortLock(thread.lockName)}${thread.lockOwnerName ? ` ← ${thread.lockOwnerName}` : ''}` : ''
   const tone = thread.deadlocked ? 'bad' : thread.lockOwnerName ? 'contended' : 'muted'
   return clipped(`mono ${tone}`, text,
-    thread.lockName ? thread.lockName + (thread.lockOwnerName ? `，持有者 ${thread.lockOwnerName}` : '') : '')
+    thread.lockName ? thread.lockName + (thread.lockOwnerName ? t('，持有者 {owner}', { owner: thread.lockOwnerName }) : '') : '')
 }
 
 function renderGroups(rows, threads) {
@@ -242,14 +245,15 @@ function renderGroups(rows, threads) {
   for (const members of sorted) {
     const first = members[0]
     const row = node('tr')
-    const names = members.slice(0, 3).map(thread => thread.name).join('、') + (members.length > 3 ? ` 等 ${members.length} 个` : '')
+    const names = members.slice(0, 3).map(thread => thread.name).join(t('、'))
+      + (members.length > 3 ? t(' 等 {n} 个', { n: members.length }) : '')
     const top = first.stack.find(line => line.startsWith('at ')) || '—'
     const state = node('td')
     state.append(stateBadge(first.state))
     row.append(node('td', 'numeric', String(members.length)), state, clipped('mono', names),
       clipped('mono', top.replace(/^at /, '')))
     expandable(rows, row, `g${first.id}`, 4, () => [
-      node('p', 'live-facts', members.map(thread => thread.name).join('、')), stackBlock(first.stack)])
+      node('p', 'live-facts', members.map(thread => thread.name).join(t('、'))), stackBlock(first.stack)])
   }
 }
 
@@ -258,7 +262,8 @@ async function downloadDump(event) {
   try {
     const response = await fetch(new URL('live/threads/dump', api), { credentials: 'same-origin', headers: authHeaders() })
     if (!response.ok) throw new Error(response.status === 401 || response.status === 403 ? DENIED
-      : response.status === 429 ? '线程 Dump 刚刚生成过或正在生成，请 5 秒后再试' : `下载失败（HTTP ${response.status}）`)
+      : response.status === 429 ? t('线程 Dump 刚刚生成过或正在生成，请 5 秒后再试')
+        : t('下载失败（HTTP {status}）', { status: response.status }))
     const name = /filename="?([^";]+)"?/.exec(response.headers.get('Content-Disposition') || '')?.[1] || 'threads.txt'
     const url = URL.createObjectURL(await response.blob())
     const link = node('a')
@@ -284,7 +289,7 @@ async function refresh() {
     showNotice('')
   } catch (error) {
     connected(false)
-    showNotice(error.message.includes('HTTP 429') ? '另一个线程采样正在进行，请稍后再试' : error.message, true)
+    showNotice(error.message.includes('HTTP 429') ? t('另一个线程采样正在进行，请稍后再试') : error.message, true)
   } finally {
     loading = false
     $('refresh').disabled = false
@@ -308,7 +313,7 @@ function selectTab(next) {
     else $(`tab-${name}`).removeAttribute('aria-current')
     $(`${name}-panel`).hidden = !active
   }
-  $('refresh').textContent = tab === 'threads' ? '重新采样' : '刷新'
+  $('refresh').textContent = t(tab === 'threads' ? '重新采样' : '刷新')
   schedule()
   if (tab === 'requests' || !threadReport) refresh()
 }

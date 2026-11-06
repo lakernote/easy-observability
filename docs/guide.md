@@ -1,74 +1,76 @@
-# 接入与配置
+# Configuration Guide
 
-引入与应用 Spring Boot 主版本匹配的 Starter 后，Meerkat 会自动注册 Trace 采集、运行指标和嵌入页面。通常不需要额外配置。Starter 依赖 `spring-boot-starter-actuator`，资源指标直接复用 Spring Boot 已绑定的 Micrometer 指标；它只额外加入一个只接收固定指标的注册表，不替换应用已有的 `MeterRegistry`、`ObservationRegistry`，也不影响应用原有的指标导出。
+English | [简体中文](guide.zh-CN.md)
 
-## 运行环境
+Add the starter that matches your Spring Boot major version and Meerkat registers trace collection, runtime metrics and the embedded dashboard. Usually no configuration is needed. The starter depends on `spring-boot-starter-actuator` and reuses the Micrometer meters Spring Boot already binds. It only adds one registry that accepts a fixed set of meters; it does not replace your `MeterRegistry` or `ObservationRegistry` and does not affect existing metric exports.
 
-- Java 17 及以上；Spring Boot 3.5+ 与 Spring Boot 4.0+ 分别使用对应的 Starter（CI 同时以最低版本 3.5.0、4.0.0 构建测试）。
-- Web 应用须为 Servlet 栈（Spring MVC）。Trace 上下文绑定在线程上，与"一个请求由一个线程处理"的 Servlet 模型匹配。
-- **不支持 WebFlux 等响应式应用。** 引入 Starter 后应用仍可正常启动，但响应式 HTTP 请求不会生成入口 Trace，页面和查询 API 也不会注册；在响应式链路中切换线程的调用无法关联到同一 Trace。
-- 非 Web 应用（如只消费 Kafka 或只运行定时任务）可以采集 Trace 和运行指标，但没有页面可以查看。
-- 暂不支持 GraalVM Native Image；组件未提供 AOT 运行时提示，也未在 Native Image 下验证。
+## Requirements
 
-### 兼容性验证
+- Java 17 or later. Use the Spring Boot 3 starter for Spring Boot 3.5+ and the Spring Boot 4 starter for Spring Boot 4.0+ (CI also builds and tests against the minimum versions 3.5.0 and 4.0.0).
+- Web applications must use the Servlet stack (Spring MVC). The trace context is bound to the thread, which matches the Servlet model of one thread per request.
+- **Reactive applications such as WebFlux are not supported.** The application still starts with the starter, but reactive HTTP requests do not create entry traces and the dashboard and API are not registered; calls that switch threads in a reactive pipeline cannot be linked to the same trace.
+- Non-web applications (for example Kafka consumers or scheduled jobs only) collect traces and runtime metrics, but there is no dashboard to view them.
+- GraalVM Native Image is not supported yet; there are no AOT runtime hints and it has not been verified.
 
-每次提交都会在 CI 中跑以下组合；中间件测试使用 Testcontainers 启动真实服务，本地没有 Docker 时自动跳过。
+### Compatibility verification
 
-| 维度 | 验证范围 |
+CI runs the following combinations on every commit. Middleware tests start real services with Testcontainers and are skipped automatically when Docker is not available locally.
+
+| Area | Verified |
 | --- | --- |
-| JDK | 17、21、25 |
-| Spring Boot | 3.5.0（最低）、3.5.x 最新；4.0.0（最低）、4.1.x 最新 |
-| HTTP 客户端 | `RestTemplate`、`RestClient`、`OkHttpClient` Bean：客户端 Span 与 Trace ID 传播 |
-| Kafka | 真实 Kafka（`apache/kafka` 4.1）：生产 Span、消费入口 Trace 与生产端 Trace ID 一致 |
-| Redis | 真实 Redis 7.4（Lettuce）：命令 Span 挂在请求 Trace 下；Redisson 另有专门的兼容性测试 |
-| JDBC | H2 + HikariCP：SQL Span、参数脱敏、保留具体数据源类型 |
-| Micrometer Tracing | Brave：根请求与 Micrometer 使用同一 Trace ID，接受上游 `traceparent` |
+| JDK | 17, 21, 25 |
+| Spring Boot | 3.5.0 (minimum), latest 3.5.x; 4.0.0 (minimum), latest 4.1.x |
+| HTTP clients | `RestTemplate`, `RestClient` and `OkHttpClient` beans: client spans and trace ID propagation |
+| Kafka | Real Kafka (`apache/kafka` 4.1): producer span, consumer entry trace with the producer's trace ID |
+| Redis | Real Redis 7.4 (Lettuce): command spans under the request trace; Redisson has its own compatibility tests |
+| JDBC | H2 + HikariCP: SQL spans, literal redaction, concrete data source type preserved |
+| Micrometer Tracing | Brave: root requests share the Micrometer trace ID; upstream `traceparent` is accepted |
 
-## 自动采集范围
+## What is collected automatically
 
-| 场景 | 采集内容 | 说明 |
+| Scenario | Collected | Notes |
 | --- | --- | --- |
-| HTTP 入口 | 路由、状态、耗时、错误、入口线程 CPU 时间和内存分配量 | 慢阈值分类针对入口；CPU 时间和分配量是入口线程累计值，不是进程使用率或当前堆占用，不包含子线程 |
-| 定时任务、Kafka Listener | 入口执行耗时和错误 | Starter 默认为 `KafkaTemplate` 和 Listener Factory 打开 Spring Kafka Observation，生产/消费自动关联；显式配置 `spring.kafka.*.observation-enabled=false` 时保持关闭 |
-| JDBC、事务、MyBatis | SQL 模板、事务范围、耗时和错误 | SQL 会清理字面量和注释，不记录绑定参数 |
-| Redis | Lettuce Observation 命令 Span；Spring Data Redis 经 Redisson `RedisConnectionFactory` 执行的命令 Span | 直接调用 Redisson `RLock`、`RMap` 等 API 不属于这组连接工厂命令采集 |
-| 远程 HTTP | 客户端调用 Span，并在请求头传播 Trace ID | `RestTemplate`、`RestClient`（含直接 `new RestTemplate()`、`RestClient.create()` 声明的 Bean）、`@FeignClient`、`OkHttpClient` Bean 自动接入；方法内临时 new 出来的客户端、JDK `HttpClient` 等不是 Spring Bean 的调用不会被采集 |
-| 异步线程池 | 任务耗时、异常及活动 Trace 上下文传播 | Spring Boot 默认线程池及应用声明为 Bean 的 `ThreadPoolTaskExecutor`、`SimpleAsyncTaskExecutor` 自动接入；直接使用 JDK `ExecutorService` 需手动包装；请求已返回后继续运行的后台任务不会延长已完成的入口 Trace |
-| 调用统计 | 每个 HTTP 接口、SQL 模板、远程调用、Redis 命令、定时任务和 Kafka Topic 的次数、错误、平均/P95/最大耗时和总耗时，及其随时间的趋势；HTTP、定时任务和 Kafka 消费入口另有平均 CPU 时间和平均内存分配量 | 不论是否慢或出错都会计入；与 Trace 共用采集点，见[运行指标](#运行指标) |
-| 资源指标 | JVM 内存与 GC、CPU、线程、Hikari 连接池、线程池、Tomcat 等 Spring Boot 已绑定的指标，以及 `metrics.include` 指定的自定义指标 | 每分钟采样一次，见[运行指标](#运行指标) |
+| HTTP entry | Route, status, latency, error, entry-thread CPU time and memory allocation | Slow thresholds apply to entries. CPU time and allocation are cumulative for the entry thread, not process usage or current heap, and exclude child threads |
+| Scheduled jobs, Kafka listeners | Entry latency and errors | The starter enables Spring Kafka observation on `KafkaTemplate` and listener factories so producer and consumer are linked automatically; an explicit `spring.kafka.*.observation-enabled=false` is respected |
+| JDBC, transactions, MyBatis | SQL template, transaction scope, latency and errors | Literals and comments are removed from SQL; bind parameters are never recorded |
+| Redis | Lettuce observation command spans; command spans for Spring Data Redis through Redisson's `RedisConnectionFactory` | Direct Redisson API calls such as `RLock` or `RMap` are not covered by this connection-factory instrumentation |
+| Remote HTTP | Client call span, trace ID propagated in a request header | `RestTemplate`, `RestClient` (including beans created with `new RestTemplate()` or `RestClient.create()`), `@FeignClient` and `OkHttpClient` beans are instrumented automatically. Clients created inside methods, the JDK `HttpClient` and other non-bean clients are not |
+| Async executors | Task latency, errors and propagation of the active trace context | The Spring Boot default executor and `ThreadPoolTaskExecutor` / `SimpleAsyncTaskExecutor` beans are instrumented automatically; a plain JDK `ExecutorService` must be wrapped by hand. Background tasks that keep running after the request returned do not extend the completed entry trace |
+| Operation statistics | Count, errors, average/P95/max and total latency per HTTP endpoint, SQL template, remote call, Redis command, scheduled job and Kafka topic, with trends over time; average CPU time and allocation for HTTP, job and Kafka-consumer entries | Every call is counted, slow or not. Shares the instrumentation with tracing, see [Runtime metrics](#runtime-metrics) |
+| Resource metrics | JVM memory and GC, CPU, threads, Hikari pools, executors, Tomcat and other meters Spring Boot already binds, plus custom meters listed in `metrics.include` | Sampled once a minute, see [Runtime metrics](#runtime-metrics) |
 
-自定义业务边界可使用 `TraceBlock` 或 `@TraceSpan`。组件不会扫描所有业务 Service 自动创建 Span。
+Use `TraceBlock` or `@TraceSpan` for custom business boundaries. Meerkat does not scan your services to create spans automatically.
 
-Trace 详情页和慢 Trace 日志会把连续重复、正常完成的同一调用（类型、线程、名称和 SQL/标签都相同）合并为一行，显示次数、合计和最长耗时；重复 10 次以上的会高亮，便于发现 N+1 查询。调用排行展开一行后可跳转到相关的慢/错误 Trace。
+The trace detail page and the slow-trace log merge consecutive, successful repeats of the same call (same kind, thread, name and SQL/tag) into one row with the count, total and longest time. Rows repeated 10 times or more are highlighted to make N+1 queries easy to spot. Expanding a row in the operation ranking links to related slow or failed traces.
 
-JDBC 采集会使用保留原数据源具体类型的代理，因此按 `HikariDataSource` 等具体类型注入及厂商扩展方法仍可使用。若数据源类型为 `final`、包含无法安全代理的公开 `final` 方法，或运行环境拒绝创建类代理，组件会记录警告并跳过该数据源的 JDBC Trace，不会用不兼容的包装对象替换业务 Bean。应用有多个数据源时，SQL 节点前会加上数据源的 Bean 名称（如 `orderDataSource · select …`），只有一个时省略。
+JDBC collection uses a proxy that keeps the data source's concrete type, so injecting `HikariDataSource` or other concrete types and calling vendor extension methods still works. If the data source class is `final`, has public `final` methods that cannot be proxied safely, or the runtime refuses class proxies, Meerkat logs a warning and skips JDBC tracing for that data source instead of replacing the bean with an incompatible wrapper. With multiple data sources, SQL nodes are prefixed with the data source bean name (such as `orderDataSource · select …`); with one data source the prefix is omitted.
 
-## 默认配置
+## Configuration
 
-下面列出常用配置；未列出的配置保持 Starter 默认值。所有配置均可省略。
+Common settings are listed below; anything not listed keeps the starter default. Every setting is optional.
 
-| 配置 | 默认值 | 说明 |
+| Property | Default | Description |
 | --- | --- | --- |
-| `meerkat.enabled` | `true` | Starter 总开关 |
-| `meerkat.storage.directory` | `./data/meerkat/{spring.application.name}` | 本地存储目录，存放诊断 Trace 分段文件 `traces/` 和运行指标历史 `metrics/`；相对路径基于工作目录，未设置应用名时使用 `application` |
-| `meerkat.trace.enabled` | `true` | Trace 采集及上下文传播 |
-| `meerkat.trace.header-name` | `X-Trace-Id` | HTTP 与受支持消息/客户端使用的 Trace ID 名称 |
-| `meerkat.trace.http-slow-threshold` | `500ms` | HTTP 入口慢阈值 |
-| `meerkat.trace.job-slow-threshold` | `1s` | 定时任务入口慢阈值 |
-| `meerkat.trace.kafka-consumer-slow-threshold` | `1s` | Kafka 消费入口慢阈值 |
-| `meerkat.trace.cpu-threshold` | `500ms` | 入口线程 CPU 时间资源告警阈值 |
-| `meerkat.trace.allocated-memory-threshold` | `50MB` | 入口线程累计内存分配量资源告警阈值 |
-| `meerkat.trace.retention` | `7d` | 诊断 Trace 保留天数，整天，范围 `1d`～`365d` |
-| `meerkat.trace.max-storage-size` | `128MB` | 诊断 Trace 磁盘占用上限，超出时删除最旧的分段文件 |
-| `meerkat.trace.max-memory-size` | `32MB` | 内存中缓存最新 Trace 完整调用树的堆内存上限（按估算大小淘汰最旧的）；更早的记录在打开详情时从磁盘读取，存储不可用时直接丢弃 |
-| `meerkat.metrics.enabled` | `true` | 运行指标（调用统计与资源指标）总开关 |
-| `meerkat.metrics.max-operations` | `1000` | 所有类别合计最多统计的操作数，超出后新操作按类别并入“其他”行；2 小时没有调用的操作会释放名额 |
-| `meerkat.metrics.retention` | `30d` | 指标历史保留时长，须为整天数，范围 `1d` 至 `365d` |
-| `meerkat.metrics.max-storage-size` | `64MB` | 指标历史文件的磁盘上限，超出后删除最早的日期 |
-| `meerkat.metrics.include` | 空 | 额外记录的自定义 Micrometer 指标名或名称前缀，例如 `orders` 匹配 `orders` 和 `orders.*` |
-| `meerkat.web.enabled` | `true` | 页面和查询 API 开关 |
+| `meerkat.enabled` | `true` | Master switch |
+| `meerkat.storage.directory` | `./data/meerkat/{spring.application.name}` | Local storage directory for diagnostic trace segments (`traces/`) and metric history (`metrics/`). Relative paths resolve against the working directory; `application` is used when no application name is set |
+| `meerkat.trace.enabled` | `true` | Trace collection and context propagation |
+| `meerkat.trace.header-name` | `X-Trace-Id` | Trace ID header for HTTP and supported messaging/clients |
+| `meerkat.trace.http-slow-threshold` | `500ms` | Slow threshold for HTTP entries |
+| `meerkat.trace.job-slow-threshold` | `1s` | Slow threshold for scheduled jobs |
+| `meerkat.trace.kafka-consumer-slow-threshold` | `1s` | Slow threshold for Kafka consumer entries |
+| `meerkat.trace.cpu-threshold` | `500ms` | Entry-thread CPU time that flags a resource-heavy entry |
+| `meerkat.trace.allocated-memory-threshold` | `50MB` | Entry-thread cumulative allocation that flags a resource-heavy entry |
+| `meerkat.trace.retention` | `7d` | Days to keep diagnostic traces, whole days from `1d` to `365d` |
+| `meerkat.trace.max-storage-size` | `128MB` | Disk limit for diagnostic traces; the oldest segment files are deleted beyond it |
+| `meerkat.trace.max-memory-size` | `32MB` | Heap limit for caching full call trees of the newest traces (oldest evicted by estimated size). Older records are read from disk when opened, or dropped when storage is unavailable |
+| `meerkat.metrics.enabled` | `true` | Master switch for runtime metrics (operation statistics and resource metrics) |
+| `meerkat.metrics.max-operations` | `1000` | Maximum operations tracked across all categories. Beyond it, new operations go to an "other" row per category; operations without calls for 2 hours release their slot |
+| `meerkat.metrics.retention` | `30d` | Metric history retention, whole days from `1d` to `365d` |
+| `meerkat.metrics.max-storage-size` | `64MB` | Disk limit for metric history; the oldest days are deleted beyond it |
+| `meerkat.metrics.include` | empty | Extra custom Micrometer meter names or name prefixes to record, e.g. `orders` matches `orders` and `orders.*` |
+| `meerkat.web.enabled` | `true` | Dashboard and query API |
 
-示例：
+Example:
 
 ```yaml
 meerkat:
@@ -84,96 +86,96 @@ meerkat:
     allocated-memory-threshold: 50MB
 ```
 
-时长配置使用 Spring Boot 的 `Duration` 格式（如 `500ms`、`2s`、`30d`）；阈值写纯数字时按毫秒解析，`retention` 写纯数字时按天解析。四个时长阈值设为 `0` 或负数、`allocated-memory-threshold` 设为 `0B`，可关闭对应的慢操作或资源告警触发。
+Durations use Spring Boot's `Duration` format (`500ms`, `2s`, `30d`). Plain numbers are milliseconds for thresholds and days for `retention`. Setting any of the four duration thresholds to `0` or a negative value, or `allocated-memory-threshold` to `0B`, turns off that slow or resource trigger.
 
-存储目录由一个实例独占：启动时会在目录中创建 `.lock` 并持有操作系统文件锁，应用关闭时释放。同一台机器上第二个指向同一目录的实例（包括同一应用的多个副本）不会写入该目录，而是记录警告，并把诊断 Trace 和指标历史只保存在内存中，宿主应用照常启动。目录无法创建或不可写时同样降级为仅内存。同机部署多个副本时，请为每个实例配置不同的 `storage.directory`，例如在路径中加入实例编号。
+The storage directory belongs to one instance. At startup Meerkat creates `.lock` in the directory and holds an OS file lock until shutdown. A second instance on the same machine pointing at the same directory (including another replica of the same application) does not write to it: it logs a warning and keeps diagnostic traces and metric history in memory only, and the host application starts normally. The same in-memory fallback applies when the directory cannot be created or written. When running several replicas on one machine, give each its own `storage.directory`, for example by including an instance number in the path.
 
-只有慢调用、错误及 CPU 时间或内存分配量超阈值的入口（HTTP、定时任务、Kafka 消费）会被保存。诊断 Trace 以 JSON Lines 追加写入 `traces/traces-yyyyMMdd-N.jsonl`，按天滚动，单个分段达到 `max-storage-size` 的 1/8（256KB～8MB）时也会滚动。超过 `retention` 的整天分段、以及总占用超过 `max-storage-size` 时最旧的分段会被整文件删除，不改写正在使用的文件。重启后在后台线程扫描分段重建轻量索引（不含调用树，最多 5 万条、约 16MB 堆内存，超出时列表中只保留最新的），重建期间页面可用，旧记录逐步出现；打开详情时再从磁盘读取完整记录。单条记录编码后超过一个分段大小时只保留在内存中。
+Only slow, failed and resource-heavy entries (HTTP, scheduled jobs, Kafka consumers) are saved. Diagnostic traces are appended as JSON Lines to `traces/traces-yyyyMMdd-N.jsonl`, rolled daily and also when a segment reaches 1/8 of `max-storage-size` (256KB to 8MB). Whole segments older than `retention`, and the oldest segments when the total exceeds `max-storage-size`, are deleted as files; files in use are never rewritten. After a restart a background thread scans the segments to rebuild a lightweight index (no call trees, up to 50,000 entries, about 16MB of heap; only the newest are listed beyond that). The dashboard is usable during the rebuild and older records appear gradually; full records are read from disk when opened. A single record larger than a segment after encoding is kept in memory only.
 
-后台序列化和文件 I/O 不持有业务记录入口的锁，写入队列满时丢弃该条持久化而不阻塞请求、Kafka 消费或任务线程。若运行时存储 I/O 失败，Trace 存储会降级到仅内存模式直到应用重启，`/api/meerkat/traces/storage` 的 `persistent` 会返回 `false`。
+Background serialization and file I/O never hold the lock used when recording an entry. When the write queue is full, that record is not persisted rather than blocking a request, Kafka consumer or job thread. If storage I/O fails at runtime, trace storage falls back to in-memory mode until the application restarts, and `persistent` in `/api/meerkat/traces/storage` returns `false`.
 
-Trace 查询 API（均为 `GET`，前缀 `/api/meerkat`）：
+Trace query API (all `GET`, prefix `/api/meerkat`):
 
-- `/traces?kind=all|slow|error|resource&source=HTTP|JOB|KAFKA_CONSUMER&q=&before=&limit=50`：按完成时间倒序分页，返回 `items`（不含调用树）、`nextCursor`（作为下一页的 `before`）、`total` 和 `scanLimited`。`q` 匹配入口名称、Trace ID、错误信息、线程名以及调用树中的 SQL、远程地址等节点；文本搜索需要扫描磁盘，每次请求最多读取 32MB，达到上限时 `scanLimited` 为 `true`，用 `nextCursor` 继续搜索，此时 `total` 为 `-1`。`limit` 最大 200。
-- `/traces/{traceId}?source=`：完整调用树，不存在时返回 404。
-- `/traces/storage`：`persistent`、`storageBytes`、`maxStorageBytes`、`retentionDays`、`traceCount`、`indexing`。
+- `/traces?kind=all|slow|error|resource&source=HTTP|JOB|KAFKA_CONSUMER&q=&before=&limit=50`: paged by completion time, newest first. Returns `items` (without call trees), `nextCursor` (pass as `before` for the next page), `total` and `scanLimited`. `q` matches entry names, trace IDs, error messages, thread names and SQL, remote addresses and other nodes in the call tree. Text search scans disk and reads at most 32MB per request; when the limit is hit `scanLimited` is `true`, `total` is `-1`, and `nextCursor` continues the search. `limit` is at most 200.
+- `/traces/{traceId}?source=`: full call tree, or 404.
+- `/traces/storage`: `persistent`, `storageBytes`, `maxStorageBytes`, `retentionDays`, `traceCount`, `indexing`.
 
-`retention`、`max-storage-size` 等无效配置会阻止应用启动，以便尽早暴露配置错误。运行时因目录权限、只读文件系统、磁盘 I/O 导致指标历史写入失败时，组件会记录警告并改为只保存在内存，不会中断宿主应用；页面会显示“存储降级”。修复存储问题后需要重启应用以恢复历史保存。
+Invalid settings such as `retention` or `max-storage-size` stop the application from starting so configuration mistakes surface early. If writing metric history fails at runtime because of directory permissions, a read-only file system or disk I/O, Meerkat logs a warning and keeps the data in memory without interrupting the host application; the dashboard shows "Storage degraded". Restart the application after fixing storage to resume saving history.
 
-## 运行指标
+## Runtime metrics
 
-运行指标回答“这个实例整体怎么样、哪个操作最慢最多”，Trace 诊断回答“这一次请求慢在哪里”。两者共用采集点，但各自独立：指标覆盖全部调用，Trace 只保留慢、错或资源超阈值的请求。运行指标有两个页面：
+Runtime metrics answer "how is this instance doing overall, and which operations are slowest or busiest"; trace diagnostics answer "where did this request spend its time". They share instrumentation but are independent: metrics cover every call, traces keep only slow, failed or resource-heavy requests. There are two metric pages:
 
-- **调用排行**（`/meerkat/stats/`）：按类别列出每个操作的调用次数、错误数和错误率、平均耗时、P95、最大耗时、总耗时及其在本类别中的占比，点击列头排序；点击一行展开该操作的调用次数和耗时趋势。HTTP、定时任务和 Kafka 消费入口还显示每次调用平均消耗的入口线程 CPU 时间和内存分配量，用来找出“耗 CPU 的接口”和“分配大量对象、引起频繁 GC 的接口”；这两个值复用入口本来就采集的数据，不增加开销，转为异步处理的请求不计入。适合回答“哪个接口最耗时”“哪条 SQL 调用最多”“哪个远程服务最常出错”“哪个接口最吃 CPU 或内存”。
-- **指标趋势**（`/meerkat/metrics/`）：JVM 内存与 GC、CPU、线程、Hikari 连接池（含获取连接平均等待时间）、线程池等资源曲线；单个操作的调用趋势在调用排行中点开查看。
+- **Operations** (`/meerkat/stats/`): per category, each operation's call count, errors and error rate, average latency, P95, max latency, total latency and its share of the category; click a column header to sort and a row to expand its count and latency trend. HTTP, job and Kafka-consumer entries also show average entry-thread CPU time and allocation per call, to find CPU-hungry endpoints and endpoints that allocate heavily and cause frequent GC. These values reuse data the entries already collect, so they add no overhead; requests that switch to async processing are not counted. Good for "which endpoint takes the most time", "which SQL runs most often", "which remote service fails most", "which endpoint uses the most CPU or memory".
+- **Metrics** (`/meerkat/metrics/`): JVM memory and GC, CPU, threads, Hikari pools (including average connection acquire time), executors and other resource charts. Per-operation trends are in the Operations page.
 
-### 调用统计
+### Operation statistics
 
-| 类别 | 统计名称 | 计为错误 |
+| Category | Name | Counted as error |
 | --- | --- | --- |
-| HTTP 接口 | 路由模板 · 方法，例如 `/orders/{id} · GET` | 抛出异常或状态码 ≥ 500 |
-| SQL | 去除字面量后的 SQL；`IN (?, ?, ...)` 合并为 `IN (?…)`，多行 `VALUES` 合并为首行 | JDBC 抛出异常 |
-| 远程调用 | 方法 + 目标主机 + URI 模板 | 抛出异常或状态码 ≥ 500 |
-| Redis | 命令名 | 抛出异常或命令返回错误 |
-| 定时任务 / Kafka 消费 / Kafka 发送 | 任务名 / Topic · Listener ID / 目标 Topic | 抛出异常 |
+| HTTP endpoint | Route template · method, e.g. `/orders/{id} · GET` | Exception or status ≥ 500 |
+| SQL | SQL with literals removed; `IN (?, ?, ...)` becomes `IN (?…)`, multi-row `VALUES` keep the first row | JDBC exception |
+| Remote call | Method + target host + URI template | Exception or status ≥ 500 |
+| Redis | Command name | Exception or error reply |
+| Scheduled job / Kafka consumer / Kafka send | Job name / topic · listener ID / destination topic | Exception |
 
-- 排行时间范围可选“最近 1 小时”“今天”“最近 7 天”和“最近 30 天”，日期按 JVM 默认时区划分。趋势的分辨率：最近 1 小时每分钟一个点，24 小时每 10 分钟，7 天和 30 天每小时。
-- P95 由对数分桶直方图估算，误差约 ±20%，且不会超过最大值；分钟级趋势不提供 P95。
-- SQL 统计不依赖活动 Trace，启动阶段和后台线程执行的 SQL 也会计入；Spring 的 `spring.jdbc` Observation 不重复计数。关闭 `trace.enabled` 后除 SQL 外不再统计，页面会提示。
-- 统计只用 Micrometer 定义的低基数字段和 SQL 模板命名，Kafka offset、原始 URL 等每次不同的值不会产生新行；远程调用没有 URI 模板时，统计名会去掉 URL 中的 query string 和 `#` 片段。操作数达到 `metrics.max-operations` 后，新操作并入该类别的“（其他：超出统计数量上限）”行；2 小时没有调用的操作会从内存移除并释放名额，已保存的历史不受影响。
-- 每次调用的统计开销约 50 ns，无锁实现；内存中保留最近 2 小时，每个操作约 10 KB。
+- Ranking windows are "Last hour", "Today", "Last 7 days" and "Last 30 days"; days follow the JVM default time zone. Trend resolution: one point per minute for the last hour, per 10 minutes for 24 hours, per hour for 7 and 30 days.
+- P95 is estimated from a log-bucketed histogram, accurate to about ±20% and never above the max. Minute-level trends have no P95.
+- SQL statistics do not need an active trace, so SQL run during startup or on background threads is counted too; Spring's `spring.jdbc` observation is not double-counted. With `trace.enabled` off, only SQL is counted, and the dashboard says so.
+- Names only use Micrometer low-cardinality tags and SQL templates, so per-call values such as Kafka offsets or raw URLs never create new rows. When a remote call has no URI template, the query string and `#` fragment are removed from the URL. Once `metrics.max-operations` is reached, new operations go to the category's "(Other: over the tracked-operation limit)" row; operations without calls for 2 hours are removed from memory and release their slot, while saved history is kept.
+- Recording costs about 50 ns per call and is lock-free. Memory holds the last 2 hours, about 10 KB per operation.
 
-### 资源指标
+### Resource metrics
 
-资源指标来自 Spring Boot 已经绑定的 Micrometer 指标，组件不自己读取 JMX，也不重复埋点。Starter 注册一个只接收下列指标的注册表，每分钟采样一次：
+Resource metrics come from the Micrometer meters Spring Boot already binds; Meerkat does not read JMX itself or instrument anything twice. The starter registers a registry that only accepts the meters below and samples them once a minute:
 
-| 指标 | 曲线拆分 |
+| Meter | Split by |
 | --- | --- |
-| `jvm.memory.used/committed/max` | 按 `heap` / `nonheap` |
-| `jvm.gc.pause`（每分钟次数和总耗时）、`jvm.gc.memory.allocated`、`jvm.threads.*`、`jvm.classes.loaded` | 合计 |
-| `process.cpu.usage`、`system.cpu.usage`、`system.load.average.1m`、`process.files.open/max` | 合计 |
-| `hikaricp.connections.active/idle/pending/max/timeout/acquire` | 按连接池 |
-| `executor.active/queued/pool.size/pool.max/completed` | 按线程池 |
-| `tomcat.threads.busy/current/config.max`、`tomcat.sessions.active.current`、`jetty.threads.*` | 合计 |
+| `jvm.memory.used/committed/max` | `heap` / `nonheap` |
+| `jvm.gc.pause` (count and total time per minute), `jvm.gc.memory.allocated`, `jvm.threads.*`, `jvm.classes.loaded` | Total |
+| `process.cpu.usage`, `system.cpu.usage`, `system.load.average.1m`, `process.files.open/max` | Total |
+| `hikaricp.connections.active/idle/pending/max/timeout/acquire` | Pool |
+| `executor.active/queued/pool.size/pool.max/completed` | Executor |
+| `tomcat.threads.busy/current/config.max`, `tomcat.sessions.active.current`, `jetty.threads.*` | Total |
 
-- `metrics.include` 中的自定义指标按名称合计成一条曲线；计数器和计时器显示每分钟的增量。每个指标最多按 16 个连接池或线程池拆分，总曲线数最多 256 条。
-- 没有上限的线程池和资源（上限为 `-1` 或 `Integer.MAX_VALUE`）不绘制上限曲线。
-- Spring Boot 只有在 Tomcat 注册 MBean 时才绑定 Tomcat 线程指标，因此 Starter 默认把 `server.tomcat.mbeanregistry.enabled` 设为 `true`（优先级最低，应用显式配置时以应用为准；关闭 `metrics.enabled` 时不设置）。开启后 Tomcat 会多占用少量内存。
+- Custom meters in `metrics.include` are summed by name into one line; counters and timers show the per-minute increase. Each meter is split by at most 16 pools or executors, with at most 256 lines in total.
+- Unbounded pools and resources (limit `-1` or `Integer.MAX_VALUE`) have no limit line.
+- Spring Boot binds Tomcat thread meters only when Tomcat registers MBeans, so the starter defaults `server.tomcat.mbeanregistry.enabled` to `true` (lowest precedence: an explicit application setting wins; not set when `metrics.enabled` is off). This costs Tomcat a little extra memory.
 
-### 存储
+### Storage
 
-调用统计每 10 分钟一片、资源指标每分钟一个样本，追加写入存储目录下的 `metrics/operations-yyyyMMdd.tsv` 和 `metrics/resources-yyyyMMdd.tsv`。应用正常关闭时会写入当前未满的分片，重启后各时间范围都保留：启动时读回最近 1 小时的分片，分钟曲线上重启前的部分按 10 分钟均摊；进程被强制杀死时最多丢失最近约 10 分钟的调用统计。
+Operation statistics are written in 10-minute slices and resource metrics once a minute, appended to `metrics/operations-yyyyMMdd.tsv` and `metrics/resources-yyyyMMdd.tsv` in the storage directory. A graceful shutdown writes the current partial slice, so every window survives restarts: at startup the last hour's slices are read back, and the pre-restart part of minute charts is spread evenly over each 10 minutes. If the process is killed, at most about 10 minutes of operation statistics are lost.
 
-- 两天前的文件会压缩一次：调用统计合并为每小时一行，资源指标合并为每 10 分钟的平均值，因此 30 天的数据通常只有几 MB。
-- 超过 `metrics.retention` 的日期会被删除；总大小超过 `metrics.max-storage-size` 时按天删除最早的数据。
-- 存储目录不可用（被其他实例占用或不可写）时只保存在内存，长范围只包含最近 2 小时，页面会提示。
-- 每个实例各自保存，不跨实例汇总。`canClear()` 允许时调用排行页显示“重置统计”，会清空内存中和已保存的调用统计，资源指标历史保留。
+- Files older than two days are compacted once: operation statistics into one line per hour, resource metrics into 10-minute averages, so 30 days of data is usually only a few MB.
+- Days older than `metrics.retention` are deleted; when the total exceeds `metrics.max-storage-size`, the oldest days are deleted.
+- When the storage directory is unavailable (owned by another instance or not writable), data stays in memory only, longer windows only cover the last 2 hours, and the dashboard says so.
+- Each instance stores its own data; nothing is aggregated across instances. When `canClear()` allows it, the Operations page shows "Reset stats", which clears operation statistics in memory and on disk; resource metric history is kept.
 
-查询 API（均为 `GET`，前缀 `/api/meerkat/metrics`）：`/operations?window=1h|today|7d|30d`、`/operations/trend?category=HTTP&name=...&period=1h|24h|7d|30d`、`/operations/trends?period=...`、`/resources?period=...`、`/storage`；重置为 `POST /operations/reset`。
+Query API (all `GET`, prefix `/api/meerkat/metrics`): `/operations?window=1h|today|7d|30d`, `/operations/trend?category=HTTP&name=...&period=1h|24h|7d|30d`, `/operations/trends?period=...`, `/resources?period=...`, `/storage`. Reset with `POST /operations/reset`.
 
-## 实时诊断
+## Live diagnostics
 
-页面 `/meerkat/live/` 回答“现在正在发生什么”，适合接口卡住、CPU 突然升高、线程池被占满时排查。数据在打开页面或点击刷新时读取，不在后台采样，也不写入磁盘。
+The `/meerkat/live/` page answers "what is happening right now", useful when an endpoint hangs, CPU suddenly spikes or an executor is saturated. Data is read when the page opens or you click refresh; nothing is sampled in the background or written to disk.
 
-- **进行中请求：** 列出正在执行的 HTTP、定时任务和 Kafka 消费入口，按已执行时间排序，显示入口线程已消耗的 CPU 时间、当前正在执行的最内层步骤（例如某条 SQL 或远程调用及其已执行时间）和线程状态；展开一行查看该线程此刻的堆栈和正在等待的锁。默认每 5 秒刷新。请求转为异步处理、入口线程已返回后，只显示耗时和当前步骤，不显示线程堆栈。最多显示 200 个，诊断页面自身的请求不计入。
-- **线程：** 对全部平台线程采样 1 秒，按 CPU 使用率（100% 表示占满一个核心）排序，显示状态、累计 CPU、等待的锁及持有者，展开查看堆栈；检测到死锁时在顶部列出相关线程。勾选“合并相同堆栈”可以把状态和堆栈相同的线程合为一行，便于发现大量线程卡在同一处。可下载 jstack 格式的线程 Dump 文本。虚拟线程不在列表中。
+- **In-flight requests:** HTTP, scheduled-job and Kafka-consumer entries currently running, ordered by elapsed time, with entry-thread CPU time so far, the innermost step currently executing (for example a SQL statement or remote call and how long it has been running) and the thread state. Expand a row for the thread's current stack and the lock it is waiting on. Refreshes every 5 seconds by default. Once a request switches to async processing and its entry thread has returned, only elapsed time and the current step are shown, without a stack. Shows up to 200; the dashboard's own requests are excluded.
+- **Threads:** all platform threads are sampled for 1 second and sorted by CPU usage (100% means one full core), with state, cumulative CPU, the lock waited on and its owner; expand for the stack. Deadlocked threads are listed at the top when detected. "Merge identical stacks" collapses threads with the same state and stack into one row, making it easy to spot many threads stuck in the same place. A jstack-format thread dump can be downloaded. Virtual threads are not listed.
 
-每个入口只在开始和结束时各做一次并发集合的增删，不影响请求耗时。线程采样同一时间只允许一个，正在采样时再次请求返回 429。
+Each entry adds and removes itself from a concurrent collection once at start and once at end, which does not affect request latency. Only one thread sample runs at a time; a request while sampling returns 429.
 
-查询 API（均为 `GET`，前缀 `/api/meerkat/live`）：`/requests`、`/threads?sampleMs=0..5000`（默认 1000）、`/threads/dump`（`text/plain` 附件；同一时间只生成一份，且两次间隔至少 5 秒，否则返回 429）。
+Query API (all `GET`, prefix `/api/meerkat/live`): `/requests`, `/threads?sampleMs=0..5000` (default 1000), `/threads/dump` (`text/plain` attachment; only one dump at a time and at least 5 seconds apart, otherwise 429).
 
-## 页面和 API 访问
+## Dashboard and API access
 
-页面路径为 `/meerkat/`，调用排行页面为 `/meerkat/stats/`，指标趋势页面为 `/meerkat/metrics/`，实时诊断页面为 `/meerkat/live/`，查询 API 位于 `/api/meerkat/`。组件不提供用户名、密码或登录系统，认证由应用现有的 Spring Security、Servlet 容器或网关负责。
+The dashboard is at `/meerkat/`, operations at `/meerkat/stats/`, metrics at `/meerkat/metrics/`, live diagnostics at `/meerkat/live/`, and the query API under `/api/meerkat/`. The dashboard follows the browser language (Chinese or English) and can be switched in the top bar; the choice is stored in the browser. Meerkat provides no usernames, passwords or login; authentication is left to your Spring Security setup, Servlet container or gateway.
 
-API 授权由 `ObservabilityAccessPolicy` 决定，应用定义该类型的 Bean 即可替换默认实现：
+API authorization is decided by `ObservabilityAccessPolicy`; define a bean of that type to replace the default:
 
-| 方法 | 控制范围 | 默认 |
+| Method | Controls | Default |
 | --- | --- | --- |
-| `canView()` | 查询 Trace、Metrics、存储状态和当前权限 | `true`，允许所有请求 |
-| `canClear()` | 清空 Trace 历史（`POST /api/meerkat/traces/clear`）和重置调用统计（`POST /api/meerkat/metrics/operations/reset`），并且需要同时通过 `canView()` | `false`，拒绝所有请求；页面隐藏“清空历史”和“重置统计”按钮 |
+| `canView()` | Querying traces, metrics, storage status and current permissions | `true`, allows every request |
+| `canClear()` | Clearing trace history (`POST /api/meerkat/traces/clear`) and resetting operation statistics (`POST /api/meerkat/metrics/operations/reset`); `canView()` must also pass | `false`, denies every request; the dashboard hides "Clear history" and "Reset stats" |
 
-`canClear()` 是默认方法，只需要限制查看时可以直接用 lambda，清空历史仍保持关闭：
+`canClear()` is a default method, so a lambda is enough to restrict viewing while clearing stays off:
 
 ```java
 @Bean
@@ -182,7 +184,7 @@ ObservabilityAccessPolicy observabilityAccessPolicy() {
 }
 ```
 
-**默认情况下任何能访问应用端口的人都可以查看 Trace 和 Metrics。** 生产环境务必由应用的 Security Filter Chain 或网关保护 `/meerkat/**` 和 `/api/meerkat/**`，或自定义 `canView()`。两个方法都在请求线程上调用，可以读取 Spring Security 上下文或当前请求。例如只允许开发和运维角色查看、只允许运维角色清空：
+**By default anyone who can reach the application port can view traces and metrics.** In production, protect `/meerkat/**` and `/api/meerkat/**` with your security filter chain or gateway, or customize `canView()`. Both methods run on the request thread and can read the Spring Security context or the current request. For example, let developers and operators view and only operators clear:
 
 ```java
 @Bean
@@ -207,11 +209,11 @@ private static boolean hasAnyRole(String... roles) {
 }
 ```
 
-如果应用启用了 Spring Security 的 CSRF 防护，清空历史的 POST 请求需要 CSRF 令牌：使用 `CookieCsrfTokenRepository` 时页面会自动读取 `XSRF-TOKEN` Cookie 并回传 `X-XSRF-TOKEN` 请求头，否则需要对该路径单独配置 CSRF 策略。
+If Spring Security CSRF protection is on, the clear and reset POST requests need a CSRF token. With `CookieCsrfTokenRepository` the dashboard reads the `XSRF-TOKEN` cookie and sends the `X-XSRF-TOKEN` header automatically; otherwise configure a CSRF policy for those paths.
 
-## 日志中的 Trace ID
+## Trace ID in logs
 
-当前 Trace ID 写在 SLF4J MDC 的 `meerkatTraceId` 键中，可在日志格式中用 `%X{meerkatTraceId}` 输出。Spring Boot 可直接配置：
+The current trace ID is stored under the SLF4J MDC key `meerkatTraceId`; print it with `%X{meerkatTraceId}`. With Spring Boot:
 
 ```yaml
 logging:
@@ -219,65 +221,65 @@ logging:
     correlation: "[%X{meerkatTraceId:-}] "
 ```
 
-MDC 键名与 Micrometer Tracing 的 `traceId`、`spanId` 不同，但取值会对齐：应用同时接入 Micrometer Tracing（OpenTelemetry 或 Brave）时，根请求、消息消费和定时任务直接沿用 Micrometer Tracing 的 Trace ID，`%X{traceId}` 与 `%X{meerkatTraceId}` 输出相同的值，在 Zipkin、Jaeger、Tempo 中可用同一个 ID 检索。代码中读取当前 ID 请使用 `TraceIdContext.currentTraceId()`。
+The MDC key differs from Micrometer Tracing's `traceId` and `spanId`, but the values are aligned: when the application also uses Micrometer Tracing (OpenTelemetry or Brave), root requests, message consumers and scheduled jobs adopt the Micrometer Tracing trace ID, so `%X{traceId}` and `%X{meerkatTraceId}` print the same value and the same ID can be searched in Zipkin, Jaeger or Tempo. In code, read the current ID with `TraceIdContext.currentTraceId()`.
 
-入站 Trace ID 的优先级依次为：
+Inbound trace ID priority:
 
-1. `meerkat.trace.header-name` 指定的请求头（默认 `X-Trace-Id`）；
-2. W3C `traceparent` 请求头中的 trace-id；
-3. Micrometer Tracing 当前 Span 的 Trace ID；
-4. 以上都没有时，新生成一个。
+1. The header named by `meerkat.trace.header-name` (default `X-Trace-Id`);
+2. The trace-id in a W3C `traceparent` header;
+3. The trace ID of the current Micrometer Tracing span;
+4. Otherwise a new ID is generated.
 
-出站只写 `X-Trace-Id`。`traceparent`、B3 等标准头由 Micrometer Tracing 负责写入，Meerkat 不重复写，以免改动下游服务的采样决策。SkyWalking 的 `sw8` 头目前不识别。
+Outbound calls only write `X-Trace-Id`. Standard headers such as `traceparent` and B3 are written by Micrometer Tracing; Meerkat does not write them again, so it never changes the sampling decision of downstream services. SkyWalking's `sw8` header is not recognized yet.
 
-## Kafka 与线程池
+## Kafka and executors
 
-Starter 会为 Spring 容器中的 `KafkaTemplate` 和 Listener Factory 打开 Observation，无需配置 `spring.kafka.template/listener.observation-enabled`；显式设为 `false` 时尊重应用配置。默认 Listener Factory 会自动接入 Trace ID 拦截器；应用使用自定义 `RecordInterceptor` 时，需要按应用现有配置组合 `TraceIdRecordInterceptor`。批量 Listener、自定义消费者、Kafka Streams 不在自动覆盖范围内。
+The starter enables observation on `KafkaTemplate` and listener factories in the Spring context, so `spring.kafka.template/listener.observation-enabled` is not needed; an explicit `false` is respected. The default listener factory gets the trace ID interceptor automatically. If the application uses its own `RecordInterceptor`, compose `TraceIdRecordInterceptor` with it in your configuration. Batch listeners, custom consumers and Kafka Streams are not covered automatically.
 
-Spring Boot 默认线程池（`applicationTaskExecutor`，`@Async` 默认使用）以及应用声明为 Bean 的 `ThreadPoolTaskExecutor`、`SimpleAsyncTaskExecutor` 会自动应用 `TraceContextTaskDecorator`；线程池已设置自己的 `TaskDecorator` 时，两者以 `CompositeTaskDecorator` 组合，原装饰器先执行。调度器（`ThreadPoolTaskScheduler`）不做装饰，`@Scheduled` 任务由定时任务入口记录。
+The Spring Boot default executor (`applicationTaskExecutor`, used by `@Async` by default) and `ThreadPoolTaskExecutor` / `SimpleAsyncTaskExecutor` beans get `TraceContextTaskDecorator` automatically. If an executor already has its own `TaskDecorator`, the two are combined with `CompositeTaskDecorator` and the original runs first. Schedulers (`ThreadPoolTaskScheduler`) are not decorated; `@Scheduled` tasks are recorded as scheduled-job entries.
 
-不是 Spring Bean 的线程池（如 `Executors.newFixedThreadPool`）需要手动包装，直接创建实例即可，不依赖 Starter 是否启用：
+Executors that are not Spring beans (such as `Executors.newFixedThreadPool`) must be wrapped by hand. Create the decorator directly; it works whether or not the starter is enabled:
 
 ```java
 TraceContextTaskDecorator decorator = new TraceContextTaskDecorator();
 executorService.submit(decorator.decorate(task));
 ```
 
-装饰器在线程池执行任务时传播活动 Trace 上下文并记录任务边界；无父 Trace 时不会创建 Trace。若 HTTP 请求先结束，Trace 时间线会在入口结束处停止，仍在运行的子任务标记为未完成，之后发生的调用不再补写到该 Trace。
+The decorator propagates the active trace context and records the task boundary when the executor runs the task; it never creates a trace when there is no parent. If the HTTP request finishes first, the timeline stops at the end of the entry, child tasks still running are marked unfinished, and later calls are not added to that trace.
 
-## 性能开销
+## Overhead
 
-以下数字来自 `benchmarks` 模块中的 JMH 基准（Apple M4 Pro，JDK 21，单线程，平均耗时）。只代表量级，不同硬件和 JVM 会有差异，可按 [benchmarks/README.md](../benchmarks/README.md) 在自己的环境中复现。
+These numbers come from the JMH benchmarks in the `benchmarks` module (Apple M4 Pro, JDK 21, single thread, average time). They show orders of magnitude only and vary with hardware and JVM; reproduce them in your environment with [benchmarks/README.md](../benchmarks/README.md).
 
-| 场景 | 未接入 | 接入后 | 说明 |
+| Scenario | Without | With Meerkat | Notes |
 | --- | --- | --- | --- |
-| 一次未超阈值的入口请求，无依赖调用 | 0.06 µs | 1.7 µs | 主要是入口线程 CPU 时间与内存分配量的采样，以及登记到进行中请求列表 |
-| 同上，含 5 次依赖调用 | 0.16 µs | 2.9 µs | 每次依赖调用（Redis、远程 HTTP 等 Observation）约 0.3 µs |
-| 同上，含 20 次依赖调用 | 0.45 µs | 6.2 µs | |
-| 同上，含 20 次依赖调用并启用调用统计（默认） | 0.45 µs | 7.2 µs | 调用统计每次调用约 50 ns；`metrics.enabled=false` 可关闭 |
-| 一条 SQL（JDBC 监听），不在 Trace 中 | — | 0.11 µs | 只计入调用统计；SQL 归一化结果按语句缓存 |
-| 一条 SQL，在 Trace 中 | — | 0.17 µs | 额外创建一个 SQL Span |
-| `TraceBlock`，不在 Trace 中 | — | 18 ns | 直接执行业务代码，不记录 |
-| 一个入口 Trace 内 10 个 `TraceBlock` | — | 1.0 µs | 每个 Span 约 0.1 µs |
-| `TraceContextTaskDecorator` 装饰并执行一个任务 | — | 0.27 µs（无 Trace）/ 0.37 µs（Trace 内） | 无父 Trace 时会为任务生成新的 Trace ID |
+| One entry below every threshold, no dependency calls | 0.06 µs | 1.7 µs | Mostly sampling entry-thread CPU time and allocation, and registering the in-flight request |
+| Same, with 5 dependency calls | 0.16 µs | 2.9 µs | About 0.3 µs per dependency call (Redis, remote HTTP and other observations) |
+| Same, with 20 dependency calls | 0.45 µs | 6.2 µs | |
+| Same, with 20 dependency calls and operation statistics (default) | 0.45 µs | 7.2 µs | Operation statistics cost about 50 ns per call; turn off with `metrics.enabled=false` |
+| One SQL statement (JDBC listener), outside a trace | — | 0.11 µs | Only counted in statistics; normalized SQL is cached per statement |
+| One SQL statement, inside a trace | — | 0.17 µs | Also creates a SQL span |
+| `TraceBlock` outside a trace | — | 18 ns | Runs the business code directly without recording |
+| 10 `TraceBlock`s inside one entry trace | — | 1.0 µs | About 0.1 µs per span |
+| `TraceContextTaskDecorator` decorating and running one task | — | 0.27 µs (no trace) / 0.37 µs (in a trace) | Generates a new trace ID for the task when there is no parent trace |
 
-对于耗时 1 ms 以上的请求，这部分开销低于 1%；10 ms 的请求低于 0.1%。慢请求、错误和资源超阈值的入口还会被写入内存列表并在后台线程异步归档，归档 I/O 不在业务线程上执行。
+For requests taking 1 ms or more this is under 1%; for 10 ms requests, under 0.1%. Slow, failed and resource-heavy entries are also added to an in-memory list and archived asynchronously on a background thread; archive I/O never runs on business threads.
 
-## 公共 API
+## Public API
 
-以下类型是公开 API，正式发布后保持兼容：
+The following types are public API and stay compatible after the 1.0 release:
 
-| 类型 | 用途 |
+| Type | Purpose |
 |---|---|
-| `trace.TraceSpan`、`trace.TraceDisabled` | 声明或排除方法级 Span |
-| `trace.TraceBlock`、`trace.SpanKind` | 在代码中包裹自定义 Span |
-| `trace.TraceIdContext` | 读取当前 Trace ID（`currentTraceId()`、`MDC_KEY`） |
-| `trace.TraceContextTaskDecorator` | 线程池传播 Trace 上下文 |
-| `web.ObservabilityAccessPolicy` | 页面和 API 授权扩展点 |
-| `integration.observation.ObservationTraceIdResolver` | 从其他框架的 Observation 上下文提取已传播的 Trace ID，定义该类型的 Bean 即可生效 |
-| `integration.feign.TraceIdRequestInterceptor`、`integration.kafka.TraceIdRecordInterceptor` | 通过 `Feign.builder()` 手动组装客户端或自定义 Kafka `RecordInterceptor` 时注册 |
-| `config.MeerkatProperties` | `meerkat.*` 配置项 |
+| `trace.TraceSpan`, `trace.TraceDisabled` | Declare or exclude method-level spans |
+| `trace.TraceBlock`, `trace.SpanKind` | Wrap custom spans in code |
+| `trace.TraceIdContext` | Read the current trace ID (`currentTraceId()`, `MDC_KEY`) |
+| `trace.TraceContextTaskDecorator` | Propagate the trace context across executors |
+| `web.ObservabilityAccessPolicy` | Dashboard and API authorization extension point |
+| `integration.observation.ObservationTraceIdResolver` | Extract a propagated trace ID from another framework's observation context; define a bean of this type to enable it |
+| `integration.feign.TraceIdRequestInterceptor`, `integration.kafka.TraceIdRecordInterceptor` | Register when building clients with `Feign.builder()` by hand or using a custom Kafka `RecordInterceptor` |
+| `config.MeerkatProperties` | `meerkat.*` settings |
 
-包名均以 `io.github.lakernote.meerkat` 开头。自动配置类（`autoconfigure` 包）只用于按名称排除。
+All packages start with `io.github.lakernote.meerkat`. Auto-configuration classes (the `autoconfigure` package) are only meant to be excluded by name.
 
-包路径中含 `internal` 的类型是内部实现，例如 Trace 存储、指标存储、Controller 和 Filter。它们即使是 `public`，也可能在任何版本中调整，请不要直接依赖。这些内部组件对应的 Bean 也不支持用同类型 Bean 替换；需要定制时请使用上表中的扩展点或配置项。
+Types in packages containing `internal` are implementation details, such as trace storage, metric storage, controllers and filters. Even when `public`, they may change in any release; do not depend on them. Beans for these internal components cannot be replaced with beans of the same type; use the extension points or settings above instead.

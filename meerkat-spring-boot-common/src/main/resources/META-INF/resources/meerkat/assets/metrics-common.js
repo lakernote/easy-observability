@@ -1,17 +1,17 @@
 // Shared by the call ranking, metric trend and live pages: metric labels, formatting and uPlot line charts.
-import { node, request as apiRequest } from './common.js?v=20261106.10'
+import { node, request as apiRequest } from './common.js?v=20261106.11'
 
-export { $, api, initializeEmbeddedAuth, kindName, node, showNotice } from './common.js?v=20261106.10'
-export const DISABLED_MESSAGE = '运行指标未启用：请确认 meerkat.metrics.enabled 为 true'
+export { $, api, initializeEmbeddedAuth, kindName, node, showNotice } from './common.js?v=20261106.11'
+export const DISABLED_MESSAGE = t('运行指标未启用：请确认 meerkat.metrics.enabled 为 true')
 export const categoryNames = {
-  HTTP: 'HTTP 接口', SQL: 'SQL', REMOTE: '远程调用', REDIS: 'Redis',
-  JOB: '定时任务', KAFKA_CONSUMER: 'Kafka 消费', KAFKA_PRODUCER: 'Kafka 发送'
+  HTTP: t('HTTP 接口'), SQL: 'SQL', REMOTE: t('远程调用'), REDIS: 'Redis',
+  JOB: t('定时任务'), KAFKA_CONSUMER: t('Kafka 消费'), KAFKA_PRODUCER: t('Kafka 发送')
 }
 const COLORS = ['#4169c9', '#08a68a', '#df8d28', '#8a62c2', '#db5d68', '#2696ad', '#5d9d4d', '#bd6e31',
   '#3955a5', '#00a6a6', '#e27730', '#a0559a', '#c94747', '#197aa6', '#799b34', '#8f6637']
 
 /** Like the shared request, but a 404 means the metrics endpoints are disabled. */
-export function request(path, options = {}, deniedMessage = '没有查看运行指标的权限，请登录或检查 ObservabilityAccessPolicy') {
+export function request(path, options = {}, deniedMessage = t('没有查看运行指标的权限，请登录或检查 ObservabilityAccessPolicy')) {
   return apiRequest(path, { notFoundMessage: DISABLED_MESSAGE, ...options }, deniedMessage)
 }
 
@@ -52,15 +52,15 @@ export function formatValue(value, unit) {
 }
 
 export function stepLabel(stepMillis) {
-  if (stepMillis >= 3600000) return '每小时'
-  if (stepMillis >= 600000) return '每 10 分钟'
-  return '每分钟'
+  if (stepMillis >= 3600000) return t('每小时')
+  if (stepMillis >= 600000) return t('每 10 分钟')
+  return t('每分钟')
 }
 
 function axisTime(stepMillis, spanMillis) {
   return value => {
     const date = new Date(value * 1000)
-    const time = date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+    const time = date.toLocaleTimeString(MeerkatI18n.locale, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
     if (spanMillis > 2 * 86400000) return stepMillis >= 3600000 && spanMillis > 8 * 86400000
       ? `${date.getMonth() + 1}/${date.getDate()}` : `${date.getMonth() + 1}/${date.getDate()} ${time}`
     return time
@@ -81,7 +81,7 @@ function hasIsolatedValue(values) {
   return values.some((value, index) => value != null && values[index - 1] == null && values[index + 1] == null)
 }
 
-export function lineChart({ title, hint, unit, timestamps, stepMillis, series, height = 220, empty = '所选时间范围内暂无数据' }) {
+export function lineChart({ title, hint, unit, timestamps, stepMillis, series, height = 220, empty = t('所选时间范围内暂无数据') }) {
   const card = node('article', 'metric-chart')
   const head = node('div', 'metric-chart-head')
   head.append(node('h2', '', title))
@@ -89,12 +89,12 @@ export function lineChart({ title, hint, unit, timestamps, stepMillis, series, h
   card.append(head)
   const shown = series.filter(item => item.values.some(value => value != null && Number.isFinite(value)))
   if (!shown.length || typeof uPlot !== 'function') {
-    card.append(node('div', 'metric-empty', typeof uPlot === 'function' ? empty : '图表组件加载失败'))
+    card.append(node('div', 'metric-empty', typeof uPlot === 'function' ? empty : t('图表组件加载失败')))
     return { card, destroy() {} }
   }
   const plotHost = node('div', 'metric-plot')
   plotHost.setAttribute('role', 'img')
-  plotHost.setAttribute('aria-label', `${title}趋势图`)
+  plotHost.setAttribute('aria-label', t('{title}趋势图', { title }))
   const legend = node('div', 'metric-legend')
   card.append(plotHost, legend)
   const times = timestamps.map(value => value / 1000)
@@ -140,7 +140,7 @@ export function lineChart({ title, hint, unit, timestamps, stepMillis, series, h
       { stroke: '#77869a', grid: { stroke: '#edf1f6', width: 1 }, ticks: { stroke: '#e4e9f0' }, size: 70,
         values: (u, values) => values.map(value => formatValue(value, unit)) }
     ],
-    series: [{ label: '时间' }, ...shown.map((item, index) => ({
+    series: [{ label: t('时间') }, ...shown.map((item, index) => ({
       label: item.label, stroke: COLORS[index % COLORS.length], width: 2, spanGaps: false,
       // A value with gaps on both sides draws no line segment, so mark it with a dot.
       points: { show: hasIsolatedValue(item.values), size: 5, fill: COLORS[index % COLORS.length] }
@@ -151,12 +151,12 @@ export function lineChart({ title, hint, unit, timestamps, stepMillis, series, h
       shown.forEach((item, position) => {
         legendValues[position].textContent = formatValue(index == null ? latest(item) : item.values[index], unit)
       })
-      hover.textContent = index == null ? '最新值' : new Date(timestamps[index]).toLocaleString('zh-CN')
+      hover.textContent = index == null ? t('最新值') : new Date(timestamps[index]).toLocaleString(MeerkatI18n.locale)
     }] }
   }, [times, ...shown.map(item => item.values)], plotHost)
   const foot = node('div', 'metric-chart-foot')
-  const hover = node('span', 'metric-hover-time', '最新值')
-  foot.append(node('span', '', `${stepLabel(stepMillis)}一个点 · 点击图例开关曲线`), hover)
+  const hover = node('span', 'metric-hover-time', t('最新值'))
+  foot.append(node('span', '', t('{step}一个点 · 点击图例开关曲线', { step: stepLabel(stepMillis) })), hover)
   card.append(foot)
   const resizeObserver = new ResizeObserver(entries => {
     const width = Math.floor(entries[0].contentRect.width)

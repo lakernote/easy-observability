@@ -1,8 +1,8 @@
 // Shared by every dashboard page: API access, embedded auth, notices and small DOM helpers.
-// Same Chinese labels on every page for span kinds.
+// Same labels on every page for span kinds; t() from i18n.js translates them.
 const KIND_NAMES = { Http: 'HTTP', Database: 'SQL', Redis: 'Redis', Remote: '远程调用', Kafka: 'Kafka', Transaction: '事务',
   Schedule: '定时任务', Service: '服务', Code: '代码', Other: '其他' }
-export const kindName = kind => KIND_NAMES[kind] || kind || '调用'
+export const kindName = kind => t(KIND_NAMES[kind] || kind || '调用')
 
 export const api = new URL('../../api/meerkat/', import.meta.url)
 export const $ = id => document.getElementById(id)
@@ -20,7 +20,7 @@ export function authHeaders(method = 'GET', initial = {}) {
 }
 
 /** Fetches {@code path} under the API root and parses JSON; errors carry a message ready to show. */
-export async function request(path, requestOptions = {}, deniedMessage = '没有查看的权限，请登录或检查 ObservabilityAccessPolicy') {
+export async function request(path, requestOptions = {}, deniedMessage = t('没有查看的权限，请登录或检查 ObservabilityAccessPolicy')) {
   const { notFoundMessage, ...options } = requestOptions
   const headers = authHeaders(options.method || 'GET', options.headers || {})
   const response = await fetch(new URL(path.replace(/^\/+/, ''), api),
@@ -28,7 +28,7 @@ export async function request(path, requestOptions = {}, deniedMessage = '没有
   if (!response.ok) throw new Error(response.status === 401 || response.status === 403
     ? deniedMessage
     : response.status === 404 && notFoundMessage ? notFoundMessage
-      : `请求失败（HTTP ${response.status}）`)
+      : t('请求失败（HTTP {status}）', { status: response.status }))
   return response.status === 204 ? null : response.json()
 }
 

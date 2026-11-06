@@ -41,10 +41,10 @@ class ObservabilityDashboardResourceTest {
                         "initializeEmbeddedAuth().then(() => Promise.all([loadPermissions(), refresh()]))",
                         "$('clear-history').hidden = !permissions.canClear",
                         "kind: resultFilter", "params.set('before', pageCursors[page])",
-                        "traces.scanLimited ? '继续搜索' : '下一页'", "notFoundMessage: '这条 Trace 已不在保留范围内'",
+                        "traces.scanLimited ? t('继续搜索') : t('下一页')", "notFoundMessage: t('这条 Trace 已不在保留范围内')",
                         "formatAllocatedBytes(trace.allocatedBytes)", "formatAllocatedBytes(detail.allocatedBytes)",
                         "内存分配量", "不是当前堆占用", "条诊断 Trace",
-                        "addFact($('facts'), '状态'", "foldRepeats(", "formatCpu(trace.cpuTimeMs)")
+                        "addFact($('facts'), t('状态')", "foldRepeats(", "formatCpu(trace.cpuTimeMs)")
                 .doesNotContain("const api = ", "async function request(", "function node(");
         try (var common = classLoader.getResourceAsStream("META-INF/resources/meerkat/assets/common.js")) {
             assertThat(new String(common.readAllBytes(), StandardCharsets.UTF_8))
@@ -104,6 +104,33 @@ class ObservabilityDashboardResourceTest {
     }
 
     @Test
+    void loadsTheLanguageSwitchBeforeEveryPageScript() throws IOException {
+        var classLoader = getClass().getClassLoader();
+        for (var name : new String[] {"index.html", "stats.html", "live.html", "metrics.html"}) {
+            try (var page = classLoader.getResourceAsStream("META-INF/resources/meerkat/" + name)) {
+                assertThat(page).as(name).isNotNull();
+                String content = new String(page.readAllBytes(), StandardCharsets.UTF_8);
+                assertThat(content).as(name)
+                        .contains("assets/i18n.js?v=", "<button id=\"lang-toggle\" class=\"lang-toggle\" type=\"button\"")
+                        .doesNotContain("src=\"/meerkat");
+                assertThat(content.indexOf("assets/i18n.js")).as(name)
+                        .isLessThan(content.indexOf("<script type=\"module\""));
+            }
+        }
+        try (var i18n = classLoader.getResourceAsStream("META-INF/resources/meerkat/assets/i18n.js");
+             var stats = classLoader.getResourceAsStream("META-INF/resources/meerkat/assets/stats.js")) {
+            assertThat(i18n).isNotNull();
+            assertThat(new String(i18n.readAllBytes(), StandardCharsets.UTF_8))
+                    .contains("'meerkat.lang'", "navigator.language", "window.t = t", "getElementById('lang-toggle')",
+                            "'Trace 诊断': 'Traces'", "'重置统计': 'Reset stats'",
+                            "'" + OperationStats.OVERFLOW_NAME + "': '(Other: over the tracked-operation limit)'")
+                    .doesNotContain("innerHTML");
+            assertThat(new String(stats.readAllBytes(), StandardCharsets.UTF_8))
+                    .contains("const OVERFLOW_NAME = '" + OperationStats.OVERFLOW_NAME + "'", "displayName(row.name)");
+        }
+    }
+
+    @Test
     void redirectsEntryPagesToCanonicalTrailingSlashUrls() {
         var traceRedirect = new ObservabilityDashboardController().redirectToIndex();
         var metricsRedirect = new MetricsController((OperationStats) null, null, null, () -> true).redirectToMetrics();
@@ -120,9 +147,9 @@ class ObservabilityDashboardResourceTest {
                 .getResourceAsStream("META-INF/resources/meerkat/assets/dashboard.js")) {
             assertThat(script).isNotNull();
             assertThat(new String(script.readAllBytes(), StandardCharsets.UTF_8))
-                    .contains("node('span', 'timeline-thread-heading', '线程')",
+                    .contains("node('span', 'timeline-thread-heading', t('线程', null, 'one'))",
                             "node('span', `timeline-thread${threadClass}`, thread.key)",
-                            "const role = thread.info.isEntry ? '入口线程' : '子线程'",
+                            "const role = thread.info.isEntry ? t('入口线程') : t('子线程')",
                             "container.insertBefore(legend, scale)");
         }
     }
