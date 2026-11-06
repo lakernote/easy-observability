@@ -36,6 +36,13 @@ export function formatValue(value, unit) {
   if (value == null || !Number.isFinite(value)) return '—'
   switch (unit) {
     case 'ms': return formatMs(value)
+    case 'duration': {
+      const abs = Math.abs(value)
+      if (abs >= 86400000) return `${(value / 86400000).toFixed(1)} d`
+      if (abs >= 3600000) return `${(value / 3600000).toFixed(1)} h`
+      if (abs >= 60000) return `${Math.round(value / 60000)} min`
+      return `${Math.round(value / 1000)} s`
+    }
     case 'percent': return `${value.toFixed(value < 10 ? 1 : 0)}%`
     case 'bytes': {
       const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB']

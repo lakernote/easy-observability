@@ -56,11 +56,12 @@ class ObservabilityDashboardResourceTest {
                     .doesNotContain("innerHTML");
         }
         assertThat(new String(metricsScript.readAllBytes(), StandardCharsets.UTF_8))
-                .contains("acquireWaitChart(", "hikaricp.connections.acquire:",
+                .contains("overviewCharts(trends, resources)", "meerkat.executor.rejected", "request(`metrics/operations/trends?period=${period}`)",
+                        "meter: 'hikaricp.connections.acquire', stat: 'total', per: 'count'",
                         "request(`metrics/resources?period=${period}`)", "request('metrics/storage')",
                         "历史存储不可用", "$('instance').classList.toggle('degraded', !storage.persistent)",
                         "OPEN_STATE_KEY", "buildSections()", "fillSection(")
-                .doesNotContain("innerHTML", "const api = '/api/", "operations/trends", "operationCharts");
+                .doesNotContain("innerHTML", "const api = '/api/", "operationCharts", "custom", "include");
         page.close();
         metricsPage.close();
         script.close();

@@ -41,7 +41,8 @@ import static io.github.lakernote.meerkat.metrics.internal.OperationStats.TOTAL;
  *
  * <p>Recent days keep fine buckets (10 minutes for operations, 1 minute for resources). Days older than
  * {@value #FINE_DAYS} days are rewritten once with coarser buckets (1 hour and 10 minutes), which keeps 30 days in a
- * few tens of megabytes. Histograms merge exactly, so averages and P95 stay correct at any resolution. Days beyond
+ * few tens of megabytes. Histograms merge exactly, so averages and P95 stay correct at any resolution; resource
+ * values merge by their {@link ResourceMeters#rollup rollup}, so counts, peaks and limits survive too. Days beyond
  * the retention, or the oldest days beyond the size budget, are deleted. Any write failure turns persistence off
  * and metrics stay in memory.</p>
  */
@@ -273,18 +274,16 @@ public final class MetricsArchive {
         Map<Long, Map<String, double[]>> buckets = new TreeMap<>();
         parseResources(file, (timestamp, values) -> {
             long bucket = Math.floorDiv(timestamp, 600_000L) * 600_000L;
-            Map<String, double[]> sums = buckets.computeIfAbsent(bucket, ignored -> new LinkedHashMap<>());
-            values.forEach((key, value) -> {
-                double[] sum = sums.computeIfAbsent(key, ignored -> new double[2]);
-                sum[0] += value;
-                sum[1]++;
-            });
+            Map<String, double[]> cells = buckets.computeIfAbsent(bucket, ignored -> new LinkedHashMap<>());
+            values.forEach((key, value) -> ResourceMeters.fold(ResourceMeters.rollup(key),
+                    cells.computeIfAbsent(key, ignored -> new double[2]), 0, 1, value));
         });
         StringBuilder text = new StringBuilder(header(RESOURCES, 600));
-        buckets.forEach((bucket, sums) -> {
-            Map<String, Double> averages = new LinkedHashMap<>();
-            sums.forEach((key, sum) -> averages.put(key, sum[0] / sum[1]));
-            appendResourceLine(text, bucket, averages);
+        buckets.forEach((bucket, cells) -> {
+            Map<String, Double> values = new LinkedHashMap<>();
+            cells.forEach((key, cell) ->
+                    values.put(key, ResourceMeters.result(ResourceMeters.rollup(key), cell, 0, 1)));
+            appendResourceLine(text, bucket, values);
         });
         replace(file, text);
     }
@@ -348,7 +347,7 @@ public final class MetricsArchive {
     }
 
     private static String header(String kind, long bucketSeconds) {
-        return "# meerkat " + kind + " v1 bucket=" + bucketSeconds + "\n";
+        return "# meerkat " + kind + (kind.equals(RESOURCES) ? " v2" : " v1") + " bucket=" + bucketSeconds + "\n";
     }
 
     private static long bucketSeconds(Path file) throws IOException {

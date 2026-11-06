@@ -186,7 +186,9 @@ class MetricsArchiveTest {
             }
             for (int minute = 0; minute < 3; minute++) {
                 archive.appendResources(millis(day + "T10:00:00Z") + minute * MINUTE,
-                        Map.of("heap", 100.0 * (minute + 1), "cpu", 0.5), TODAY);
+                        Map.of("heap", 100.0 * (minute + 1), "cpu", 0.5, "jvm.gc.memory.allocated", minute + 1.0,
+                                "executor.queued:jobs@max", 10.0 * (minute + 1),
+                                "jvm.memory.max:heap", 1000.0 + minute), TODAY);
             }
         }
 
@@ -197,9 +199,10 @@ class MetricsArchiveTest {
         assertThat(Files.readAllLines(operations("20261102")).get(1))
                 .startsWith(millis("2026-11-02T10:00:00Z") + "\tHTTP\t0\t10\t5\t6\t2048\t2\t0:2\t");
         List<String> resources = Files.readAllLines(directory.resolve("resources-20261102.tsv"));
-        assertThat(resources).hasSize(2).first().isEqualTo("# meerkat resources v1 bucket=600");
+        assertThat(resources).hasSize(2).first().isEqualTo("# meerkat resources v2 bucket=600");
         assertThat(resources.get(1)).startsWith(millis("2026-11-02T10:00:00Z") + "\t")
-                .contains("heap=200").contains("cpu=0.5");
+                .contains("heap=200", "cpu=0.5", "jvm.gc.memory.allocated=6", "executor.queued:jobs@max=30",
+                        "jvm.memory.max:heap=1002");
         assertThat(Files.readAllLines(directory.resolve("resources-20261104.tsv"))).hasSize(4);
         assertThat(Files.readAllLines(operations("20261104"))).hasSize(4);
         String compacted = Files.readString(operations("20261102"));
@@ -296,11 +299,13 @@ class MetricsArchiveTest {
     }
 
     @Test
-    void resourceHistoryAveragesSamplesPerBucketAndReadsTheArchiveAfterRestart() {
+    void resourceHistoryCombinesSamplesPerBucketAndReadsTheArchiveAfterRestart() {
         ResourceHistory first = new ResourceHistory(archive(), clock::get, ZoneOffset.UTC);
         long minute = Math.floorDiv(clock.get(), MINUTE) * MINUTE;
-        first.record(minute - 2 * MINUTE, Map.of("heap", 100.0));
-        first.record(minute - MINUTE, Map.of("heap", 300.0, "cpu", 0.25));
+        first.record(minute - 2 * MINUTE, Map.of("heap", 100.0, "hikaricp.connections.timeout:main", 1.0,
+                "hikaricp.connections.pending:main@max", 7.0));
+        first.record(minute - MINUTE, Map.of("heap", 300.0, "cpu", 0.25, "hikaricp.connections.timeout:main", 0.0,
+                "hikaricp.connections.pending:main@max", 2.0));
         first.record(minute, Map.of());
 
         ResourceHistory.Series hour = first.series(Period.HOUR);
@@ -315,6 +320,10 @@ class MetricsArchiveTest {
         List<Double> heap = new ArrayList<>(day.series().get("heap"));
         heap.removeIf(value -> value == null);
         assertThat(heap).containsExactly(200.0);
+        assertThat(day.series().get("hikaricp.connections.timeout:main")).filteredOn(value -> value != null)
+                .containsExactly(1.0);
+        assertThat(day.series().get("hikaricp.connections.pending:main@max")).filteredOn(value -> value != null)
+                .containsExactly(7.0);
 
         ResourceHistory memoryOnly = new ResourceHistory(null, clock::get, ZoneOffset.UTC);
         memoryOnly.record(minute, Map.of("heap", 1.0));

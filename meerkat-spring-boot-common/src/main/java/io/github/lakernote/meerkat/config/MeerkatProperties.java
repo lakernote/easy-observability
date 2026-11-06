@@ -6,8 +6,6 @@ import org.springframework.util.unit.DataSize;
 
 import java.time.Duration;
 import java.time.temporal.ChronoUnit;
-import java.util.ArrayList;
-import java.util.List;
 
 /**
  * Public configuration for the Meerkat Spring Boot Starter.
@@ -73,11 +71,6 @@ public class MeerkatProperties {
         private Duration retention = Duration.ofDays(30);
         /** Disk budget for the metric files; the oldest days are deleted beyond it. */
         private DataSize maxStorageSize = DataSize.ofMegabytes(64);
-        /**
-         * Additional Micrometer meter names, or name prefixes, recorded with the resource metrics, for example
-         * {@code order.created}. Values of a meter's tagged series are summed.
-         */
-        private List<String> include = new ArrayList<>();
 
         public boolean isEnabled() { return enabled; }
         public void setEnabled(boolean enabled) { this.enabled = enabled; }
@@ -87,8 +80,6 @@ public class MeerkatProperties {
         public void setRetention(Duration retention) { this.retention = retention; }
         public DataSize getMaxStorageSize() { return maxStorageSize; }
         public void setMaxStorageSize(DataSize maxStorageSize) { this.maxStorageSize = maxStorageSize; }
-        public List<String> getInclude() { return include; }
-        public void setInclude(List<String> include) { this.include = include == null ? new ArrayList<>() : include; }
     }
 
     public static class Web {

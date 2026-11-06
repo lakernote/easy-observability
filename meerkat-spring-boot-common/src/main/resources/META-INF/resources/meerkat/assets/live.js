@@ -1,5 +1,5 @@
 import { authHeaders } from './common.js?v=20261106.11'
-import { $, api, formatBytes, formatMs, initializeEmbeddedAuth, kindName, node, request, showNotice } from './metrics-common.js?v=20261106.11'
+import { $, api, formatBytes, formatMs, initializeEmbeddedAuth, kindName, node, request, showNotice } from './metrics-common.js?v=20261106.13'
 
 const DENIED = t('没有查看实时诊断的权限，请登录或检查 ObservabilityAccessPolicy')
 const SOURCES = { HTTP: 'HTTP', JOB: t('定时任务'), KAFKA_CONSUMER: t('Kafka 消费') }

@@ -37,8 +37,7 @@ import static org.awaitility.Awaitility.await;
 @SpringBootTest(classes = RuntimeMetricsE2ETest.TestApplication.class,
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {
-                "meerkat.storage.directory=target/runtime-metrics-e2e",
-                "meerkat.metrics.include=orders"
+                "meerkat.storage.directory=target/runtime-metrics-e2e"
         })
 class RuntimeMetricsE2ETest {
     private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
@@ -122,17 +121,24 @@ class RuntimeMetricsE2ETest {
         assertThat(meterRegistry).isInstanceOf(CompositeMeterRegistry.class);
         assertThat(((CompositeMeterRegistry) meterRegistry).getRegistries()).contains(resourceRegistry);
         meterRegistry.counter("orders.created").increment(2);
-        meterRegistry.counter("http.unrelated").increment();
+        io.micrometer.core.instrument.Timer.builder("http.server.requests").tags("uri", "/x", "status", "404")
+                .register(meterRegistry).record(java.time.Duration.ofMillis(5));
+        io.micrometer.core.instrument.Timer.builder("http.server.requests").tags("uri", "/y", "status", "429")
+                .register(meterRegistry).record(java.time.Duration.ofMillis(5));
 
         ReflectionTestUtils.invokeMethod(resourceRegistry, "publish");
 
         String body = get("/api/meerkat/metrics/resources?period=1h").body();
         assertThat(body).contains("\"period\":\"HOUR\"", "\"persistent\":true", "\"jvm.memory.used:heap\":[",
                 "\"jvm.memory.max:heap\":[",
-                "\"jvm.threads.live\":[", "\"process.cpu.usage\":[", "\"hikaricp.connections.max:HikariPool-1\":[",
-                "\"orders.created\":[", "\"executor.active:applicationTaskExecutor\":[",
-                "\"tomcat.sessions.active.current\":[")
-                .doesNotContain("http.unrelated", "http.server.requests");
+                "\"jvm.threads.live\":[", "\"jvm.threads.peak\":[", "\"process.cpu.usage\":[",
+                "\"process.cpu.usage@max\":[", "\"system.cpu.count\":[", "\"process.uptime\":[",
+                "\"hikaricp.connections.max:HikariPool-1\":[", "\"hikaricp.connections.pending:HikariPool-1@max\":[",
+                "\"executor.active:applicationTaskExecutor@max\":[", "\"executor.pool.core:applicationTaskExecutor\":[",
+                "\"jvm.gc.live.data.size\":[", "\"disk.free:", "\"tomcat.sessions.active.current\":[",
+                "\"http.server.requests:4xx\":[", "\"http.server.requests:429\":[",
+                "\"meerkat.executor.rejected:applicationTaskExecutor\":[")
+                .doesNotContain("orders.created", "meerkat.dashboard");
         assertThat(get("/api/meerkat/metrics/resources?period=2h").statusCode()).isEqualTo(400);
         assertThat(get("/api/meerkat/metrics/storage").body())
                 .contains("\"persistent\":true", "\"retentionDays\":30");

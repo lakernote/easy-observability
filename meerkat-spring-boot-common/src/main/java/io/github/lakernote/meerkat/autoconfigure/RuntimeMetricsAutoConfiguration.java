@@ -1,6 +1,7 @@
 package io.github.lakernote.meerkat.autoconfigure;
 
 import io.github.lakernote.meerkat.config.MeerkatProperties;
+import io.github.lakernote.meerkat.metrics.internal.ExecutorRejections;
 import io.github.lakernote.meerkat.metrics.internal.MetricsArchive;
 import io.github.lakernote.meerkat.metrics.internal.OperationStats;
 import io.github.lakernote.meerkat.metrics.internal.ResourceHistory;
@@ -72,10 +73,16 @@ public class RuntimeMetricsAutoConfiguration {
     @Configuration(proxyBeanMethods = false)
     @ConditionalOnClass(StepMeterRegistry.class)
     static class ResourceRegistryConfiguration {
+        /** Counts tasks rejected by thread pools; static so it is registered before the executors are created. */
+        @Bean
+        static ExecutorRejections meerkatExecutorRejections() {
+            return new ExecutorRejections();
+        }
+
         @Bean(initMethod = "startPublishing", destroyMethod = "close")
-        ResourceMetricsRegistry meerkatResourceMetricsRegistry(MeerkatProperties properties,
-                                                                         ResourceHistory history) {
-            return new ResourceMetricsRegistry(history, properties.getMetrics().getInclude());
+        ResourceMetricsRegistry meerkatResourceMetricsRegistry(ResourceHistory history,
+                                                               ExecutorRejections rejections) {
+            return new ResourceMetricsRegistry(history, rejections);
         }
     }
 }

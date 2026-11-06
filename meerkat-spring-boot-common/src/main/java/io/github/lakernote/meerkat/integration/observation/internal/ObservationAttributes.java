@@ -2,6 +2,7 @@ package io.github.lakernote.meerkat.integration.observation.internal;
 
 import io.github.lakernote.meerkat.integration.jdbc.internal.JdbcTraceSafety;
 import io.github.lakernote.meerkat.metrics.internal.OperationStats;
+import io.github.lakernote.meerkat.web.internal.DashboardPaths;
 import io.micrometer.common.KeyValue;
 import io.micrometer.observation.Observation;
 
@@ -162,10 +163,7 @@ final class ObservationAttributes {
     }
 
     static boolean isDashboardPath(String route) {
-        if (route == null || route.isBlank()) return false;
-        String path = withoutQuery(route);
-        return "/meerkat".equals(path) || path.startsWith("/meerkat/")
-                || "/api/meerkat".equals(path) || path.startsWith("/api/meerkat/");
+        return DashboardPaths.isDashboardPath(route);
     }
 
     static String highCardinality(Observation.Context context, String key) {

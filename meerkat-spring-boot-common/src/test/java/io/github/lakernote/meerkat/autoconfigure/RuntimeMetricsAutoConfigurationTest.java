@@ -32,8 +32,7 @@ class RuntimeMetricsAutoConfigurationTest {
 
     @Test
     void registersPersistentMetricsInTheStorageDirectory() {
-        contextRunner().withPropertyValues("meerkat.metrics.include=orders",
-                "meerkat.metrics.retention=7d").run(context -> {
+        contextRunner().withPropertyValues("meerkat.metrics.retention=7d").run(context -> {
             assertThat(context).hasSingleBean(OperationStats.class).hasSingleBean(ResourceHistory.class)
                     .hasSingleBean(ResourceMetricsRegistry.class);
             MetricsArchive archive = context.getBean(MetricsArchive.class);

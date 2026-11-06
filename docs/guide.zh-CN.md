@@ -37,7 +37,7 @@
 | 远程 HTTP | 客户端调用 Span，并在请求头传播 Trace ID | `RestTemplate`、`RestClient`（含直接 `new RestTemplate()`、`RestClient.create()` 声明的 Bean）、`@FeignClient`、`OkHttpClient` Bean 自动接入；方法内临时 new 出来的客户端、JDK `HttpClient` 等不是 Spring Bean 的调用不会被采集 |
 | 异步线程池 | 任务耗时、异常及活动 Trace 上下文传播 | Spring Boot 默认线程池及应用声明为 Bean 的 `ThreadPoolTaskExecutor`、`SimpleAsyncTaskExecutor` 自动接入；直接使用 JDK `ExecutorService` 需手动包装；请求已返回后继续运行的后台任务不会延长已完成的入口 Trace |
 | 调用统计 | 每个 HTTP 接口、SQL 模板、远程调用、Redis 命令、定时任务和 Kafka Topic 的次数、错误、平均/P95/最大耗时和总耗时，及其随时间的趋势；HTTP、定时任务和 Kafka 消费入口另有平均 CPU 时间和平均内存分配量 | 不论是否慢或出错都会计入；与 Trace 共用采集点，见[运行指标](#运行指标) |
-| 资源指标 | JVM 内存与 GC、CPU、线程、Hikari 连接池、线程池、Tomcat 等 Spring Boot 已绑定的指标，以及 `metrics.include` 指定的自定义指标 | 每分钟采样一次，见[运行指标](#运行指标) |
+| 资源指标 | Spring Boot 已绑定的固定一组指标：JVM 内存与 GC、CPU、线程、Hikari 连接池、线程池、Tomcat/Jetty、磁盘 | 每分钟记录一次，饱和度指标每 10 秒采样，见[运行指标](#运行指标) |
 
 自定义业务边界可使用 `TraceBlock` 或 `@TraceSpan`。组件不会扫描所有业务 Service 自动创建 Span。
 
@@ -67,7 +67,6 @@ JDBC 采集会使用保留原数据源具体类型的代理，因此按 `HikariD
 | `meerkat.metrics.max-operations` | `1000` | 所有类别合计最多统计的操作数，超出后新操作按类别并入“其他”行；2 小时没有调用的操作会释放名额 |
 | `meerkat.metrics.retention` | `30d` | 指标历史保留时长，须为整天数，范围 `1d` 至 `365d` |
 | `meerkat.metrics.max-storage-size` | `64MB` | 指标历史文件的磁盘上限，超出后删除最早的日期 |
-| `meerkat.metrics.include` | 空 | 额外记录的自定义 Micrometer 指标名或名称前缀，例如 `orders` 匹配 `orders` 和 `orders.*` |
 | `meerkat.web.enabled` | `true` | 页面和查询 API 开关 |
 
 示例：
@@ -77,7 +76,6 @@ meerkat:
   metrics:
     retention: 30d
     max-storage-size: 64MB
-    include: orders, payment.
   trace:
     http-slow-threshold: 500ms
     job-slow-threshold: 1s
@@ -107,7 +105,7 @@ Trace 查询 API（均为 `GET`，前缀 `/api/meerkat`）：
 运行指标回答“这个实例整体怎么样、哪个操作最慢最多”，Trace 诊断回答“这一次请求慢在哪里”。两者共用采集点，但各自独立：指标覆盖全部调用，Trace 只保留慢、错或资源超阈值的请求。运行指标有两个页面：
 
 - **调用排行**（`/meerkat/stats/`）：按类别列出每个操作的调用次数、错误数和错误率、平均耗时、P95、最大耗时、总耗时及其在本类别中的占比，点击列头排序；点击一行展开该操作的调用次数和耗时趋势。HTTP、定时任务和 Kafka 消费入口还显示每次调用平均消耗的入口线程 CPU 时间和内存分配量，用来找出“耗 CPU 的接口”和“分配大量对象、引起频繁 GC 的接口”；这两个值复用入口本来就采集的数据，不增加开销，转为异步处理的请求不计入。适合回答“哪个接口最耗时”“哪条 SQL 调用最多”“哪个远程服务最常出错”“哪个接口最吃 CPU 或内存”。
-- **指标趋势**（`/meerkat/metrics/`）：JVM 内存与 GC、CPU、线程、Hikari 连接池（含获取连接平均等待时间）、线程池等资源曲线；单个操作的调用趋势在调用排行中点开查看。
+- **指标趋势**（`/meerkat/metrics/`）：先是服务概览（HTTP 请求量、错误率、耗时和依赖调用耗时，复用调用统计），再是 CPU、内存、GC、线程与线程池、Hikari 连接池、Web 连接与流量、磁盘和运行时长等资源曲线，便于从现象追到原因；单个操作的调用趋势在调用排行中点开查看。
 
 ### 调用统计
 
@@ -127,26 +125,36 @@ Trace 查询 API（均为 `GET`，前缀 `/api/meerkat`）：
 
 ### 资源指标
 
-资源指标来自 Spring Boot 已经绑定的 Micrometer 指标，组件不自己读取 JMX，也不重复埋点。Starter 注册一个只接收下列指标的注册表，每分钟采样一次：
+资源指标来自 Spring Boot 已经绑定的 Micrometer 指标，组件不自己读取 JMX，也不重复埋点。Starter 注册一个只接收下列固定指标的注册表（不可配置），每分钟记录一次：
 
 | 指标 | 曲线拆分 |
 | --- | --- |
 | `jvm.memory.used/committed/max` | 按 `heap` / `nonheap` |
-| `jvm.gc.pause`（每分钟次数和总耗时）、`jvm.gc.memory.allocated`、`jvm.threads.*`、`jvm.classes.loaded` | 合计 |
-| `process.cpu.usage`、`system.cpu.usage`、`system.load.average.1m`、`process.files.open/max` | 合计 |
-| `hikaricp.connections.active/idle/pending/max/timeout/acquire` | 按连接池 |
-| `executor.active/queued/pool.size/pool.max/completed` | 按线程池 |
-| `tomcat.threads.busy/current/config.max`、`tomcat.sessions.active.current`、`jetty.threads.*` | 合计 |
+| `jvm.buffer.memory.used` | 按缓冲池（`direct` / `mapped`） |
+| `jvm.gc.pause`（次数、总耗时和最长单次停顿） | 按 GC 动作（Young / Old/Full，其他收集器显示原名） |
+| `jvm.gc.live.data.size/max.data.size`、`jvm.memory.usage.after.gc`、`jvm.gc.overhead`、`jvm.gc.memory.allocated/promoted` | 合计 |
+| `jvm.threads.live/daemon/peak`、`jvm.classes.loaded`、`process.uptime`、`process.files.open/max` | 合计 |
+| `process.cpu.usage`、`system.cpu.usage`、`system.cpu.count`、`system.load.average.1m` | 合计 |
+| `disk.free/total` | 按路径 |
+| `hikaricp.connections.active/idle/pending/max/timeout`、`hikaricp.connections.acquire/usage`（平均和最大） | 按连接池 |
+| `executor.active/queued/queue.remaining/pool.size/pool.core/pool.max/completed` | 按线程池 |
+| `meerkat.executor.rejected`（`ThreadPoolTaskExecutor` Bean 拒绝的任务数，含 CallerRuns 等策略在调用方执行的任务；不改变拒绝策略，关闭后的拒绝不计入） | 按线程池 |
+| `http.server.requests`（复用 Spring Boot 自带指标，排除 Meerkat 自身页面） | 按状态类别：2xx/3xx/4xx/429/5xx |
+| `tomcat.threads.*`、`tomcat.connections.current/keepalive.current/config.max`、`tomcat.global.received/sent`、`tomcat.sessions.active.current`、`jetty.threads.*`、`jetty.connections.current/bytes.in/bytes.out` | 合计 |
 
-- `metrics.include` 中的自定义指标按名称合计成一条曲线；计数器和计时器显示每分钟的增量。每个指标最多按 16 个连接池或线程池拆分，总曲线数最多 256 条。
-- 没有上限的线程池和资源（上限为 `-1` 或 `Integer.MAX_VALUE`）不绘制上限曲线。
+- 饱和度指标（CPU 使用率、忙碌线程、活跃和等待连接、线程池活跃与排队、当前 HTTP 连接）每 10 秒读取一次，每分钟保存平均值和峰值，短时尖峰不会漏掉；其余 Gauge 每分钟读取一次。
+- 计数器和计时器记录每分钟的增量；计时器同时记录这一分钟内最长的单次耗时。
+- 较长时间范围和压缩后的历史按含义合并：次数、耗时和流量求和（图表显示每个点内的量），峰值取最大，上限取最新值，其余 Gauge 取平均。
+- 每个指标最多按 8 个连接池、线程池或路径拆分，其余合并为“其他”曲线。指标清单固定，曲线数有较小的静态上限，不会静默丢弃。
+- 没有上限的线程池、队列和资源（上限为 `-1` 或 `Integer.MAX_VALUE`）不绘制上限或容量曲线。
+- HTTP 错误率统计异常和 5xx 响应。4xx 不算错误，但会显示在“HTTP 响应状态”图中，其中 429 单独列出，通常表示被限流。该图依赖 Spring Boot Actuator 默认开启的 `http.server.requests`。
 - Spring Boot 只有在 Tomcat 注册 MBean 时才绑定 Tomcat 线程指标，因此 Starter 默认把 `server.tomcat.mbeanregistry.enabled` 设为 `true`（优先级最低，应用显式配置时以应用为准；关闭 `metrics.enabled` 时不设置）。开启后 Tomcat 会多占用少量内存。
 
 ### 存储
 
 调用统计每 10 分钟一片、资源指标每分钟一个样本，追加写入存储目录下的 `metrics/operations-yyyyMMdd.tsv` 和 `metrics/resources-yyyyMMdd.tsv`。应用正常关闭时会写入当前未满的分片，重启后各时间范围都保留：启动时读回最近 1 小时的分片，分钟曲线上重启前的部分按 10 分钟均摊；进程被强制杀死时最多丢失最近约 10 分钟的调用统计。
 
-- 两天前的文件会压缩一次：调用统计合并为每小时一行，资源指标合并为每 10 分钟的平均值，因此 30 天的数据通常只有几 MB。
+- 两天前的文件会压缩一次：调用统计合并为每小时一行，资源指标按上述规则合并为每 10 分钟一个点，因此 30 天的数据通常只有几 MB。
 - 超过 `metrics.retention` 的日期会被删除；总大小超过 `metrics.max-storage-size` 时按天删除最早的数据。
 - 存储目录不可用（被其他实例占用或不可写）时只保存在内存，长范围只包含最近 2 小时，页面会提示。
 - 每个实例各自保存，不跨实例汇总。`canClear()` 允许时调用排行页显示“重置统计”，会清空内存中和已保存的调用统计，资源指标历史保留。

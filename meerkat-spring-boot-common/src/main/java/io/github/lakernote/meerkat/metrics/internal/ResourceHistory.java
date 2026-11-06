@@ -15,7 +15,9 @@ import java.util.function.LongSupplier;
 /**
  * Per-minute resource samples (JVM memory, GC, CPU, threads, connection and thread pools, ...). The last
  * {@value #MEMORY_SAMPLES} samples stay in memory; every sample is also appended to the {@link MetricsArchive} when
- * it is available. Queries average the samples falling into each bucket of the requested period.
+ * it is available. Queries combine the samples falling into each bucket of the requested period by the key's
+ * {@link ResourceMeters#rollup rollup}: counts are summed, peaks keep the maximum, limits the latest value and
+ * other gauges are averaged.
  */
 public final class ResourceHistory {
     static final int MEMORY_SAMPLES = 120;
@@ -58,29 +60,29 @@ public final class ResourceHistory {
         int points = period.points();
         long firstBucket = Math.floorDiv(now, step) - points + 1;
         long fromMillis = firstBucket * step;
-        Map<String, double[]> sums = new TreeMap<>();
+        Map<String, Bucket> buckets = new TreeMap<>();
         boolean persistent = persistent();
         long firstInMemory = samples.isEmpty() ? Long.MAX_VALUE : samples.peekFirst().timestamp();
         if (persistent && firstInMemory > fromMillis) {
             archive.scanResources(date(fromMillis), date(now), (timestamp, values) -> {
                 if (timestamp >= fromMillis && timestamp < firstInMemory) {
-                    add(sums, Math.floorDiv(timestamp, step) - firstBucket, points, values);
+                    add(buckets, Math.floorDiv(timestamp, step) - firstBucket, points, values);
                 }
             });
         }
         for (Sample sample : samples) {
             if (sample.timestamp() >= fromMillis) {
-                add(sums, Math.floorDiv(sample.timestamp(), step) - firstBucket, points, sample.values());
+                add(buckets, Math.floorDiv(sample.timestamp(), step) - firstBucket, points, sample.values());
             }
         }
         List<Long> timestamps = new ArrayList<>(points);
         for (int i = 0; i < points; i++) timestamps.add((firstBucket + i) * step);
         Map<String, List<Double>> series = new LinkedHashMap<>();
-        sums.forEach((key, cells) -> {
+        buckets.forEach((key, bucket) -> {
             List<Double> values = new ArrayList<>(points);
             for (int i = 0; i < points; i++) {
-                double count = cells[points + i];
-                values.add(count == 0 ? null : round(cells[i] / count));
+                Double value = ResourceMeters.result(bucket.rollup(), bucket.cells(), i, points);
+                values.add(value == null ? null : round(value));
             }
             series.put(key, values);
         });
@@ -88,14 +90,16 @@ public final class ResourceHistory {
         return new Series(period, step, Instant.ofEpochMilli(since), persistent, timestamps, series);
     }
 
-    private static void add(Map<String, double[]> sums, long index, int points, Map<String, Double> values) {
+    /** One key's buckets: the first half holds folded values, the second half sample counts. */
+    private record Bucket(ResourceMeters.Rollup rollup, double[] cells) { }
+
+    private static void add(Map<String, Bucket> buckets, long index, int points, Map<String, Double> values) {
         if (index < 0 || index >= points) return;
         values.forEach((key, value) -> {
             if (value == null || !Double.isFinite(value)) return;
-            // First half holds sums, second half sample counts.
-            double[] cells = sums.computeIfAbsent(key, ignored -> new double[points * 2]);
-            cells[(int) index] += value;
-            cells[points + (int) index]++;
+            Bucket bucket = buckets.computeIfAbsent(key,
+                    ignored -> new Bucket(ResourceMeters.rollup(key), new double[points * 2]));
+            ResourceMeters.fold(bucket.rollup(), bucket.cells(), (int) index, points, value);
         });
     }
 

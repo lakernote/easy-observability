@@ -1,12 +1,13 @@
 package io.github.lakernote.meerkat.metrics.internal;
 
+import io.github.lakernote.meerkat.metrics.internal.ResourceMeters.Kind;
+import io.github.lakernote.meerkat.metrics.internal.ResourceMeters.Spec;
 import io.micrometer.core.instrument.Clock;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.FunctionCounter;
 import io.micrometer.core.instrument.FunctionTimer;
 import io.micrometer.core.instrument.Gauge;
-import io.micrometer.core.instrument.LongTaskTimer;
 import io.micrometer.core.instrument.Meter;
 import io.micrometer.core.instrument.TimeGauge;
 import io.micrometer.core.instrument.Timer;
@@ -20,60 +21,73 @@ import java.time.Duration;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 /**
- * A Micrometer registry that Spring Boot binds like any other, so the JVM, process, Hikari, Tomcat and executor
- * meters it already configures are recorded without extra instrumentation. It accepts only a fixed list of meters
- * plus the configured {@code include} names, and once a minute hands their values to {@link ResourceHistory}.
+ * A Micrometer registry that Spring Boot binds like any other, so the JVM, process, Hikari, Tomcat, executor and
+ * disk meters it already configures are recorded without extra instrumentation. It accepts only the meters listed in
+ * {@link ResourceMeters} and once a minute hands their values to {@link ResourceHistory}. Spring Boot's
+ * {@code http.server.requests} timers are collapsed into response status classes by {@link HttpStatusClasses}, and
+ * {@link ExecutorRejections} adds the tasks each thread pool rejected.
  *
- * <p>Series are keyed by meter name, plus the pool, executor or memory-area tag where one matters; values of other
- * tagged series are summed. Counters and timers report the last minute, so {@code jvm.gc.pause.count} is GC pauses
- * per minute.</p>
+ * <p>Saturation gauges (CPU, busy threads, active and pending connections, queued tasks) are also read every
+ * {@value #LEVEL_SECONDS} seconds, so a burst that clears within the minute still shows as its peak. Counters and
+ * timers report the last minute. Timer maxima cover the last 60 to 80 seconds: Micrometer keeps them in a ring of
+ * {@value #MAX_BUFFERS} windows rotated every {@value #MAX_ROTATE_SECONDS} seconds.</p>
  */
 public final class ResourceMetricsRegistry extends StepMeterRegistry {
     static final Duration STEP = Duration.ofMinutes(1);
-    static final int MAX_GROUPS_PER_METER = 16;
-    static final int MAX_SERIES = 256;
-    static final String OTHER_GROUP = "other";
+    static final int LEVEL_SECONDS = 10;
+    static final int MAX_ROTATE_SECONDS = 20;
+    static final int MAX_BUFFERS = 4;
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(ResourceMetricsRegistry.class);
 
-    /** Built-in meters and the tag that splits each into separate series, or {@code ""} to sum all. */
-    static final Map<String, String> BUILT_IN = builtIn();
-
     private final ResourceHistory history;
-    private final List<String> include;
     private final Map<String, Set<String>> groups = new HashMap<>();
-    private volatile boolean publishFailureLogged;
+    /** Per level key: sum, sample count and max of the readings taken this minute. */
+    private final Map<String, double[]> levels = new LinkedHashMap<>();
+    private ScheduledExecutorService levelSampler;
+    private volatile boolean failureLogged;
 
-    public ResourceMetricsRegistry(ResourceHistory history, List<String> include) {
-        this(history, include, Clock.SYSTEM);
+    /** {@code rejections} may be null, for example outside a Spring application context. */
+    public ResourceMetricsRegistry(ResourceHistory history, ExecutorRejections rejections) {
+        this(history, rejections, Clock.SYSTEM);
     }
 
-    ResourceMetricsRegistry(ResourceHistory history, List<String> include, Clock clock) {
+    ResourceMetricsRegistry(ResourceHistory history, ExecutorRejections rejections, Clock clock) {
         super(new Config(), clock);
         this.history = history;
-        this.include = include == null ? List.of() : include.stream()
-                .filter(name -> name != null && !name.isBlank()).map(String::strip).toList();
-        config().meterFilter(MeterFilter.denyUnless(id -> accepts(id.getName())));
+        config().meterFilter(new HttpStatusClasses());
+        config().meterFilter(MeterFilter.denyUnless(id -> ResourceMeters.spec(id.getName()) != null));
         config().meterFilter(MeterFilter.maximumAllowableMetrics(1024));
+        if (rejections != null) rejections.bindTo(this);
     }
 
-    /** Starts publishing once a minute on a daemon thread. */
-    public void startPublishing() {
+    /** Starts publishing once a minute and reading saturation gauges every few seconds, on daemon threads. */
+    public synchronized void startPublishing() {
         start(new NamedThreadFactory("meerkat-metrics-publish"));
+        if (levelSampler != null) return;
+        levelSampler = Executors.newSingleThreadScheduledExecutor(new NamedThreadFactory("meerkat-metrics-sample"));
+        levelSampler.scheduleAtFixedRate(() -> {
+            try {
+                sampleLevels();
+            } catch (RuntimeException failure) {
+                logOnce(failure);
+            }
+        }, LEVEL_SECONDS, LEVEL_SECONDS, TimeUnit.SECONDS);
     }
 
-    boolean accepts(String name) {
-        if (name == null) return false;
-        if (BUILT_IN.containsKey(name)) return true;
-        for (String prefix : include) {
-            if (name.equals(prefix) || name.startsWith(prefix.endsWith(".") ? prefix : prefix + ".")) return true;
+    @Override
+    public void stop() {
+        synchronized (this) {
+            if (levelSampler != null) levelSampler.shutdownNow();
+            levelSampler = null;
         }
-        return false;
+        super.stop();
     }
 
     @Override
@@ -82,75 +96,108 @@ public final class ResourceMetricsRegistry extends StepMeterRegistry {
             long minute = Math.floorDiv(clock.wallTime(), STEP.toMillis()) * STEP.toMillis();
             history.record(minute, sample());
         } catch (RuntimeException failure) {
-            if (!publishFailureLogged) {
-                publishFailureLogged = true;
-                log.warn("Meerkat could not record resource metrics: {}", failure.toString());
-            }
+            logOnce(failure);
         }
     }
 
-    /** Reads every accepted meter once and sums values per series key. */
-    synchronized Map<String, Double> sample() {
-        Map<String, Double> values = new LinkedHashMap<>();
+    /** Reads the saturation gauges once and adds the readings to this minute's average and peak. */
+    synchronized void sampleLevels() {
+        Map<String, Double> reading = new HashMap<>();
         for (Meter meter : getMeters()) {
-            String name = meter.getId().getName();
-            String key = key(meter.getId());
-            if (key == null) continue;
-            if (meter instanceof TimeGauge gauge) {
-                put(values, key, name, gauge.value(TimeUnit.MILLISECONDS));
-            } else if (meter instanceof Gauge gauge) {
-                put(values, key, name, gauge.value());
-            } else if (meter instanceof Counter counter) {
-                put(values, key, name, counter.count());
-            } else if (meter instanceof FunctionCounter counter) {
-                put(values, key, name, counter.count());
-            } else if (meter instanceof Timer timer) {
-                put(values, key + ".count", name, timer.count());
-                put(values, key + ".time", name, timer.totalTime(TimeUnit.MILLISECONDS));
-            } else if (meter instanceof FunctionTimer timer) {
-                put(values, key + ".count", name, timer.count());
-                put(values, key + ".time", name, timer.totalTime(TimeUnit.MILLISECONDS));
-            } else if (meter instanceof LongTaskTimer timer) {
-                put(values, key, name, timer.activeTasks());
-            } else if (meter instanceof DistributionSummary summary) {
-                put(values, key + ".count", name, summary.count());
-                put(values, key + ".total", name, summary.totalAmount());
+            Spec spec = ResourceMeters.spec(meter.getId().getName());
+            if (spec == null || spec.kind() != Kind.LEVEL || !(meter instanceof Gauge gauge)) continue;
+            double value = gauge.value();
+            if (spec.skips(value)) continue;
+            String key = key(spec, meter.getId());
+            reading.merge(key, value, Double::sum);
+        }
+        reading.forEach((key, value) -> {
+            double[] level = levels.computeIfAbsent(key, ignored -> new double[] {0, 0, Double.NEGATIVE_INFINITY});
+            level[0] += value;
+            level[1]++;
+            level[2] = Math.max(level[2], value);
+        });
+    }
+
+    /** Reads every accepted meter and returns this minute's values per series key. */
+    synchronized Map<String, Double> sample() {
+        sampleLevels();
+        Map<String, Double> values = new LinkedHashMap<>();
+        levels.forEach((key, level) -> {
+            values.put(key, level[0] / level[1]);
+            values.put(key + "@" + ResourceMeters.MAX, level[2]);
+        });
+        levels.clear();
+        for (Meter meter : getMeters()) {
+            Spec spec = ResourceMeters.spec(meter.getId().getName());
+            if (spec == null || spec.kind() == Kind.LEVEL) continue;
+            String key = key(spec, meter.getId());
+            switch (spec.kind()) {
+                case GAUGE, LATEST -> {
+                    if (meter instanceof TimeGauge gauge) sum(values, spec, key, gauge.value(TimeUnit.MILLISECONDS));
+                    else if (meter instanceof Gauge gauge) sum(values, spec, key, gauge.value());
+                }
+                case COUNTER -> {
+                    if (meter instanceof Counter counter) sum(values, spec, key, counter.count());
+                    else if (meter instanceof Timer timer) sum(values, spec, key, timer.count());
+                    else if (meter instanceof FunctionCounter counter) sum(values, spec, key, counter.count());
+                    else if (meter instanceof DistributionSummary summary) {
+                        sum(values, spec, key, summary.totalAmount());
+                    }
+                }
+                case TIMER -> {
+                    if (meter instanceof Timer timer) {
+                        timer(values, spec, key, timer.count(), timer.totalTime(TimeUnit.MILLISECONDS));
+                        double max = timer.max(TimeUnit.MILLISECONDS);
+                        if (Double.isFinite(max)) values.merge(key + "@" + ResourceMeters.MAX, max, Math::max);
+                    } else if (meter instanceof FunctionTimer timer) {
+                        timer(values, spec, key, timer.count(), timer.totalTime(TimeUnit.MILLISECONDS));
+                    }
+                }
+                default -> { }
             }
         }
         return values;
     }
 
-    private static void put(Map<String, Double> values, String key, String name, double value) {
-        if (!Double.isFinite(value)) return;
-        // Unbounded limits are reported as -1, Integer.MAX_VALUE or Long.MAX_VALUE; none of them is plottable.
-        if (name.endsWith(".max") && (value < 0 || value == Integer.MAX_VALUE || value >= Long.MAX_VALUE / 2)) return;
-        if (!values.containsKey(key) && values.size() >= MAX_SERIES) return;
-        values.merge(key, value, Double::sum);
+    private static void timer(Map<String, Double> values, Spec spec, String key, double count, double totalMillis) {
+        sum(values, spec, key + "@" + ResourceMeters.COUNT, count);
+        sum(values, spec, key + "@" + ResourceMeters.TOTAL, totalMillis);
     }
 
-    private String key(Meter.Id id) {
-        String name = sanitize(id.getName());
-        String groupTag = BUILT_IN.getOrDefault(id.getName(), "");
-        if (groupTag.isEmpty()) return name;
-        String group = id.getTag(groupTag);
-        if (group == null || group.isBlank()) return name;
+    private static void sum(Map<String, Double> values, Spec spec, String key, double value) {
+        if (!spec.skips(value)) values.merge(key, value, Double::sum);
+    }
+
+    private String key(Spec spec, Meter.Id id) {
+        if (spec.tag().isEmpty()) return spec.name();
+        String group = id.getTag(spec.tag());
+        if (group == null || group.isBlank()) return spec.name();
         String clean = sanitize(group);
-        Set<String> known = groups.computeIfAbsent(name, ignored -> new LinkedHashSet<>());
+        Set<String> known = groups.computeIfAbsent(spec.name(), ignored -> new LinkedHashSet<>());
         if (!known.contains(clean)) {
-            if (known.size() >= MAX_GROUPS_PER_METER) return name + ":" + OTHER_GROUP;
+            if (known.size() >= ResourceMeters.MAX_GROUPS) return spec.name() + ":" + ResourceMeters.OTHER_GROUP;
             known.add(clean);
         }
-        return name + ":" + clean;
+        return spec.name() + ":" + clean;
     }
 
-    /** Keeps keys safe for the archive's {@code key=value;key=value} lines. */
+    /** Keeps groups safe for series keys and the archive's {@code key=value;key=value} lines. */
     static String sanitize(String value) {
         StringBuilder clean = new StringBuilder(Math.min(value.length(), 64));
         for (int i = 0; i < value.length() && clean.length() < 64; i++) {
             char c = value.charAt(i);
-            clean.append(Character.isLetterOrDigit(c) && c < 128 || c == '.' || c == '-' || c == '_' ? c : '_');
+            clean.append(Character.isLetterOrDigit(c) && c < 128 || c == '.' || c == '-' || c == '_' || c == '/'
+                    ? c : '_');
         }
         return clean.toString();
+    }
+
+    private void logOnce(RuntimeException failure) {
+        if (!failureLogged) {
+            failureLogged = true;
+            log.warn("Meerkat could not record resource metrics: {}", failure.toString());
+        }
     }
 
     @Override
@@ -160,33 +207,9 @@ public final class ResourceMetricsRegistry extends StepMeterRegistry {
 
     @Override
     protected DistributionStatisticConfig defaultHistogramConfig() {
-        return DistributionStatisticConfig.builder().percentilesHistogram(false).expiry(STEP).build()
+        return DistributionStatisticConfig.builder().percentilesHistogram(false)
+                .expiry(Duration.ofSeconds(MAX_ROTATE_SECONDS)).bufferLength(MAX_BUFFERS).build()
                 .merge(DistributionStatisticConfig.DEFAULT);
-    }
-
-    private static Map<String, String> builtIn() {
-        Map<String, String> meters = new LinkedHashMap<>();
-        for (String name : List.of("process.cpu.usage", "system.cpu.usage", "system.load.average.1m",
-                "process.files.open", "process.files.max", "jvm.threads.live", "jvm.threads.daemon",
-                "jvm.threads.peak", "jvm.classes.loaded", "jvm.gc.pause", "jvm.gc.memory.allocated",
-                "tomcat.threads.busy", "tomcat.threads.current", "tomcat.threads.config.max",
-                "tomcat.sessions.active.current", "jetty.threads.busy", "jetty.threads.current",
-                "jetty.threads.config.max")) {
-            meters.put(name, "");
-        }
-        for (String name : List.of("jvm.memory.used", "jvm.memory.committed", "jvm.memory.max")) {
-            meters.put(name, "area");
-        }
-        for (String name : List.of("hikaricp.connections.active", "hikaricp.connections.idle",
-                "hikaricp.connections.pending", "hikaricp.connections.max", "hikaricp.connections.timeout",
-                "hikaricp.connections.acquire")) {
-            meters.put(name, "pool");
-        }
-        for (String name : List.of("executor.active", "executor.queued", "executor.pool.size", "executor.pool.max",
-                "executor.completed")) {
-            meters.put(name, "name");
-        }
-        return Map.copyOf(meters);
     }
 
     private static final class Config implements StepRegistryConfig {

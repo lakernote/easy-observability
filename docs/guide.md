@@ -37,7 +37,7 @@ CI runs the following combinations on every commit. Middleware tests start real 
 | Remote HTTP | Client call span, trace ID propagated in a request header | `RestTemplate`, `RestClient` (including beans created with `new RestTemplate()` or `RestClient.create()`), `@FeignClient` and `OkHttpClient` beans are instrumented automatically. Clients created inside methods, the JDK `HttpClient` and other non-bean clients are not |
 | Async executors | Task latency, errors and propagation of the active trace context | The Spring Boot default executor and `ThreadPoolTaskExecutor` / `SimpleAsyncTaskExecutor` beans are instrumented automatically; a plain JDK `ExecutorService` must be wrapped by hand. Background tasks that keep running after the request returned do not extend the completed entry trace |
 | Operation statistics | Count, errors, average/P95/max and total latency per HTTP endpoint, SQL template, remote call, Redis command, scheduled job and Kafka topic, with trends over time; average CPU time and allocation for HTTP, job and Kafka-consumer entries | Every call is counted, slow or not. Shares the instrumentation with tracing, see [Runtime metrics](#runtime-metrics) |
-| Resource metrics | JVM memory and GC, CPU, threads, Hikari pools, executors, Tomcat and other meters Spring Boot already binds, plus custom meters listed in `metrics.include` | Sampled once a minute, see [Runtime metrics](#runtime-metrics) |
+| Resource metrics | A fixed set of meters Spring Boot already binds: JVM memory and GC, CPU, threads, Hikari pools, executors, Tomcat/Jetty, disk | Recorded once a minute; saturation meters sampled every 10 seconds, see [Runtime metrics](#runtime-metrics) |
 
 Use `TraceBlock` or `@TraceSpan` for custom business boundaries. Meerkat does not scan your services to create spans automatically.
 
@@ -67,7 +67,6 @@ Common settings are listed below; anything not listed keeps the starter default.
 | `meerkat.metrics.max-operations` | `1000` | Maximum operations tracked across all categories. Beyond it, new operations go to an "other" row per category; operations without calls for 2 hours release their slot |
 | `meerkat.metrics.retention` | `30d` | Metric history retention, whole days from `1d` to `365d` |
 | `meerkat.metrics.max-storage-size` | `64MB` | Disk limit for metric history; the oldest days are deleted beyond it |
-| `meerkat.metrics.include` | empty | Extra custom Micrometer meter names or name prefixes to record, e.g. `orders` matches `orders` and `orders.*` |
 | `meerkat.web.enabled` | `true` | Dashboard and query API |
 
 Example:
@@ -77,7 +76,6 @@ meerkat:
   metrics:
     retention: 30d
     max-storage-size: 64MB
-    include: orders, payment.
   trace:
     http-slow-threshold: 500ms
     job-slow-threshold: 1s
@@ -107,7 +105,7 @@ Invalid settings such as `retention` or `max-storage-size` stop the application 
 Runtime metrics answer "how is this instance doing overall, and which operations are slowest or busiest"; trace diagnostics answer "where did this request spend its time". They share instrumentation but are independent: metrics cover every call, traces keep only slow, failed or resource-heavy requests. There are two metric pages:
 
 - **Operations** (`/meerkat/stats/`): per category, each operation's call count, errors and error rate, average latency, P95, max latency, total latency and its share of the category; click a column header to sort and a row to expand its count and latency trend. HTTP, job and Kafka-consumer entries also show average entry-thread CPU time and allocation per call, to find CPU-hungry endpoints and endpoints that allocate heavily and cause frequent GC. These values reuse data the entries already collect, so they add no overhead; requests that switch to async processing are not counted. Good for "which endpoint takes the most time", "which SQL runs most often", "which remote service fails most", "which endpoint uses the most CPU or memory".
-- **Metrics** (`/meerkat/metrics/`): JVM memory and GC, CPU, threads, Hikari pools (including average connection acquire time), executors and other resource charts. Per-operation trends are in the Operations page.
+- **Metrics** (`/meerkat/metrics/`): a service overview (HTTP requests, error rate, latency and dependency latency, reusing the operation statistics) followed by CPU, memory, GC, threads, executors, Hikari pools, web connections and traffic, disk and uptime charts, so a symptom can be traced to its cause. Per-operation trends are in the Operations page.
 
 ### Operation statistics
 
@@ -127,26 +125,36 @@ Runtime metrics answer "how is this instance doing overall, and which operations
 
 ### Resource metrics
 
-Resource metrics come from the Micrometer meters Spring Boot already binds; Meerkat does not read JMX itself or instrument anything twice. The starter registers a registry that only accepts the meters below and samples them once a minute:
+Resource metrics come from the Micrometer meters Spring Boot already binds; Meerkat does not read JMX itself or instrument anything twice. The starter registers a registry that only accepts the fixed meters below (the list is not configurable) and records them once a minute:
 
 | Meter | Split by |
 | --- | --- |
 | `jvm.memory.used/committed/max` | `heap` / `nonheap` |
-| `jvm.gc.pause` (count and total time per minute), `jvm.gc.memory.allocated`, `jvm.threads.*`, `jvm.classes.loaded` | Total |
-| `process.cpu.usage`, `system.cpu.usage`, `system.load.average.1m`, `process.files.open/max` | Total |
-| `hikaricp.connections.active/idle/pending/max/timeout/acquire` | Pool |
-| `executor.active/queued/pool.size/pool.max/completed` | Executor |
-| `tomcat.threads.busy/current/config.max`, `tomcat.sessions.active.current`, `jetty.threads.*` | Total |
+| `jvm.buffer.memory.used` | Buffer pool (`direct` / `mapped`) |
+| `jvm.gc.pause` (count, total and longest pause) | GC action (Young / Old/Full, other collectors by their own name) |
+| `jvm.gc.live.data.size/max.data.size`, `jvm.memory.usage.after.gc`, `jvm.gc.overhead`, `jvm.gc.memory.allocated/promoted` | Total |
+| `jvm.threads.live/daemon/peak`, `jvm.classes.loaded`, `process.uptime`, `process.files.open/max` | Total |
+| `process.cpu.usage`, `system.cpu.usage`, `system.cpu.count`, `system.load.average.1m` | Total |
+| `disk.free/total` | Path |
+| `hikaricp.connections.active/idle/pending/max/timeout`, `hikaricp.connections.acquire/usage` (average and max) | Pool |
+| `executor.active/queued/queue.remaining/pool.size/pool.core/pool.max/completed` | Executor |
+| `meerkat.executor.rejected` (tasks rejected by a `ThreadPoolTaskExecutor` bean, including ones its policy runs on the caller; the policy itself is unchanged and rejections after shutdown are not counted) | Executor |
+| `http.server.requests` (Spring Boot's own meter, reused; Meerkat's own pages are excluded) | Status class: 2xx/3xx/4xx/429/5xx |
+| `tomcat.threads.*`, `tomcat.connections.current/keepalive.current/config.max`, `tomcat.global.received/sent`, `tomcat.sessions.active.current`, `jetty.threads.*`, `jetty.connections.current/bytes.in/bytes.out` | Total |
 
-- Custom meters in `metrics.include` are summed by name into one line; counters and timers show the per-minute increase. Each meter is split by at most 16 pools or executors, with at most 256 lines in total.
-- Unbounded pools and resources (limit `-1` or `Integer.MAX_VALUE`) have no limit line.
+- Saturation meters (CPU usage, busy threads, active and pending connections, executor active and queued, current HTTP connections) are read every 10 seconds; each minute keeps their average and peak, so short bursts are not lost. Other gauges are read once a minute.
+- Counters and timers are recorded as the increase per minute; timers also keep the longest single event of the minute.
+- Over longer ranges and in compacted history each series is combined by its meaning: counts, times and traffic are summed (charts show the amount per point), peaks take the maximum, limits take the latest value and other gauges are averaged.
+- Each meter is split into at most 8 pools, executors or paths; the rest are added to an "other" line. Since the meter list is fixed, the number of lines has a small static upper bound and nothing is dropped silently.
+- Unbounded pools, queues and resources (limit `-1` or `Integer.MAX_VALUE`) have no limit or capacity line.
+- The HTTP error rate counts exceptions and 5xx responses. 4xx responses are not errors, but the response status chart shows them, with 429 split out because it usually means rate limiting. That chart needs `http.server.requests`, which Spring Boot Actuator records by default.
 - Spring Boot binds Tomcat thread meters only when Tomcat registers MBeans, so the starter defaults `server.tomcat.mbeanregistry.enabled` to `true` (lowest precedence: an explicit application setting wins; not set when `metrics.enabled` is off). This costs Tomcat a little extra memory.
 
 ### Storage
 
 Operation statistics are written in 10-minute slices and resource metrics once a minute, appended to `metrics/operations-yyyyMMdd.tsv` and `metrics/resources-yyyyMMdd.tsv` in the storage directory. A graceful shutdown writes the current partial slice, so every window survives restarts: at startup the last hour's slices are read back, and the pre-restart part of minute charts is spread evenly over each 10 minutes. If the process is killed, at most about 10 minutes of operation statistics are lost.
 
-- Files older than two days are compacted once: operation statistics into one line per hour, resource metrics into 10-minute averages, so 30 days of data is usually only a few MB.
+- Files older than two days are compacted once: operation statistics into one line per hour, resource metrics into 10-minute buckets combined as described above, so 30 days of data is usually only a few MB.
 - Days older than `metrics.retention` are deleted; when the total exceeds `metrics.max-storage-size`, the oldest days are deleted.
 - When the storage directory is unavailable (owned by another instance or not writable), data stays in memory only, longer windows only cover the last 2 hours, and the dashboard says so.
 - Each instance stores its own data; nothing is aggregated across instances. When `canClear()` allows it, the Operations page shows "Reset stats", which clears operation statistics in memory and on disk; resource metric history is kept.

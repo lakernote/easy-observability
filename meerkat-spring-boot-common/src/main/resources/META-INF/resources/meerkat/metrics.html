@@ -6,7 +6,7 @@
   <meta name="color-scheme" content="light">
   <title>Meerkat · 指标趋势</title>
   <link rel="icon" type="image/png" href="../assets/meerkat-icon.png?v=20261106.12">
-  <script defer src="../assets/i18n.js?v=20261106.11"></script>
+  <script defer src="../assets/i18n.js?v=20261106.14"></script>
   <link rel="stylesheet" href="../assets/dashboard.css?v=20261106.11">
   <link rel="stylesheet" href="../assets/uplot.min.css?v=1.6.32">
   <link rel="stylesheet" href="../assets/metrics.css?v=20261106.11">
@@ -33,8 +33,8 @@
     <section class="intro">
       <p class="eyebrow">RUNTIME METRICS</p>
       <h1>指标趋势</h1>
-      <p>查看 JVM 内存、GC、CPU、线程、连接池和线程池等资源指标的走势；单个接口、SQL 的调用量和耗时趋势在“调用排行”中点开一行查看。资源指标直接读取 Spring Boot 已经配置好的 Micrometer 指标，不改变应用原有的指标导出。</p>
-      <p class="metric-semantics">资源指标是每分钟采样，较长范围取平均；GC 次数和停顿时间是每分钟的量。点击图例可开关曲线，点击分组标题可展开或收起。</p>
+      <p>先看服务概览的请求量、错误率和耗时，再对照 CPU、内存、GC、线程池、连接池和磁盘等资源指标定位原因；单个接口、SQL 的调用量和耗时趋势在“调用排行”中点开一行查看。资源指标直接读取 Spring Boot 已经配置好的 Micrometer 指标，不改变应用原有的指标导出。</p>
+      <p class="metric-semantics">资源指标每分钟记录一次，CPU、忙碌线程、活跃连接、排队等饱和度指标每 10 秒采样，同时记录平均值和峰值。较长范围内，次数和流量求和，峰值取最大，上限取最新值，其余取平均。点击图例可开关曲线，点击分组标题可展开或收起。</p>
     </section>
     <nav class="sub-nav" aria-label="运行指标视图">
       <a href="../stats/">调用排行</a>
@@ -48,9 +48,9 @@
     <div class="metric-group-actions"><button id="expand-all" type="button">全部展开</button><button id="collapse-all" type="button">全部收起</button></div>
     <section id="metric-groups" class="metric-groups" aria-live="polite"></section>
     <p id="empty" class="metrics-empty" hidden></p>
-    <footer>每个实例各自保存历史，位于存储目录的 metrics/ 下：最近 2 天保留细粒度数据，更早的按小时（调用）或 10 分钟（资源）合并；保留天数和容量上限由 meerkat.metrics.retention 和 max-storage-size 决定。可用 meerkat.metrics.include 追加自定义 Micrometer 指标。</footer>
+    <footer>每个实例各自保存历史，位于存储目录的 metrics/ 下：最近 2 天保留细粒度数据，更早的按小时（调用）或 10 分钟（资源）合并；保留天数和容量上限由 meerkat.metrics.retention 和 max-storage-size 决定。</footer>
   </main>
   <script src="../assets/uplot.min.js?v=1.6.32"></script>
-  <script type="module" src="../assets/metrics.js?v=20261106.11"></script>
+  <script type="module" src="../assets/metrics.js?v=20261106.14"></script>
 </body>
 </html>
