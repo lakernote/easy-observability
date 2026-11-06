@@ -1,6 +1,8 @@
 **/target/
 **/.flattened-pom.xml
-**/data/
+/data/
+/*/data/
+/examples/*/data/
 .idea/
 .vscode/
 *.iml
