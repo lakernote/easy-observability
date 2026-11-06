@@ -139,6 +139,26 @@ class OperationStatsTest {
     }
 
     @Test
+    void namesIdleForTwoHoursGiveTheirSlotBack() {
+        OperationStats limited = new OperationStats(2, clock::get);
+        limited.record(Category.REMOTE, "GET a", ms(1), false);
+        limited.record(Category.REMOTE, "GET b", ms(1), false);
+        clock.addAndGet(60 * MINUTE);
+        limited.record(Category.REMOTE, "GET b", ms(1), false);
+        limited.evictIdle();
+        assertThat(limited.snapshot(Window.HOUR).keys()).isEqualTo(2);
+
+        clock.addAndGet(70 * MINUTE);
+        limited.evictIdle();
+        assertThat(limited.snapshot(Window.HOUR).keys()).isEqualTo(1);
+        limited.record(Category.REMOTE, "GET c", ms(1), false);
+
+        assertThat(category(limited, Window.HOUR, Category.REMOTE).rows()).extracting(Row::name)
+                .containsExactly("GET c");
+        assertThat(limited.snapshot(Window.HOUR).keys()).isEqualTo(2);
+    }
+
+    @Test
     void mergesOperationsBeyondTheKeyLimitIntoOneOverflowRowPerCategory() {
         OperationStats limited = new OperationStats(2, clock::get);
         limited.record(Category.HTTP, "a", ms(1), false);

@@ -36,7 +36,7 @@ final class ObservationAttributes {
         }
         if (type == ObservationType.HTTP) {
             String route = lowCardinality(context, "http.route");
-            if (route.isBlank()) route = detail;
+            if (route.isBlank()) route = withoutQuery(detail);
             String method = firstLowCardinality(context, "http.request.method", "http.method", "method");
             if (method.isBlank() && !"http.server.requests".equals(operation)) method = operation;
             if (!route.isBlank()) return safe(route + (method.isBlank() ? "" : " · " + method), 256);
@@ -90,7 +90,18 @@ final class ObservationAttributes {
     }
 
     private static String meaningful(String uri) {
-        return "none".equalsIgnoreCase(uri) ? "" : uri;
+        return "none".equalsIgnoreCase(uri) ? "" : withoutQuery(uri);
+    }
+
+    /** Clients without a URI template report the raw URL; its query and fragment would add a row per call and may carry tokens. */
+    static String withoutQuery(String uri) {
+        if (uri == null) return "";
+        int end = uri.length();
+        int query = uri.indexOf('?');
+        if (query >= 0) end = query;
+        int fragment = uri.indexOf('#');
+        if (fragment >= 0 && fragment < end) end = fragment;
+        return uri.substring(0, end);
     }
 
     static String detail(Observation.Context context, ObservationType type) {

@@ -82,6 +82,23 @@ class ObservationTraceHandlerStatsTest {
     }
 
     @Test
+    void remoteStatisticsDropQueryStringAndFragment() {
+        for (String token : new String[] {"a", "b"}) {
+            Observation.createNotStarted("http.client.requests", registry)
+                    .lowCardinalityKeyValue("method", "GET")
+                    .lowCardinalityKeyValue("client.name", "api.example.com")
+                    .lowCardinalityKeyValue("uri", "/users?token=" + token + "#top")
+                    .start().stop();
+        }
+
+        assertThat(rows(Category.REMOTE)).singleElement().satisfies(row -> {
+            assertThat(row.name()).isEqualTo("GET api.example.com /users");
+            assertThat(row.count()).isEqualTo(2);
+        });
+        assertThat(ObservationAttributes.withoutQuery("/a#x?y")).isEqualTo("/a");
+    }
+
+    @Test
     void kafkaStatisticsNeverUsePerMessageValues() {
         for (int offset = 0; offset < 3; offset++) {
             Observation.createNotStarted("spring.kafka.listener", registry)

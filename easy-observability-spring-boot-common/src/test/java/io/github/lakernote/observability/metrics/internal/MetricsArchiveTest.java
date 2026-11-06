@@ -57,6 +57,21 @@ class MetricsArchiveTest {
     }
 
     @Test
+    void evictedIdleNamesKeepTheirSavedHistory() {
+        OperationStats stats = stats(1);
+        stats.record(Category.HTTP, "/a · GET", ms(10), false);
+        clock.addAndGet(20 * MINUTE);
+        stats.flush(false);
+        clock.addAndGet(110 * MINUTE);
+        stats.evictIdle();
+        assertThat(stats.snapshot(Window.TODAY).keys()).isZero();
+        stats.record(Category.HTTP, "/b · GET", ms(10), false);
+
+        assertThat(row(stats, Window.HOUR, Category.HTTP).name()).isEqualTo("/b · GET");
+        assertThat(category(stats, Window.TODAY, Category.HTTP).count()).isEqualTo(2);
+    }
+
+    @Test
     void restartsKeepTheDayAndSumRepeatedSlices() {
         OperationStats first = stats(100);
         first.record(Category.SQL, "SELECT * FROM t WHERE id IN (?…)", ms(5), false);

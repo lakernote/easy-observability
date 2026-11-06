@@ -42,6 +42,8 @@ public final class OperationStats implements AutoCloseable {
     private static final int HOUR_SLICES = (int) (HOUR_MILLIS / SLICE_MILLIS);
     /** A little more than one hour of minutes, so the oldest displayed minute is never being overwritten. */
     static final int MINUTES = 64;
+    /** Names without a call for this many slices (2 hours) have left every in-memory window and give up their slot. */
+    static final int IDLE_SLICES = SLICES;
     private static final long FLUSH_INTERVAL_SECONDS = 60;
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(OperationStats.class);
 
@@ -196,9 +198,9 @@ public final class OperationStats implements AutoCloseable {
         this.collecting = collecting;
     }
 
-    /** Starts the background flush and daily compaction when an archive is configured. */
+    /** Starts the background idle eviction, plus flush and daily compaction when an archive is configured. */
     public synchronized void start() {
-        if (archive == null || flusher != null) return;
+        if (flusher != null) return;
         flusher = Executors.newSingleThreadScheduledExecutor(runnable -> {
             Thread thread = new Thread(runnable, "easy-observability-metrics-flush");
             thread.setDaemon(true);
@@ -208,6 +210,7 @@ public final class OperationStats implements AutoCloseable {
         flusher.scheduleWithFixedDelay(() -> {
             try {
                 flush(false);
+                evictIdle();
                 compactIfNewDay();
             } catch (RuntimeException failure) {
                 log.warn("Easy Observability could not flush operation metrics: {}", failure.toString());
@@ -242,8 +245,10 @@ public final class OperationStats implements AutoCloseable {
         long nanos = Math.max(0, durationNanos);
         boolean measured = cpuNanos >= 0 && allocatedBytes >= 0;
         long now = clockMillis.getAsLong();
-        Operation operation = operation(operations.get(category), normalizeName(name));
-        Aggregate slice = operation.slice(Math.floorDiv(now, SLICE_MILLIS));
+        long currentSlice = Math.floorDiv(now, SLICE_MILLIS);
+        Operation operation = operation(operations.get(category), normalizeName(name), currentSlice);
+        operation.touch(currentSlice);
+        Aggregate slice = operation.slice(currentSlice);
         if (slice != null) slice.cells.add(nanos, error, measured, cpuNanos, allocatedBytes, true);
         Minute minute = operation.minute(Math.floorDiv(now, MINUTE_MILLIS));
         if (minute != null) minute.cells.add(nanos, error, measured, cpuNanos, allocatedBytes, false);
@@ -332,6 +337,23 @@ public final class OperationStats implements AutoCloseable {
             }
             if (!archive.appendOperations(slice * SLICE_MILLIS, rows, today)) return;
             flushedThroughSlice = slice;
+        }
+    }
+
+    /**
+     * Drops names idle for {@link #IDLE_SLICES} so new names get their slots back. Their slices have already left
+     * the in-memory ring, which is also the flush window, so no view loses data. A call racing with the eviction of
+     * a name idle for two hours may be lost; that is accepted to keep {@link #record} lock-free.
+     */
+    synchronized void evictIdle() {
+        long idleBefore = Math.floorDiv(clockMillis.getAsLong(), SLICE_MILLIS) - IDLE_SLICES + 1;
+        for (ConcurrentHashMap<String, Operation> map : operations.values()) {
+            for (Map.Entry<String, Operation> entry : map.entrySet()) {
+                if (entry.getValue().lastSlice >= idleBefore) continue;
+                if (map.remove(entry.getKey(), entry.getValue()) && !OVERFLOW_NAME.equals(entry.getKey())) {
+                    keys.decrementAndGet();
+                }
+            }
         }
     }
 
@@ -515,14 +537,14 @@ public final class OperationStats implements AutoCloseable {
         cells[COUNT] = count;
     }
 
-    private Operation operation(ConcurrentHashMap<String, Operation> map, String name) {
+    private Operation operation(ConcurrentHashMap<String, Operation> map, String name, long currentSlice) {
         Operation existing = map.get(name);
         if (existing != null) return existing;
         // The check is racy by design: a few concurrent first-time names may exceed the cap slightly.
-        if (keys.get() >= maxKeys) return map.computeIfAbsent(OVERFLOW_NAME, ignored -> new Operation());
+        if (keys.get() >= maxKeys) return map.computeIfAbsent(OVERFLOW_NAME, ignored -> new Operation(currentSlice));
         return map.computeIfAbsent(name, ignored -> {
             keys.incrementAndGet();
-            return new Operation();
+            return new Operation(currentSlice);
         });
     }
 
@@ -587,6 +609,16 @@ public final class OperationStats implements AutoCloseable {
     private static final class Operation {
         private final AtomicReferenceArray<Aggregate> slices = new AtomicReferenceArray<>(SLICES);
         private final AtomicReferenceArray<Minute> minutes = new AtomicReferenceArray<>(MINUTES);
+        /** The newest slice that recorded a call; only ever moves forward. */
+        private volatile long lastSlice;
+
+        private Operation(long slice) {
+            lastSlice = slice;
+        }
+
+        private void touch(long slice) {
+            if (lastSlice < slice) lastSlice = slice;
+        }
 
         /** Returns the aggregate for {@code slice}, or null when a newer slice already owns the ring position. */
         private Aggregate slice(long slice) {

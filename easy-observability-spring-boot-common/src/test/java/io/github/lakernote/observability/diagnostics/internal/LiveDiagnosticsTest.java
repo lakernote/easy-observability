@@ -183,6 +183,12 @@ class LiveDiagnosticsTest {
     }
 
     @Test
+    void throttlesThreadDumps() {
+        assertThat(diagnostics.threadDump()).startsWith("Full thread dump ");
+        assertThat(diagnostics.threadDump()).isNull();
+    }
+
+    @Test
     void clampsTheSampleDuration() throws Exception {
         assertThat(diagnostics.threads(Duration.ofMillis(-5)).sampleMillis()).isZero();
         assertThat(diagnostics.threads(null).sampleMillis()).isZero();

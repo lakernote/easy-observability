@@ -33,6 +33,11 @@ public final class LiveDiagnostics {
     private final RuntimeMXBean runtime = ManagementFactory.getRuntimeMXBean();
     /** Thread sampling holds a request for up to {@link #MAX_SAMPLE}; one at a time keeps refresh storms cheap. */
     private final ReentrantLock samplingLock = new ReentrantLock();
+    /** A full dump with lock information pauses the JVM at a safepoint; allow one at a time and at most one per interval. */
+    static final Duration DUMP_INTERVAL = Duration.ofSeconds(5);
+    private final ReentrantLock dumpLock = new ReentrantLock();
+    private long lastDumpNanos;
+    private boolean dumped;
 
     public LiveDiagnostics() {
         this(ManagementFactory.getThreadMXBean());
@@ -114,8 +119,25 @@ public final class LiveDiagnostics {
         }
     }
 
-    /** A jstack-style dump of every platform thread with full stacks and lock information. */
+    /**
+     * A jstack-style dump of every platform thread with full stacks and lock information. Returns {@code null} when
+     * another dump is running or the previous one finished less than {@link #DUMP_INTERVAL} ago.
+     */
     public String threadDump() {
+        if (!dumpLock.tryLock()) return null;
+        try {
+            long now = System.nanoTime();
+            if (dumped && now - lastDumpNanos < DUMP_INTERVAL.toNanos()) return null;
+            String dump = buildThreadDump();
+            lastDumpNanos = System.nanoTime();
+            dumped = true;
+            return dump;
+        } finally {
+            dumpLock.unlock();
+        }
+    }
+
+    private String buildThreadDump() {
         ThreadInfo[] infos = threadInfos(threads.getAllThreadIds(), Integer.MAX_VALUE);
         Set<Long> deadlocked = deadlockedIds();
         StringBuilder out = new StringBuilder(64 * 1024);

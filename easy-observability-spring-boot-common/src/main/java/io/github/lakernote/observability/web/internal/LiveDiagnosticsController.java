@@ -72,12 +72,14 @@ public class LiveDiagnosticsController {
     @GetMapping(API + "/threads/dump")
     public ResponseEntity<String> threadDump() {
         requireAccess();
+        String dump = diagnostics.threadDump();
+        if (dump == null) throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS);
         String fileName = "threads-" + DUMP_NAME.format(LocalDateTime.now()) + ".txt";
         return ResponseEntity.ok()
                 .contentType(new MediaType(MediaType.TEXT_PLAIN, StandardCharsets.UTF_8))
                 .header(HttpHeaders.CONTENT_DISPOSITION,
                         ContentDisposition.attachment().filename(fileName).build().toString())
-                .body(diagnostics.threadDump());
+                .body(dump);
     }
 
     private void requireAccess() {

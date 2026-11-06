@@ -265,7 +265,8 @@ async function downloadDump(event) {
     const token = typeof window.EasyObservabilityAuth?.token === 'function' ? window.EasyObservabilityAuth.token() : ''
     if (token) headers.set('Authorization', `Bearer ${token}`)
     const response = await fetch(new URL('live/threads/dump', api), { credentials: 'same-origin', headers })
-    if (!response.ok) throw new Error(response.status === 401 || response.status === 403 ? DENIED : `下载失败（HTTP ${response.status}）`)
+    if (!response.ok) throw new Error(response.status === 401 || response.status === 403 ? DENIED
+      : response.status === 429 ? '线程 Dump 刚刚生成过或正在生成，请 5 秒后再试' : `下载失败（HTTP ${response.status}）`)
     const name = /filename="?([^";]+)"?/.exec(response.headers.get('Content-Disposition') || '')?.[1] || 'threads.txt'
     const url = URL.createObjectURL(await response.blob())
     const link = node('a')
