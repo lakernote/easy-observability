@@ -102,7 +102,11 @@ class DashboardContextPathE2ETest {
             assertThat(get(asset).statusCode()).isEqualTo(200);
         }
 
-        URI traceApi = resolveApiBase(dashboardScript, dashboardScriptResponse.body());
+        assertThat(dashboardScriptResponse.body()).contains("./common.js");
+        URI commonScript = dashboardScript.resolve("common.js");
+        HttpResponse<String> commonScriptResponse = get(commonScript);
+        assertThat(commonScriptResponse.statusCode()).isEqualTo(200);
+        URI traceApi = resolveApiBase(commonScript, commonScriptResponse.body());
         assertThat(traceApi.getPath()).isEqualTo(APPLICATION_BASE + "/api/easy-observability/");
         HttpResponse<String> traces = get(traceApi.resolve("traces?limit=1"));
         assertThat(traces.statusCode()).isEqualTo(200);
@@ -111,7 +115,8 @@ class DashboardContextPathE2ETest {
         URI metricsCommon = metricsScript.resolve("metrics-common.js");
         HttpResponse<String> metricsCommonResponse = get(metricsCommon);
         assertThat(metricsCommonResponse.statusCode()).isEqualTo(200);
-        URI metricsApi = resolveApiBase(metricsCommon, metricsCommonResponse.body());
+        assertThat(metricsCommonResponse.body()).contains("./common.js");
+        URI metricsApi = resolveApiBase(metricsCommon.resolve("common.js"), commonScriptResponse.body());
         assertThat(metricsApi.getPath()).isEqualTo(APPLICATION_BASE + "/api/easy-observability/");
         HttpResponse<String> resources = get(metricsApi.resolve("metrics/resources?period=1h"));
         assertThat(resources.statusCode()).isEqualTo(200);

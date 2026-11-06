@@ -1,11 +1,7 @@
-// Shared by the call ranking and metric trend pages: API access, embedded auth and uPlot line charts.
-// Same Chinese labels as the trace page uses for span kinds.
-const KIND_NAMES = { Http: 'HTTP', Database: 'SQL', Redis: 'Redis', Remote: '远程调用', Kafka: 'Kafka', Transaction: '事务',
-  Schedule: '定时任务', Service: '服务', Code: '代码', Other: '其他' }
-export const kindName = kind => KIND_NAMES[kind] || kind || '调用'
+// Shared by the call ranking, metric trend and live pages: metric labels, formatting and uPlot line charts.
+import { node, request as apiRequest } from './common.js?v=20261106.8'
 
-export const api = new URL('../../api/easy-observability/', import.meta.url)
-export const $ = id => document.getElementById(id)
+export { $, api, initializeEmbeddedAuth, kindName, node, showNotice } from './common.js?v=20261106.8'
 export const DISABLED_MESSAGE = '运行指标未启用：请确认 easy.observability.metrics.enabled 为 true'
 export const categoryNames = {
   HTTP: 'HTTP 接口', SQL: 'SQL', REMOTE: '远程调用', REDIS: 'Redis',
@@ -14,50 +10,9 @@ export const categoryNames = {
 const COLORS = ['#4169c9', '#08a68a', '#df8d28', '#8a62c2', '#db5d68', '#2696ad', '#5d9d4d', '#bd6e31',
   '#3955a5', '#00a6a6', '#e27730', '#a0559a', '#c94747', '#197aa6', '#799b34', '#8f6637']
 
-export async function request(path, options = {}, deniedMessage = '没有查看运行指标的权限，请登录或检查 ObservabilityAccessPolicy') {
-  const headers = new Headers(options.headers || {})
-  const token = typeof window.EasyObservabilityAuth?.token === 'function' ? window.EasyObservabilityAuth.token() : ''
-  if (token) headers.set('Authorization', `Bearer ${token}`)
-  const method = (options.method || 'GET').toUpperCase()
-  // Spring Security's CookieCsrfTokenRepository exposes XSRF-TOKEN; echo it on state-changing requests.
-  const csrf = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]+)/)
-  if (csrf && method !== 'GET' && method !== 'HEAD') headers.set('X-XSRF-TOKEN', decodeURIComponent(csrf[1]))
-  const response = await fetch(new URL(path.replace(/^\/+/, ''), api),
-    { credentials: 'same-origin', ...options, headers })
-  if (!response.ok) throw new Error(response.status === 401 || response.status === 403
-    ? deniedMessage
-    : response.status === 404 ? DISABLED_MESSAGE : `请求失败（HTTP ${response.status}）`)
-  return response.status === 204 ? null : response.json()
-}
-
-export function initializeEmbeddedAuth() {
-  if (window.parent === window) return Promise.resolve()
-  return new Promise(resolve => {
-    let completed = false
-    const finish = token => {
-      if (completed) return
-      completed = true
-      clearTimeout(timeout)
-      window.removeEventListener('message', receiveAuth)
-      window.EasyObservabilityAuth = { token: () => token }
-      resolve()
-    }
-    const receiveAuth = event => {
-      if (event.origin !== window.location.origin || event.source !== window.parent
-        || event.data?.type !== 'easy-observability:auth-response') return
-      finish(typeof event.data.token === 'string' ? event.data.token : '')
-    }
-    const timeout = setTimeout(() => finish(''), 1500)
-    window.addEventListener('message', receiveAuth)
-    window.parent.postMessage({ type: 'easy-observability:auth-request' }, window.location.origin)
-  })
-}
-
-export function node(tag, className, text) {
-  const element = document.createElement(tag)
-  if (className) element.className = className
-  if (text != null) element.textContent = text
-  return element
+/** Like the shared request, but a 404 means the metrics endpoints are disabled. */
+export function request(path, options = {}, deniedMessage = '没有查看运行指标的权限，请登录或检查 ObservabilityAccessPolicy') {
+  return apiRequest(path, { notFoundMessage: DISABLED_MESSAGE, ...options }, deniedMessage)
 }
 
 export function formatMs(value) {

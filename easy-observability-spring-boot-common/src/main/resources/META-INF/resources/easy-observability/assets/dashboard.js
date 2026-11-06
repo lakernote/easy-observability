@@ -1,5 +1,5 @@
-const api = new URL('../../api/easy-observability/', import.meta.url)
-const $ = id => document.getElementById(id)
+import { $, initializeEmbeddedAuth, kindName, node, request as apiRequest } from './common.js?v=20261106.8'
+
 const PAGE_SIZE = 50
 let traces = { items: [], nextCursor: null, scanLimited: false, total: 0 }
 // Cursor that starts each visited page; the first page always starts at the newest trace.
@@ -12,51 +12,10 @@ let detailRequest = 0
 let resultFilter = 'all'
 
 const sourceNames = { HTTP: 'HTTP', JOB: '定时任务', KAFKA_CONSUMER: 'Kafka 消费' }
-const kindNames = { Http: 'HTTP', Database: 'SQL', Redis: 'Redis', Remote: '远程调用', Kafka: 'Kafka', Transaction: '事务',
-  Schedule: '定时任务', Service: '服务', Code: '代码', Other: '其他' }
-const kindName = kind => kindNames[kind] || kind || '调用'
 const escText = value => value == null || value === '' ? '—' : String(value)
 
-async function request(path, requestOptions = {}, deniedMessage = '没有查看 Trace 的权限，请登录或检查 ObservabilityAccessPolicy') {
-  const { notFoundMessage, ...options } = requestOptions
-  const headers = new Headers(options.headers || {})
-  const token = typeof window.EasyObservabilityAuth?.token === 'function' ? window.EasyObservabilityAuth.token() : ''
-  if (token) headers.set('Authorization', `Bearer ${token}`)
-  const method = (options.method || 'GET').toUpperCase()
-  // Spring Security's CookieCsrfTokenRepository exposes XSRF-TOKEN; echo it on state-changing requests.
-  const csrf = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]+)/)
-  if (csrf && method !== 'GET' && method !== 'HEAD') headers.set('X-XSRF-TOKEN', decodeURIComponent(csrf[1]))
-  const response = await fetch(new URL(path.replace(/^\/+/, ''), api),
-    { credentials: 'same-origin', ...options, headers })
-  if (!response.ok) throw new Error(response.status === 401 || response.status === 403
-    ? deniedMessage
-    : response.status === 404 && notFoundMessage ? notFoundMessage
-      : `请求失败（HTTP ${response.status}）`)
-  return response.status === 204 ? null : response.json()
-}
-
-function initializeEmbeddedAuth() {
-  if (window.parent === window) return Promise.resolve()
-  return new Promise(resolve => {
-    let completed = false
-    const finish = token => {
-      if (completed) return
-      completed = true
-      clearTimeout(timeout)
-      window.removeEventListener('message', receiveAuth)
-      window.EasyObservabilityAuth = { token: () => token }
-      resolve()
-    }
-    const receiveAuth = event => {
-      if (event.origin !== window.location.origin || event.source !== window.parent
-        || event.data?.type !== 'easy-observability:auth-response') return
-      finish(typeof event.data.token === 'string' ? event.data.token : '')
-    }
-    const timeout = setTimeout(() => finish(''), 1500)
-    window.addEventListener('message', receiveAuth)
-    window.parent.postMessage({ type: 'easy-observability:auth-request' }, window.location.origin)
-  })
-}
+const request = (path, options = {}, deniedMessage = '没有查看 Trace 的权限，请登录或检查 ObservabilityAccessPolicy') =>
+  apiRequest(path, options, deniedMessage)
 
 const pad = value => String(value).padStart(2, '0')
 
@@ -100,13 +59,6 @@ function threadInfo(item, entryThread) {
     id: item.threadId,
     isEntry: Boolean(sameThread)
   }
-}
-
-function node(tag, className, text) {
-  const element = document.createElement(tag)
-  if (className) element.className = className
-  if (text != null) element.textContent = text
-  return element
 }
 
 function sourceChip(sourceType) {

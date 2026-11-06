@@ -109,10 +109,10 @@ class DashboardContextPathE2ETest {
         URI metricsModule = referenceEndingWith(metricsReferences, "/assets/metrics.js");
         HttpResponse<String> dashboardScript = get(dashboardModule);
         HttpResponse<String> metricsScript = get(metricsModule);
-        assertThat(dashboardScript.body())
-                .contains("new URL('../../api/easy-observability/', import.meta.url)");
+        assertThat(dashboardScript.body()).contains("from './common.js");
         assertThat(metricsScript.body()).contains("from './metrics-common.js");
-        assertThat(get(metricsModule.resolve("metrics-common.js")).body())
+        assertThat(get(metricsModule.resolve("metrics-common.js")).body()).contains("from './common.js");
+        assertThat(get(dashboardModule.resolve("common.js")).body())
                 .contains("new URL('../../api/easy-observability/', import.meta.url)");
 
         URI traceApi = dashboardModule.resolve("../../api/easy-observability/");

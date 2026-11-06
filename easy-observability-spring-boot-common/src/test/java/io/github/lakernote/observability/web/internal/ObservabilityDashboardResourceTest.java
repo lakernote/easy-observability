@@ -37,9 +37,7 @@ class ObservabilityDashboardResourceTest {
                         "href=\"../stats/\">调用排行")
                 .doesNotContain("href=\"/easy-observability", "src=\"/easy-observability");
         assertThat(new String(script.readAllBytes(), StandardCharsets.UTF_8))
-                .contains("new URL('../../api/easy-observability/', import.meta.url)",
-                        "new URL(path.replace(/^\\/+/, ''), api)",
-                        "easy-observability:auth-request", "easy-observability:auth-response",
+                .contains("from './common.js?v=",
                         "initializeEmbeddedAuth().then(() => Promise.all([loadPermissions(), refresh()]))",
                         "$('clear-history').hidden = !permissions.canClear",
                         "kind: resultFilter", "params.set('before', pageCursors[page])",
@@ -47,7 +45,16 @@ class ObservabilityDashboardResourceTest {
                         "formatAllocatedBytes(trace.allocatedBytes)", "formatAllocatedBytes(detail.allocatedBytes)",
                         "内存分配量", "不是当前堆占用", "条诊断 Trace",
                         "addFact($('facts'), '状态'", "foldRepeats(", "formatCpu(trace.cpuTimeMs)")
-                .doesNotContain("const api = '/api/");
+                .doesNotContain("const api = ", "async function request(", "function node(");
+        try (var common = classLoader.getResourceAsStream("META-INF/resources/easy-observability/assets/common.js")) {
+            assertThat(new String(common.readAllBytes(), StandardCharsets.UTF_8))
+                    .contains("new URL('../../api/easy-observability/', import.meta.url)",
+                            "new URL(path.replace(/^\\/+/, ''), api)",
+                            "easy-observability:auth-request", "easy-observability:auth-response",
+                            "headers.set('Authorization', 'Bearer ' + token)", "X-XSRF-TOKEN",
+                            "export function showNotice(")
+                    .doesNotContain("innerHTML");
+        }
         assertThat(new String(metricsScript.readAllBytes(), StandardCharsets.UTF_8))
                 .contains("request(`metrics/operations/trends?period=${period}`)",
                         "request(`metrics/resources?period=${period}`)", "request('metrics/storage')",
@@ -87,8 +94,7 @@ class ObservabilityDashboardResourceTest {
                             "$('reset-stats').hidden = !permissions.canClear", "next.collecting")
                     .doesNotContain("innerHTML", "const api = '/api/", "traceQuery");
             assertThat(new String(common.readAllBytes(), StandardCharsets.UTF_8))
-                    .contains("new URL('../../api/easy-observability/', import.meta.url)",
-                            "new URL(path.replace(/^\\/+/, ''), api)", "export function lineChart(")
+                    .contains("from './common.js?v=", "notFoundMessage: DISABLED_MESSAGE", "export function lineChart(")
                     .doesNotContain("innerHTML");
             assertThat(new String(index.readAllBytes(), StandardCharsets.UTF_8)).contains("href=\"stats/\"");
             assertThat(new String(metrics.readAllBytes(), StandardCharsets.UTF_8)).contains("href=\"../stats/\"");

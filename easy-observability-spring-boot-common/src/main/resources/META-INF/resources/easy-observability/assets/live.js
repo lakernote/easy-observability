@@ -1,4 +1,5 @@
-import { $, api, formatBytes, formatMs, initializeEmbeddedAuth, kindName, node, request } from './metrics-common.js?v=20261106.7'
+import { authHeaders } from './common.js?v=20261106.8'
+import { $, api, formatBytes, formatMs, initializeEmbeddedAuth, kindName, node, request, showNotice } from './metrics-common.js?v=20261106.8'
 
 const DENIED = '没有查看实时诊断的权限，请登录或检查 ObservabilityAccessPolicy'
 const SOURCES = { HTTP: 'HTTP', JOB: '定时任务', KAFKA_CONSUMER: 'Kafka 消费' }
@@ -10,12 +11,6 @@ let threadReport = null
 let tab = 'requests'
 let timer = null
 let loading = false
-
-function showNotice(message, warning = true) {
-  $('notice').textContent = message
-  $('notice').classList.toggle('warning', warning)
-  $('notice').hidden = !message
-}
 
 function connected(ok) {
   $('instance').classList.toggle('connected', ok)
@@ -261,10 +256,7 @@ function renderGroups(rows, threads) {
 async function downloadDump(event) {
   event.preventDefault()
   try {
-    const headers = new Headers()
-    const token = typeof window.EasyObservabilityAuth?.token === 'function' ? window.EasyObservabilityAuth.token() : ''
-    if (token) headers.set('Authorization', `Bearer ${token}`)
-    const response = await fetch(new URL('live/threads/dump', api), { credentials: 'same-origin', headers })
+    const response = await fetch(new URL('live/threads/dump', api), { credentials: 'same-origin', headers: authHeaders() })
     if (!response.ok) throw new Error(response.status === 401 || response.status === 403 ? DENIED
       : response.status === 429 ? '线程 Dump 刚刚生成过或正在生成，请 5 秒后再试' : `下载失败（HTTP ${response.status}）`)
     const name = /filename="?([^";]+)"?/.exec(response.headers.get('Content-Disposition') || '')?.[1] || 'threads.txt'
@@ -275,7 +267,7 @@ async function downloadDump(event) {
     link.click()
     setTimeout(() => URL.revokeObjectURL(url), 1000)
   } catch (error) {
-    showNotice(error.message)
+    showNotice(error.message, true)
   }
 }
 
@@ -292,7 +284,7 @@ async function refresh() {
     showNotice('')
   } catch (error) {
     connected(false)
-    showNotice(error.message.includes('HTTP 429') ? '另一个线程采样正在进行，请稍后再试' : error.message)
+    showNotice(error.message.includes('HTTP 429') ? '另一个线程采样正在进行，请稍后再试' : error.message, true)
   } finally {
     loading = false
     $('refresh').disabled = false

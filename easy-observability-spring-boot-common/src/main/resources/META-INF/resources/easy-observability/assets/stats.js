@@ -1,6 +1,7 @@
 import {
-  $, DISABLED_MESSAGE, categoryNames, countsSince, formatBytes, formatMs, initializeEmbeddedAuth, lineChart, node, request
-} from './metrics-common.js?v=20261106.7'
+  $, DISABLED_MESSAGE, categoryNames, countsSince, formatBytes, formatMs, initializeEmbeddedAuth, lineChart, node, request,
+  showNotice
+} from './metrics-common.js?v=20261106.8'
 
 const REFRESH_MS = 10000
 // Day ranges change slowly and read history files, so poll them less often.
@@ -238,12 +239,6 @@ function render() {
   renderSummary()
   const category = currentCategory()
   if (category) renderRows(category)
-}
-
-function showNotice(message, warning = false) {
-  $('notice').textContent = message
-  $('notice').classList.toggle('warning', warning)
-  $('notice').hidden = false
 }
 
 async function refresh() {
