@@ -56,11 +56,11 @@ class ObservabilityDashboardResourceTest {
                     .doesNotContain("innerHTML");
         }
         assertThat(new String(metricsScript.readAllBytes(), StandardCharsets.UTF_8))
-                .contains("request(`metrics/operations/trends?period=${period}`)",
+                .contains("acquireWaitChart(", "hikaricp.connections.acquire:",
                         "request(`metrics/resources?period=${period}`)", "request('metrics/storage')",
                         "历史存储不可用", "$('instance').classList.toggle('degraded', !storage.persistent)",
                         "OPEN_STATE_KEY", "buildSections()", "fillSection(")
-                .doesNotContain("innerHTML", "const api = '/api/");
+                .doesNotContain("innerHTML", "const api = '/api/", "operations/trends", "operationCharts");
         page.close();
         metricsPage.close();
         script.close();

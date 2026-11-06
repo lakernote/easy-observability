@@ -1,6 +1,6 @@
 import {
-  $, DISABLED_MESSAGE, categoryNames, countsSince, formatValue, initializeEmbeddedAuth, lineChart, request
-} from './metrics-common.js?v=20261106.9'
+  $, DISABLED_MESSAGE, formatValue, initializeEmbeddedAuth, lineChart, request
+} from './metrics-common.js?v=20261106.10'
 
 const PERIODS = new Set(['1h', '24h', '7d', '30d'])
 const REFRESH_MS = 60000
@@ -35,16 +35,17 @@ const RESOURCE_CHARTS = [
     { key: 'process.files.open', label: '已打开' }, { key: 'process.files.max', label: '上限' }] },
   { group: 'system', title: '已加载类', unit: 'count', series: [{ key: 'jvm.classes.loaded', label: '类' }] }
 ]
+// Hikari's acquire timer is stored as <pool>.count and <pool>.time per minute; its chart shows time / count.
+const ACQUIRE_KEY = 'hikaricp.connections.acquire:'
 const KNOWN_KEYS = new Set(['jvm.memory.used:', 'jvm.memory.committed:', 'jvm.memory.max:', 'jvm.gc.pause.count',
-  'jvm.gc.pause.time', 'hikaricp.connections.acquire.count:', 'hikaricp.connections.acquire.time:',
+  'jvm.gc.pause.time', ACQUIRE_KEY,
   'jvm.threads.peak', ...RESOURCE_CHARTS.flatMap(chart => chart.series.map(item => item.key))])
 /** Sections of the page in display order; collapsed by default unless {@code open}. The choice is remembered per browser. */
 const GROUPS = [
-  { id: 'calls', title: '调用', note: '调用次数、错误和耗时', open: true },
   { id: 'cpu-memory', title: 'CPU 与内存', note: 'CPU 使用率、系统负载、堆和非堆内存', open: true },
   { id: 'gc', title: 'GC 与内存分配', note: 'GC 次数、停顿时间和分配速率', open: true },
   { id: 'threads', title: '线程与线程池', note: 'JVM 和 Web 容器线程、应用线程池' },
-  { id: 'database', title: '数据库连接池', note: '活跃、空闲、等待连接和获取超时' },
+  { id: 'database', title: '数据库连接池', note: '活跃、空闲、等待连接、获取连接耗时和超时' },
   { id: 'system', title: 'Web 与系统', note: 'HTTP 会话、文件句柄、已加载类' },
   { id: 'custom', title: '自定义指标', note: '通过 easy.observability.metrics.include 追加' }
 ]
@@ -113,29 +114,18 @@ function known(key) {
   return false
 }
 
-function operationCharts(trends) {
-  const entries = Object.entries(trends).filter(([, trend]) => trend.points.some(point => point.count > 0))
-  const first = Object.values(trends)[0]
-  if (!first) return []
-  const timestamps = first.points.map(point => point.timestamp)
-  const step = first.stepMillis
-  const series = (pick, from = entries) => from.map(([category, trend]) => ({
-    label: categoryNames[category] || category, values: pick(trend)
-  }))
-  const failing = entries.filter(([, trend]) => trend.points.some(point => point.errors > 0))
-  const averages = pick => trend => trend.points.map(pick)
-  const result = [
-    lineChart({ title: '调用次数', unit: 'count', timestamps, stepMillis: step,
-      series: series(trend => countsSince(trend, point => point.count)) }),
-    lineChart({ title: '错误次数', unit: 'count', timestamps, stepMillis: step, empty: '所选时间范围内没有错误',
-      series: series(trend => countsSince(trend, point => point.errors), failing) }),
-    lineChart({ title: '平均耗时', unit: 'ms', timestamps, stepMillis: step, series: series(averages(point => point.meanMs)) })
-  ]
-  if (first.period !== 'HOUR') {
-    result.push(lineChart({ title: 'P95 耗时', unit: 'ms', hint: '由直方图估算，误差约 ±20%', timestamps,
-      stepMillis: step, series: series(averages(point => point.p95Ms)) }))
+function acquireWaitChart(resources, keys) {
+  const series = []
+  for (const countKey of keys.filter(key => key.startsWith(ACQUIRE_KEY) && key.endsWith('.count'))) {
+    const pool = countKey.slice(ACQUIRE_KEY.length, -'.count'.length)
+    const counts = resources.series[countKey]
+    const times = resources.series[`${ACQUIRE_KEY}${pool}.time`]
+    if (!times) continue
+    series.push({ label: pool, values: counts.map((count, index) => count > 0 && times[index] != null ? times[index] / count : null) })
   }
-  return result
+  if (!series.length) return null
+  return { group: 'database', ...lineChart({ title: '获取连接平均等待', unit: 'ms', hint: '持续升高说明连接不够用',
+    timestamps: resources.timestamps, stepMillis: resources.stepMillis, series }) }
 }
 
 function resourceCharts(resources) {
@@ -157,6 +147,8 @@ function resourceCharts(resources) {
       result.push({ ...rendered, group: chart.group })
     }
   }
+  const acquire = acquireWaitChart(resources, keys)
+  if (acquire) result.push(acquire)
   // Meters added through easy.observability.metrics.include get one chart per meter name.
   const custom = new Map()
   for (const key of keys.filter(item => !known(item))) {
@@ -180,17 +172,14 @@ function storageText(storage) {
 async function refresh() {
   const period = $('period').value
   try {
-    const [trends, resources, storage] = await Promise.all([
-      request(`metrics/operations/trends?period=${period}`),
+    const [resources, storage] = await Promise.all([
       request(`metrics/resources?period=${period}`),
       request('metrics/storage')
     ])
     for (const chart of charts) chart.destroy()
-    const operations = operationCharts(trends)
     const resourceList = resourceCharts(resources)
-    charts = [...operations, ...resourceList]
-    fillSection('calls', operations)
-    for (const group of GROUPS.filter(item => item.id !== 'calls')) {
+    charts = resourceList
+    for (const group of GROUPS) {
       fillSection(group.id, resourceList.filter(chart => chart.group === group.id))
     }
     $('empty').hidden = resourceList.length > 0

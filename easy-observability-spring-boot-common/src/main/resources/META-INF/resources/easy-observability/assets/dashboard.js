@@ -1,4 +1,4 @@
-import { $, initializeEmbeddedAuth, kindName, node, request as apiRequest } from './common.js?v=20261106.9'
+import { $, initializeEmbeddedAuth, kindName, node, request as apiRequest } from './common.js?v=20261106.10'
 
 const PAGE_SIZE = 50
 let traces = { items: [], nextCursor: null, scanLimited: false, total: 0 }

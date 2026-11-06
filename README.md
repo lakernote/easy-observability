@@ -30,7 +30,7 @@ Easy Observability 帮助应用开发者快速回答两个问题：一次请求�
 
 ![调用排行](docs/images/stats-ranking.png)
 
-指标趋势查看调用量和 JVM、连接池、线程池等资源的历史曲线：
+指标趋势查看 JVM、GC、连接池、线程池等资源的历史曲线：
 
 ![指标趋势](docs/images/metrics-dashboard.png)
 
