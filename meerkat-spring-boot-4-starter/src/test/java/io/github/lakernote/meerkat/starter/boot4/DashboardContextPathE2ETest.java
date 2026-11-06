@@ -77,6 +77,8 @@ class DashboardContextPathE2ETest {
                 APPLICATION_PATH + "/meerkat/stats/",
                 APPLICATION_PATH + "/meerkat/live/",
                 APPLICATION_PATH + "/meerkat/assets/dashboard.css",
+                APPLICATION_PATH + "/meerkat/assets/i18n.js",
+                APPLICATION_PATH + "/meerkat/assets/meerkat-icon.png",
                 APPLICATION_PATH + "/meerkat/assets/dashboard.js");
 
         HttpResponse<String> metricsPageResponse = get(metricsPage);
@@ -89,6 +91,8 @@ class DashboardContextPathE2ETest {
                 APPLICATION_PATH + "/meerkat/metrics/",
                 APPLICATION_PATH + "/meerkat/live/",
                 APPLICATION_PATH + "/meerkat/assets/dashboard.css",
+                APPLICATION_PATH + "/meerkat/assets/i18n.js",
+                APPLICATION_PATH + "/meerkat/assets/meerkat-icon.png",
                 APPLICATION_PATH + "/meerkat/assets/uplot.min.css",
                 APPLICATION_PATH + "/meerkat/assets/metrics.css",
                 APPLICATION_PATH + "/meerkat/assets/uplot.min.js",
