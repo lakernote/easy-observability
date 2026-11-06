@@ -1,6 +1,6 @@
 import {
   $, DISABLED_MESSAGE, categoryNames, countsSince, formatBytes, formatMs, initializeEmbeddedAuth, lineChart, node, request
-} from './metrics-common.js?v=20261106.6'
+} from './metrics-common.js?v=20261106.7'
 
 const REFRESH_MS = 10000
 // Day ranges change slowly and read history files, so poll them less often.

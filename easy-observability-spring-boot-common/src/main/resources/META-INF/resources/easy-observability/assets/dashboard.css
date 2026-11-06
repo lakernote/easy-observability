@@ -110,7 +110,7 @@ select option { color: var(--ink); font-weight: 500; }
 .intro { margin-bottom: 16px; }
 .eyebrow { margin: 0 0 5px; color: #5574b8; font-size: 10px; font-weight: 750; letter-spacing: .13em; }
 .intro h1 { margin: 0; color: #17273d; font-size: clamp(22px, 2.4vw, 26px); letter-spacing: -.02em; }
-.intro > p:last-child { margin: 6px 0 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
+.intro h1 + p { margin: 6px 0 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
 .notice {
   margin: 12px 0;
   padding: 11px 14px;
@@ -338,7 +338,7 @@ body:has(dialog[open]) { overflow: hidden; }
   .report { padding: 22px 12px 18px; }
   .intro { margin-bottom: 14px; }
   .intro h1 { font-size: 25px; }
-  .intro > p:last-child { font-size: 12px; }
+  .intro h1 + p { font-size: 12px; }
   .filters { grid-template-columns: 1fr 1fr; gap: 9px; padding: 11px; }
   .filters .search, .count { grid-column: 1 / -1; }
   .filters .search { grid-row: 2; }

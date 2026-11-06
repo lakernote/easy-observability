@@ -18,17 +18,25 @@ Easy Observability 帮助应用开发者快速回答两个问题：一次请求�
 
 ## 界面预览
 
-诊断列表聚焦需要排查的入口：
+诊断列表只收录慢、出错或资源超阈值的入口：
 
 ![Trace 诊断列表](docs/images/trace-list.png)
 
-打开一条记录查看入口资源、线程泳道和依赖调用的相对时序：
+打开一条记录，沿调用时间线定位根因；循环里重复的 SQL 会合并成一行并提示 N+1：
 
 ![Trace 详情时间线](docs/images/trace-detail-timeline.png)
 
-指标趋势页面查看调用和资源的历史曲线：
+调用排行按总耗时、错误、P95 等找出最值得优化的接口和 SQL：
+
+![调用排行](docs/images/stats-ranking.png)
+
+指标趋势查看调用量和 JVM、连接池、线程池等资源的历史曲线：
 
 ![指标趋势](docs/images/metrics-dashboard.png)
+
+实时诊断查看此刻正在执行的请求卡在哪一步：
+
+![实时诊断](docs/images/live-requests.png)
 
 ## 快速接入
 
@@ -52,7 +60,7 @@ Easy Observability 帮助应用开发者快速回答两个问题：一次请求�
 </dependency>
 ```
 
-默认启用 Trace、运行指标和嵌入页面。应用启动后访问：
+默认启用 Trace、运行指标和嵌入页面。应用启动完成时日志会打印页面地址（`Easy Observability dashboard: http://localhost:8080/easy-observability/`），也可直接访问：
 
 - Trace 诊断：`/easy-observability/`
 - 调用排行：`/easy-observability/stats/`
@@ -72,3 +80,16 @@ java -jar examples/easy-observability-example-spring-boot-3/target/easy-observab
 ```
 
 打开 `http://localhost:8083/` 查看示例入口。更多场景和 Boot 4 启动方式见[示例说明](examples/README.md)。
+
+## 与其他方案的定位
+
+| | Easy Observability | JavaMelody | SkyWalking / Pinpoint 等 APM | Prometheus + Grafana |
+|---|---|---|---|---|
+| 部署 | 应用内 Starter，无额外服务 | 应用内依赖，无额外服务 | Java Agent + 独立收集端、存储和 UI | 独立的 Prometheus、Grafana |
+| 单次请求调用树 | 有：慢、错、资源超阈值的入口，含异步线程、SQL、Redis、远程调用、Kafka | 无，侧重汇总统计 | 有，且支持跨服务链路 | 无 |
+| 汇总统计与趋势 | 调用排行（P95、错误率、CPU、内存分配）+ 资源趋势 | 有，覆盖 HTTP、SQL、Spring Bean 等 | 有 | 有，查询和告警能力最强 |
+| 实时诊断 | 进行中请求的当前步骤、线程 CPU、死锁、线程 Dump | 当前请求、线程、堆直方图等 | 部分产品提供 | 无 |
+| 适合 | 单体或少量服务，想在应用内直接看到慢在哪、错在哪 | 传统 Java Web 应用的运行概览 | 多服务分布式链路、集中运维 | 集中化指标监控与告警 |
+
+Easy Observability 不替代集中式 APM 或指标平台；应用已有的 Micrometer 指标导出不受影响，可以和它们并存。
+

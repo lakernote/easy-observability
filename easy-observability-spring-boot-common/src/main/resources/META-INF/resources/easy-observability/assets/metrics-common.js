@@ -1,4 +1,9 @@
 // Shared by the call ranking and metric trend pages: API access, embedded auth and uPlot line charts.
+// Same Chinese labels as the trace page uses for span kinds.
+const KIND_NAMES = { Http: 'HTTP', Database: 'SQL', Redis: 'Redis', Remote: '远程调用', Kafka: 'Kafka', Transaction: '事务',
+  Schedule: '定时任务', Service: '服务', Code: '代码', Other: '其他' }
+export const kindName = kind => KIND_NAMES[kind] || kind || '调用'
+
 export const api = new URL('../../api/easy-observability/', import.meta.url)
 export const $ = id => document.getElementById(id)
 export const DISABLED_MESSAGE = '运行指标未启用：请确认 easy.observability.metrics.enabled 为 true'

@@ -10,6 +10,8 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.ApplicationListener;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.web.servlet.DispatcherServlet;
@@ -33,6 +35,12 @@ public class ObservabilityWebAutoConfiguration implements WebMvcConfigurer {
     @ConditionalOnMissingBean
     ObservabilityAccessPolicy observabilityAccessPolicy() {
         return () -> true;
+    }
+
+    /** Prints where the dashboard is served once the application is ready to take requests. */
+    @Bean
+    ApplicationListener<ApplicationReadyEvent> observabilityDashboardAddressLogger() {
+        return event -> DashboardAddress.log(event.getApplicationContext().getEnvironment());
     }
 
     @Override

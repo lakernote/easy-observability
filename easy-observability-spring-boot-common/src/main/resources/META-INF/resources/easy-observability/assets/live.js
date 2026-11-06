@@ -1,4 +1,4 @@
-import { $, api, formatBytes, formatMs, initializeEmbeddedAuth, node, request } from './metrics-common.js?v=20261106.6'
+import { $, api, formatBytes, formatMs, initializeEmbeddedAuth, kindName, node, request } from './metrics-common.js?v=20261106.7'
 
 const DENIED = '没有查看实时诊断的权限，请登录或检查 ObservabilityAccessPolicy'
 const SOURCES = { HTTP: 'HTTP', JOB: '定时任务', KAFKA_CONSUMER: 'Kafka 消费' }
@@ -82,7 +82,7 @@ function renderRequests() {
     const elapsed = node('td', `numeric ${item.elapsedMs >= 30000 ? 'bad' : item.elapsedMs >= 5000 ? 'warn' : ''}`,
       formatMs(item.elapsedMs))
     const step = item.currentStep
-    const stepCell = clipped('mono', step ? `[${step.kind}] ${step.detail || step.name} · ${formatMs(step.elapsedMs)}` : '—',
+    const stepCell = clipped('mono', step ? `[${kindName(step.kind)}] ${step.detail || step.name} · ${formatMs(step.elapsedMs)}` : '—',
       step ? step.detail || step.name : '')
     const thread = node('td')
     thread.append(stateBadge(item.async ? null : item.threadState), ' ', item.async ? '入口线程已返回' : item.threadName)
@@ -114,7 +114,7 @@ function requestDetail(item) {
   cell.append(facts)
   if (item.currentStep) {
     const step = item.currentStep
-    cell.append(node('pre', 'live-stack', `当前步骤 [${step.kind}] ${step.name}，已执行 ${formatMs(step.elapsedMs)}\n${step.detail || ''}`))
+    cell.append(node('pre', 'live-stack', `当前步骤 [${kindName(step.kind)}] ${step.name}，已执行 ${formatMs(step.elapsedMs)}\n${step.detail || ''}`))
     cell.lastChild.style.marginBottom = '8px'
   }
   cell.append(item.async ? node('p', 'stats-detail-status', '请求已转为异步处理，入口线程已返回，没有对应的线程堆栈') : stackBlock(item.stack))
