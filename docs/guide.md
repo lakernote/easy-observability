@@ -15,11 +15,11 @@
 | 场景 | 采集内容 | 说明 |
 | --- | --- | --- |
 | HTTP 入口 | 路由、状态、耗时、错误、入口线程 CPU 时间和内存分配量 | 慢阈值分类针对入口；CPU 时间和分配量是入口线程累计值，不是进程使用率或当前堆占用，不包含子线程 |
-| 定时任务、Kafka Listener | 入口执行耗时和错误 | Kafka 跨生产/消费关联依赖 Spring Kafka Observation |
+| 定时任务、Kafka Listener | 入口执行耗时和错误 | Starter 默认为 `KafkaTemplate` 和 Listener Factory 打开 Spring Kafka Observation，生产/消费自动关联；显式配置 `spring.kafka.*.observation-enabled=false` 时保持关闭 |
 | JDBC、事务、MyBatis | SQL 模板、事务范围、耗时和错误 | SQL 会清理字面量和注释，不记录绑定参数 |
 | Redis | Lettuce Observation 命令 Span；Spring Data Redis 经 Redisson `RedisConnectionFactory` 执行的命令 Span | 直接调用 Redisson `RLock`、`RMap` 等 API 不属于这组连接工厂命令采集 |
-| 远程 HTTP | 已接入的客户端调用 Span；支持的客户端可传播 Trace ID | 通过 Spring 注入的 `RestClient.Builder`、`RestTemplateBuilder` 创建的客户端自动接入，OpenFeign 自动传播 Trace ID；直接 `new RestTemplate()`、JDK `HttpClient` 等绕过 Spring Builder 的调用不会被采集 |
-| 异步线程池 | 任务耗时、异常及活动 Trace 上下文传播 | Spring Boot 默认线程池自动接入；自定义线程池设置 `TraceContextTaskDecorator` 后才会记录任务边界；请求已返回后继续运行的后台任务不会延长已完成的入口 Trace |
+| 远程 HTTP | 客户端调用 Span，并在请求头传播 Trace ID | `RestTemplate`、`RestClient`（含直接 `new RestTemplate()`、`RestClient.create()` 声明的 Bean）、`@FeignClient`、`OkHttpClient` Bean 自动接入；方法内临时 new 出来的客户端、JDK `HttpClient` 等不是 Spring Bean 的调用不会被采集 |
+| 异步线程池 | 任务耗时、异常及活动 Trace 上下文传播 | Spring Boot 默认线程池及应用声明为 Bean 的 `ThreadPoolTaskExecutor`、`SimpleAsyncTaskExecutor` 自动接入；直接使用 JDK `ExecutorService` 需手动包装；请求已返回后继续运行的后台任务不会延长已完成的入口 Trace |
 | 调用统计 | 每个 HTTP 接口、SQL 模板、远程调用、Redis 命令、定时任务和 Kafka Topic 的次数、错误、平均/P95/最大耗时和总耗时，及其随时间的趋势；HTTP、定时任务和 Kafka 消费入口另有平均 CPU 时间和平均内存分配量 | 不论是否慢或出错都会计入；与 Trace 共用采集点，见[运行指标](#运行指标) |
 | 资源指标 | JVM 内存与 GC、CPU、线程、Hikari 连接池、线程池、Tomcat 等 Spring Boot 已绑定的指标，以及 `metrics.include` 指定的自定义指标 | 每分钟采样一次，见[运行指标](#运行指标) |
 
@@ -210,24 +210,15 @@ logging:
 
 ## Kafka 与线程池
 
-Spring Kafka 的 Listener/Template Observation 需要启用，才能记录相应入口/发送指标和 Trace Span。默认 Listener Factory 会自动接入 Trace ID 拦截器；应用使用自定义 `RecordInterceptor` 或 Listener Factory 时，需要按应用现有配置组合/注册 `TraceIdRecordInterceptor`。自定义消费者、Kafka Streams 不会被默认 Listener 集成自动覆盖。
+Starter 会为 Spring 容器中的 `KafkaTemplate` 和 Listener Factory 打开 Observation，无需配置 `spring.kafka.template/listener.observation-enabled`；显式设为 `false` 时尊重应用配置。默认 Listener Factory 会自动接入 Trace ID 拦截器；应用使用自定义 `RecordInterceptor` 时，需要按应用现有配置组合 `TraceIdRecordInterceptor`。批量 Listener、自定义消费者、Kafka Streams 不在自动覆盖范围内。
 
-Spring Boot 自动配置的默认线程池（`applicationTaskExecutor`，`@Async` 默认使用）和调度器会自动应用 Starter 注册的 `TraceContextTaskDecorator`。应用自己定义的线程池需要显式设置，直接创建实例即可，不依赖 Starter 是否启用：
+Spring Boot 默认线程池（`applicationTaskExecutor`，`@Async` 默认使用）以及应用声明为 Bean 的 `ThreadPoolTaskExecutor`、`SimpleAsyncTaskExecutor` 会自动应用 `TraceContextTaskDecorator`；线程池已设置自己的 `TaskDecorator` 时，两者以 `CompositeTaskDecorator` 组合，原装饰器先执行。调度器（`ThreadPoolTaskScheduler`）不做装饰，`@Scheduled` 任务由定时任务入口记录。
 
-```java
-@Bean("billingExecutor")
-ThreadPoolTaskExecutor billingExecutor() {
-    ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-    executor.setCorePoolSize(4);
-    executor.setTaskDecorator(new TraceContextTaskDecorator());
-    return executor;
-}
-```
-
-应用已定义自己的 `TaskDecorator` Bean 时：Spring Boot 4 会把它与 Starter 的装饰器组合后应用到默认线程池；Spring Boot 3 只在装饰器唯一时才应用，为了不让宿主的装饰器失效，Starter 的装饰器会让出默认线程池，启动日志会给出提示。此时如需传播 Trace，请自行组合：
+不是 Spring Bean 的线程池（如 `Executors.newFixedThreadPool`）需要手动包装，直接创建实例即可，不依赖 Starter 是否启用：
 
 ```java
-executor.setTaskDecorator(new CompositeTaskDecorator(List.of(applicationDecorator, new TraceContextTaskDecorator())));
+TraceContextTaskDecorator decorator = new TraceContextTaskDecorator();
+executorService.submit(decorator.decorate(task));
 ```
 
 装饰器在线程池执行任务时传播活动 Trace 上下文并记录任务边界；无父 Trace 时不会创建 Trace。若 HTTP 请求先结束，Trace 时间线会在入口结束处停止，仍在运行的子任务标记为未完成，之后发生的调用不再补写到该 Trace。
@@ -262,7 +253,7 @@ executor.setTaskDecorator(new CompositeTaskDecorator(List.of(applicationDecorato
 | `trace.TraceContextTaskDecorator` | 线程池传播 Trace 上下文 |
 | `web.ObservabilityAccessPolicy` | 页面和 API 授权扩展点 |
 | `integration.observation.ObservationTraceIdResolver` | 从其他框架的 Observation 上下文提取已传播的 Trace ID，定义该类型的 Bean 即可生效 |
-| `integration.feign.TraceIdRequestInterceptor`、`integration.kafka.TraceIdRecordInterceptor` | 手动组装 Feign 客户端或 Kafka Listener 时注册 |
+| `integration.feign.TraceIdRequestInterceptor`、`integration.kafka.TraceIdRecordInterceptor` | 通过 `Feign.builder()` 手动组装客户端或自定义 Kafka `RecordInterceptor` 时注册 |
 | `config.EasyObservabilityProperties` | `easy.observability.*` 配置项 |
 
 包名均以 `io.github.lakernote.observability` 开头。自动配置类（`autoconfigure` 包）只用于按名称排除。

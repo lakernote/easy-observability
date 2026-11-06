@@ -18,6 +18,8 @@ import io.github.lakernote.observability.trace.internal.store.TraceStore;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationHandler;
 import io.micrometer.observation.ObservationView;
+import io.micrometer.observation.transport.ReceiverContext;
+import io.micrometer.observation.transport.SenderContext;
 
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -93,6 +95,9 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
                     : traceIdRequired ? TraceIds.getOrCreateTraceId() : "";
             if (propagatedValid && !currentValid) {
                 TraceIds.putTraceId(propagatedTraceId);
+            }
+            if (type == ObservationType.REMOTE || type == ObservationType.KAFKA_PRODUCER) {
+                propagate(context, traceId);
             }
             String name = operationName(context, type);
             String detail = detail(context, type);
@@ -328,7 +333,39 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
                 // 可选集成的解析异常不能影响 Observation 和业务调用。
             }
         }
+        // 通用兜底：任何携带 getter 的 ReceiverContext（gRPC、消息消费等）都按配置的请求头读取。
+        if (context instanceof ReceiverContext<?> receiver) {
+            try {
+                String traceId = readHeader(receiver, properties.getTrace().getHeaderName());
+                if (TraceIds.isValidTraceId(traceId)) return traceId;
+            } catch (RuntimeException ignored) {
+                // 载体读取失败时按无上游 Trace ID 处理。
+            }
+        }
         return null;
+    }
+
+    /** RestTemplate、RestClient、WebClient、Kafka 等发送端 Observation 自带写头回调；统一借此写入 Trace ID。 */
+    private void propagate(Observation.Context context, String traceId) {
+        if (!(context instanceof SenderContext<?> sender) || !TraceIds.isValidTraceId(traceId)) return;
+        try {
+            writeHeader(sender, properties.getTrace().getHeaderName(), traceId);
+        } catch (RuntimeException ignored) {
+            // 部分载体只读或尚未就绪；已有的客户端拦截器仍会兜底写入。
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <C> void writeHeader(SenderContext<C> sender, String headerName, String traceId) {
+        C carrier = sender.getCarrier();
+        if (carrier == null || sender.getSetter() == null) return;
+        sender.getSetter().set(carrier, headerName, traceId);
+    }
+
+    private static <C> String readHeader(ReceiverContext<C> receiver, String headerName) {
+        C carrier = receiver.getCarrier();
+        if (carrier == null || receiver.getGetter() == null) return null;
+        return receiver.getGetter().get(carrier, headerName);
     }
 
     private void logCallbackFailure(String callback, RuntimeException failure) {

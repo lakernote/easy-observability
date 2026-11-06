@@ -8,3 +8,4 @@ io.github.lakernote.observability.autoconfigure.KafkaTraceAutoConfiguration
 io.github.lakernote.observability.autoconfigure.FeignTraceAutoConfiguration
 io.github.lakernote.observability.autoconfigure.OkHttpObservationAutoConfiguration
 io.github.lakernote.observability.autoconfigure.JdbcTraceAutoConfiguration
+io.github.lakernote.observability.autoconfigure.RestTemplateObservationAutoConfiguration

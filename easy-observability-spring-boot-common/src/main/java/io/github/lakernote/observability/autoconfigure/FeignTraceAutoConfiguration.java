@@ -4,10 +4,15 @@ import feign.RequestInterceptor;
 import io.github.lakernote.observability.config.EasyObservabilityProperties;
 import io.github.lakernote.observability.integration.feign.TraceIdRequestInterceptor;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
+import io.github.lakernote.observability.integration.feign.internal.FeignObservationCapability;
+import io.micrometer.observation.ObservationRegistry;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 
 /**
  * OpenFeign 在类路径中时，注册用于传递 Trace ID 的拦截器。
@@ -25,8 +30,7 @@ import org.springframework.context.annotation.Bean;
  * }
  * }</pre>
  *
- * <p>此配置不作用于 {@code RestTemplate}、{@code WebClient} 等其他 HTTP 客户端；
- * 这些客户端需要通过各自的拦截器接入 Trace ID 传递。</p>
+ * <p>同时注册 {@link FeignObservationCapability}，让 {@code @FeignClient} 调用出现在 Trace 和调用统计中。</p>
  */
 @AutoConfiguration(after = ObservabilityAutoConfiguration.class)
 @ConditionalOnClass(RequestInterceptor.class)
@@ -37,5 +41,18 @@ public class FeignTraceAutoConfiguration {
     @ConditionalOnMissingBean(TraceIdRequestInterceptor.class)
     TraceIdRequestInterceptor traceIdRequestInterceptor(EasyObservabilityProperties properties) {
         return new TraceIdRequestInterceptor(properties);
+    }
+
+    /** Spring Cloud OpenFeign 会把 Capability Bean 应用到所有 {@code @FeignClient}；已引入 feign-micrometer 时由其负责。 */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(name = "io.micrometer.observation.ObservationRegistry")
+    @ConditionalOnMissingClass("feign.micrometer.MicrometerObservationCapability")
+    @ConditionalOnBean(ObservationRegistry.class)
+    static class FeignObservationConfiguration {
+        @Bean
+        @ConditionalOnMissingBean(FeignObservationCapability.class)
+        FeignObservationCapability feignObservationCapability(ObservationRegistry registry) {
+            return new FeignObservationCapability(registry);
+        }
     }
 }

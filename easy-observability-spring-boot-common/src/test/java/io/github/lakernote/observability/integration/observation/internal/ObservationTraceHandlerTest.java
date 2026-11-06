@@ -31,6 +31,35 @@ class ObservationTraceHandlerTest {
     }
 
     @Test
+    void writesTraceIdThroughSenderContextAndReadsItFromReceiverContext() {
+        EasyObservabilityProperties properties = new EasyObservabilityProperties();
+        ObservationRegistry registry = ObservationRegistry.create();
+        registry.observationConfig().observationHandler(new ObservationTraceHandler(
+                TraceStore.inMemory(1024 * 1024), properties, java.util.List.of()));
+        TraceIds.putTraceId("trace-sender-1");
+        TraceContext.startRoot("GET /orders", SpanKind.HTTP);
+
+        java.util.Map<String, String> outgoing = new java.util.HashMap<>();
+        io.micrometer.observation.transport.SenderContext<java.util.Map<String, String>> sender =
+                new io.micrometer.observation.transport.SenderContext<>(java.util.Map::put);
+        sender.setCarrier(outgoing);
+        Observation.createNotStarted("http.client.requests", () -> sender, registry).start().stop();
+        assertThat(outgoing).containsEntry("X-Trace-Id", "trace-sender-1");
+        TraceContext.clear();
+        TraceIds.clear();
+
+        java.util.Map<String, String> incoming = java.util.Map.of("X-Trace-Id", "trace-receiver-1");
+        io.micrometer.observation.transport.ReceiverContext<java.util.Map<String, String>> receiver =
+                new io.micrometer.observation.transport.ReceiverContext<>(java.util.Map::get);
+        receiver.setCarrier(incoming);
+        AtomicReference<String> seen = new AtomicReference<>();
+        Observation observation = Observation.createNotStarted("spring.kafka.listener", () -> receiver, registry).start();
+        seen.set(io.github.lakernote.observability.trace.TraceIdContext.currentTraceId());
+        observation.stop();
+        assertThat(seen.get()).isEqualTo("trace-receiver-1");
+    }
+
+    @Test
     void convertsFrameworkObservationToChildSpanInTheTraceTree() {
         EasyObservabilityProperties properties = new EasyObservabilityProperties();
         TraceStore history = TraceStore.inMemory(1024 * 1024);

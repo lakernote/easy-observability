@@ -26,10 +26,6 @@ spring:
     consumer:
       group-id: easy-observability-demo-boot4
       auto-offset-reset: earliest
-    template:
-      observation-enabled: true
-    listener:
-      observation-enabled: true
 logging:
   pattern:
     correlation: "[%X{easyTraceId:-}] "
