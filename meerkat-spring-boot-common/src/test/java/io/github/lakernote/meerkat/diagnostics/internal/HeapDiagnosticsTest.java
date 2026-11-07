@@ -141,6 +141,27 @@ class HeapDiagnosticsTest {
     }
 
     @Test
+    void deletesDumpsLeftOverByEarlierRunsButNotRecentOnes() throws IOException {
+        Instant now = Instant.parse("2026-01-02T03:04:05Z");
+        Path stale = Files.createDirectory(directory.resolve("meerkat-heap-old"));
+        Files.writeString(stale.resolve("heap.hprof"), "old");
+        Files.setLastModifiedTime(stale, java.nio.file.attribute.FileTime.from(now.minus(Duration.ofDays(2))));
+        Path recent = Files.createDirectory(directory.resolve("meerkat-heap-recent"));
+        Files.setLastModifiedTime(recent, java.nio.file.attribute.FileTime.from(now.minus(Duration.ofHours(1))));
+        Path unrelated = Files.createDirectory(directory.resolve("other-app"));
+        Files.setLastModifiedTime(unrelated, java.nio.file.attribute.FileTime.from(now.minus(Duration.ofDays(9))));
+
+        try (HeapDiagnostics.HeapDump dump = diagnostics((file, live) -> Files.writeString(Path.of(file), "x"), 1)
+                .dumpHeap()) {
+            assertThat(dump.file()).exists();
+        }
+
+        assertThat(stale).doesNotExist();
+        assertThat(recent).exists();
+        assertThat(unrelated).exists();
+    }
+
+    @Test
     void refusesADumpWithoutEnoughDiskSpaceAndRecoversFromFailures() throws IOException {
         HeapDiagnostics full = diagnostics((file, live) -> { }, Long.MAX_VALUE / 2);
         assertThatThrownBy(full::dumpHeap).isInstanceOf(IllegalStateException.class).hasMessageContaining("disk space");

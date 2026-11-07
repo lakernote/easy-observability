@@ -8,7 +8,9 @@ import javax.management.JMException;
 import javax.management.ObjectName;
 import java.io.IOException;
 import java.lang.management.ManagementFactory;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
@@ -39,6 +41,8 @@ public final class HeapDiagnostics {
     static final int GROWTH_ROWS = 20;
     private static final Pattern ROW = Pattern.compile("^\\s*\\d+:\\s+(\\d+)\\s+(\\d+)\\s+(\\S+).*$");
     private static final Pattern TOTAL = Pattern.compile("^\\s*Total\\s+(\\d+)\\s+(\\d+)\\s*$");
+    private static final String STALE_DUMP_PREFIX = "meerkat-heap-";
+    private static final Duration STALE_DUMP_AGE = Duration.ofDays(1);
     private static final DateTimeFormatter DUMP_NAME = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss");
     private final HistogramSource histogramSource;
     private final HeapDumper dumper;
@@ -172,13 +176,14 @@ public final class HeapDiagnostics {
         Path directory = null;
         try {
             Files.createDirectories(dumpDirectory);
+            deleteStaleDumps();
             long used = heapUsed.getAsLong();
             long usable = Files.getFileStore(dumpDirectory).getUsableSpace();
             if (usable < used + used / 10) {
                 throw new IllegalStateException("Not enough disk space in " + dumpDirectory + " for a heap dump: "
                         + usable / (1024 * 1024) + " MB free, about " + used / (1024 * 1024) + " MB needed");
             }
-            directory = Files.createTempDirectory(dumpDirectory, "meerkat-heap-");
+            directory = Files.createTempDirectory(dumpDirectory, STALE_DUMP_PREFIX);
             String name = "heap-" + DUMP_NAME.format(LocalDateTime.now(clock)) + ".hprof";
             Path file = directory.resolve(name);
             long started = System.nanoTime();
@@ -200,6 +205,25 @@ public final class HeapDiagnostics {
     private void release(Path file) {
         deleteQuietly(file.getParent());
         dumping.set(false);
+    }
+
+    /**
+     * Deletes dump directories left behind when a process died before its download finished. Only directories older
+     * than a day are touched, since other applications may share the temporary directory and be streaming a dump.
+     */
+    private void deleteStaleDumps() {
+        Instant cutoff = clock.instant().minus(STALE_DUMP_AGE);
+        try (DirectoryStream<Path> stale = Files.newDirectoryStream(dumpDirectory, STALE_DUMP_PREFIX + "*")) {
+            for (Path directory : stale) {
+                if (Files.isDirectory(directory, LinkOption.NOFOLLOW_LINKS)
+                        && Files.getLastModifiedTime(directory).toInstant().isBefore(cutoff)) {
+                    log.info("Meerkat is deleting a heap dump left over from an earlier run: {}", directory);
+                    deleteQuietly(directory);
+                }
+            }
+        } catch (IOException | RuntimeException failure) {
+            log.debug("Meerkat could not look for old heap dumps in {}", dumpDirectory, failure);
+        }
     }
 
     private static void deleteQuietly(Path directory) {
