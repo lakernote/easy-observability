@@ -2,6 +2,8 @@ package io.github.lakernote.meerkat.integration.jdbc.internal;
 
 import io.github.lakernote.meerkat.metrics.internal.OperationStats;
 import io.github.lakernote.meerkat.trace.SpanKind;
+import io.github.lakernote.meerkat.trace.internal.CaptureTarget;
+import io.github.lakernote.meerkat.trace.internal.CaptureThreadState;
 import io.github.lakernote.meerkat.trace.internal.ScopedSpan;
 import io.github.lakernote.meerkat.trace.internal.TraceContext;
 import net.ttddyy.dsproxy.ExecutionInfo;
@@ -57,9 +59,14 @@ public final class JdbcTraceQueryExecutionListener implements QueryExecutionList
                 String detail = dataSource == null || dataSource.isBlank() ? names.sql() : dataSource + " · " + names.sql();
                 span = TraceContext.startScopedSpan(names.spanName(), SpanKind.DATABASE, detail);
             }
+            CaptureTarget capture = span == null ? null : span.captureTarget();
+            if (capture != null) {
+                JdbcCapture.before(capture, queryInfoList);
+                CaptureThreadState.rememberStatement(executionInfo.getStatement(), capture);
+            }
             try {
                 executionInfo.addCustomValue(TRACE_STATE_KEY, new TraceState(span, names.statsName(),
-                        System.nanoTime()));
+                        System.nanoTime(), capture));
             } catch (RuntimeException | Error failure) {
                 if (span != null) span.close();
                 throw failure;
@@ -110,6 +117,7 @@ public final class JdbcTraceQueryExecutionListener implements QueryExecutionList
             if (state == null) return;
 
             Throwable failure = executionInfo.getThrowable();
+            if (state.capture != null) JdbcCapture.after(state.capture, executionInfo.getResult(), failure);
             if (failure != null && state.span != null) {
                 TraceContext.markError("SQL_ERROR", JdbcTraceSafety.captureFailure(failure));
             }
@@ -130,5 +138,5 @@ public final class JdbcTraceQueryExecutionListener implements QueryExecutionList
         }
     }
 
-    private record TraceState(ScopedSpan span, String statsName, long startedAtNanos) { }
+    private record TraceState(ScopedSpan span, String statsName, long startedAtNanos, CaptureTarget capture) { }
 }

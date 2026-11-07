@@ -33,7 +33,11 @@ No separate observability platform is needed to get started, and it works alongs
 - **Trace diagnostics** – call trees for HTTP, scheduled-job and Kafka-consumer entries that are slow, fail, or use too much CPU or memory. Repeated SQL in a loop is merged and flagged as N+1.
 - **Operation ranking** – count, error rate, average/P95/max and total time for every endpoint, SQL statement, remote call, Redis command, job and Kafka topic, plus CPU and allocation per request. Last hour to 30 days; survives restarts.
 - **Metric trends** – JVM memory and GC, CPU, threads, Hikari pools, executors and Tomcat, reusing the Micrometer meters Spring Boot already binds.
-- **Live diagnostics** – in-flight requests and the step they are stuck in, threads ranked by CPU, deadlock detection, merged stacks and thread dumps. Read on demand, never sampled in the background.
+- **Live diagnostics** – in-flight requests and the step they are stuck in, threads ranked by CPU, deadlock detection, merged stacks, thread dumps, and who is holding DB connections (with suspected leaks). Read on demand, never sampled in the background.
+- **Error groups** – failed traces grouped by error type and message with counts, trend and a "new" mark, so a burst of identical failures reads as one problem.
+- **Logs in traces** – slow and failed traces carry the log lines the application wrote during that request, with the step they were written in; see [Application logs in traces](docs/guide.md#application-logs-in-traces).
+- **Traffic capture** – on demand, record everything a matching request did: request and response bodies, SQL with parameters and results, Redis commands and replies, and outbound HTTP calls, tied together by trace ID. Available to whoever `canCapture()` allows (nobody by default); see [Traffic capture](docs/guide.md#traffic-capture).
+- **Toolbox** – on-demand diagnostics without a Java agent: temporary log levels that revert by themselves, a CPU sampling flame graph, heap histograms with growth since the last one, heap dumps, where a configuration property comes from, and which jar a class is loaded from, including duplicate classes. See [Toolbox](docs/guide.md#toolbox).
 - **Self-contained** – data lives in local files with retention and size limits. Your Prometheus or other Micrometer exports are untouched.
 
 ## Getting started

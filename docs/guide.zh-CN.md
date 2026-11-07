@@ -63,6 +63,10 @@ JDBC 采集会使用保留原数据源具体类型的代理，因此按 `HikariD
 | `meerkat.trace.retention` | `7d` | 诊断 Trace 保留天数，整天，范围 `1d`～`365d` |
 | `meerkat.trace.max-storage-size` | `128MB` | 诊断 Trace 磁盘占用上限，超出时删除最旧的分段文件 |
 | `meerkat.trace.max-memory-size` | `32MB` | 内存中缓存最新 Trace 完整调用树的堆内存上限（按估算大小淘汰最旧的）；更早的记录在打开详情时从磁盘读取，存储不可用时直接丢弃 |
+| `meerkat.trace.logs.enabled` | `true` | 把应用自己打印的日志挂到慢调用和失败 Trace 上，见[Trace 里的应用日志](#trace-里的应用日志) |
+| `meerkat.trace.logs.max-per-trace` | `100` | 每条 Trace 最多保留的日志行数；超出的只计数，并以"已省略"标出 |
+| `meerkat.trace.logs.max-message-chars` | `1000` | 每行日志消息最多保留的字符数（最小 80） |
+| `meerkat.trace.logs.max-buffered-size` | `16MB` | 所有进行中 Trace 的日志行共享的堆内存上限；超出后新行被省略，直到有 Trace 结束释放 |
 | `meerkat.metrics.enabled` | `true` | 运行指标（调用统计与资源指标）总开关 |
 | `meerkat.metrics.max-operations` | `1000` | 所有类别合计最多统计的操作数，超出后新操作按类别并入“其他”行；2 小时没有调用的操作会释放名额 |
 | `meerkat.metrics.retention` | `30d` | 指标历史保留时长，须为整天数，范围 `1d` 至 `365d` |
@@ -97,6 +101,9 @@ Trace 查询 API（均为 `GET`，前缀 `/api/meerkat`）：
 - `/traces?kind=all|slow|error|resource&source=HTTP|JOB|KAFKA_CONSUMER&q=&before=&limit=50`：按完成时间倒序分页，返回 `items`（不含调用树）、`nextCursor`（作为下一页的 `before`）、`total` 和 `scanLimited`。`q` 匹配入口名称、Trace ID、错误信息、线程名以及调用树中的 SQL、远程地址等节点；文本搜索需要扫描磁盘，每次请求最多读取 32MB，达到上限时 `scanLimited` 为 `true`，用 `nextCursor` 继续搜索，此时 `total` 为 `-1`。`limit` 最大 200。
 - `/traces/{traceId}?source=`：完整调用树，不存在时返回 404。
 - `/traces/storage`：`persistent`、`storageBytes`、`maxStorageBytes`、`retentionDays`、`traceCount`、`indexing`。
+- `/errors?window=1h|24h|7d&source=&limit=50`：把时间范围内失败的 Trace 按异常类型和消息归并，按次数倒序（最多 200 组）。每组包含 `errorType`、`message`（数字、ID、引号内的值已被替换）、`sampleMessage`、`count`、`firstSeen`、`lastSeen`、`newInWindow`（时间范围之前没有保留过同类失败）、出现最多的入口 `entries`、`latestTraceId` 和 24 段的分布 `trend`。
+
+Trace 页面的 **异常聚合** 面板展示同样的数据：同类失败合成一行并给出次数，时间范围内才开始出现的（例如发布后新出现的）标为"新出现"。没有异常对象的失败（例如只有 5xx 状态码）按入口分别归并。分组在请求时基于 Trace 索引计算，不增加业务请求开销，重启后依然可用；范围是 `retention` 和 `max-storage-size` 仍保留的失败记录。
 
 `retention`、`max-storage-size` 等无效配置会阻止应用启动，以便尽早暴露配置错误。运行时因目录权限、只读文件系统、磁盘 I/O 导致指标历史写入失败时，组件会记录警告并改为只保存在内存，不会中断宿主应用；页面会显示“存储降级”。修复存储问题后需要重启应用以恢复历史保存。
 
@@ -167,14 +174,79 @@ Trace 查询 API（均为 `GET`，前缀 `/api/meerkat`）：
 
 - **进行中请求：** 列出正在执行的 HTTP、定时任务和 Kafka 消费入口，按已执行时间排序，显示入口线程已消耗的 CPU 时间、当前正在执行的最内层步骤（例如某条 SQL 或远程调用及其已执行时间）和线程状态；展开一行查看该线程此刻的堆栈和正在等待的锁。默认每 5 秒刷新。请求转为异步处理、入口线程已返回后，只显示耗时和当前步骤，不显示线程堆栈。最多显示 200 个，诊断页面自身的请求不计入。
 - **线程：** 对全部平台线程采样 1 秒，按 CPU 使用率（100% 表示占满一个核心）排序，显示状态、累计 CPU、等待的锁及持有者，展开查看堆栈；检测到死锁时在顶部列出相关线程。勾选“合并相同堆栈”可以把状态和堆栈相同的线程合为一行，便于发现大量线程卡在同一处。可下载 jstack 格式的线程 Dump 文本。虚拟线程不在列表中。
+- **数据库连接：** 列出从被追踪数据源取出、尚未关闭（未归还连接池）的 JDBC 连接，按占用时间排序，显示数据源、取连接的线程、所属 Trace ID，以及该线程*此刻*的状态和堆栈。取连接的请求已经结束而连接仍未关闭的，标记为**疑似泄漏**。连接池耗尽（如 “Connection is not available, request timed out”）时可在这里看到是谁占着连接。顶部卡片显示占用总数、疑似泄漏数和各数据源的占用数。只覆盖经 Meerkat JDBC 追踪包装的数据源；应用自行创建的 `ProxyDataSource` Bean 不在统计内。
 
-每个入口只在开始和结束时各做一次并发集合的增删，不影响请求耗时。线程采样同一时间只允许一个，正在采样时再次请求返回 429。
+每个入口只在开始和结束时各做一次并发集合的增删，不影响请求耗时。连接跟踪同理：每次 `getConnection` 一次 Map 写入、每次 `close` 一次删除，不采集堆栈，最多跟踪 10,000 个未关闭连接（超出部分只计数不列出）；堆栈只在页面请求时读取。线程采样同一时间只允许一个，正在采样时再次请求返回 429。
 
-查询 API（均为 `GET`，前缀 `/api/meerkat/live`）：`/requests`、`/threads?sampleMs=0..5000`（默认 1000）、`/threads/dump`（`text/plain` 附件；同一时间只生成一份，且两次间隔至少 5 秒，否则返回 429）。
+查询 API（均为 `GET`，前缀 `/api/meerkat/live`）：`/requests`、`/connections`、`/threads?sampleMs=0..5000`（默认 1000）、`/threads/dump`（`text/plain` 附件；同一时间只生成一份，且两次间隔至少 5 秒，否则返回 429）。
+
+## 流量抓取
+
+当某个请求出问题、只看 Trace 树还看不出原因时，可以用流量抓取记录它的完整现场：入口请求和响应（请求头和请求体）、每条 SQL 及绑定参数和查询结果或更新行数、Redis 命令及返回值、调用下游 HTTP（RestTemplate、RestClient、Feign）的请求和响应，全部用 Trace ID 串成一条记录。
+
+没有单独的开关：谁能抓取由 `ObservabilityAccessPolicy#canCapture()` 决定，内置策略拒绝，所以需要在自定义策略中授权后才能使用（见[页面和 API 访问](#页面和-api-访问)）。在页面开始抓取之前不记录任何数据。可选的限制：
+
+```yaml
+meerkat:
+  capture:
+    max-body-size: 64KB    # 每个请求体/响应体
+    max-result-rows: 20    # 每条查询保留的结果行数
+    max-value-chars: 16384 # 每个记录值
+    max-trace-chars: 1000000 # 每个被抓取的请求
+    max-records: 100       # 内存中保留的抓取记录数
+    retention: 2h
+    max-duration: 1h       # 单次抓取最长时间
+```
+
+打开 `/meerkat/capture/`，填写规则：HTTP 方法、Ant 风格路径（如 `/api/orders/**`），以及可选的请求头和值（例如反馈问题的用户 ID），再选择抓取次数和最长时间。达到次数或时间后自动停止。同时最多 10 个抓取任务；开始和停止都会以 WARN 级别记录操作人。
+
+> [!WARNING]
+> 抓取的数据**不做脱敏**，可能包含密码、令牌和个人信息。只把 `canCapture()` 授权给可以查看这些数据的人，并且每次抓取尽量短。
+
+注意事项：
+
+- 只抓取入口为 HTTP 的请求。请求体和响应体只记录应用实际读写的内容，最多 `max-body-size`，不会提前读取；文件上传和下载（图片、octet-stream 等二进制类型，`multipart/*`，或带 `Content-Disposition: attachment` 的响应）不复制内容，只记录一个标记，例如 `[file upload, multipart/form-data, 10485760 bytes; content not recorded]`。入口请求和 `RestTemplate`/`RestClient`/OpenFeign 出站调用都按这个规则处理。通过 `getParameter` 读取的表单提交记录为参数。
+- SQL 结果只记录前 `max-result-rows` 行中应用读取过的列，LOB 和流类型的列不记录；`·` 表示应用没有读取该列。
+- 抓取记录只保存在内存中，不写磁盘，也不会出现在 Trace 列表和 Trace API 中。被抓取的请求如果本身慢或失败，仍会像其他请求一样出现在 Trace 列表中。
+- 没有进行中的抓取时，每个请求只多一次 volatile 读；抓取期间只有匹配的请求需要复制数据。Meerkat 会启用 datasource-proxy 的结果集代理（未被抓取的查询仍直接返回驱动的结果集），并包装 `RestTemplate`/`RestClient` Bean 的请求工厂而不是添加拦截器，所以请求体仍然流式发送，上传不会被缓冲到内存。不在抓取中的调用拿到的是原始请求。启动后再替换请求工厂的 `RestClient.Builder` 不会被抓取。
+
+API（前缀 `/api/meerkat/capture`）：`GET /status`、`POST /sessions`（JSON 请求体 `{"method","pathPattern","headerName","headerValue","maxCount","durationSeconds"}`）、`POST /sessions/{id}/stop`、`GET /records?sessionId=`、`GET /records/{id}`、`POST /records/clear`。除 `/status` 外都需要同时通过 `canView()` 和 `canCapture()`。
+
+## 工具箱
+
+工具箱页面 `/meerkat/tools/` 按需提供几个常用诊断工具，不使用 Java Agent，也不做字节码增强。没有人启动工具时不会在后台运行任何东西；每个工具都限制了时间和内存，同类重操作同一时间只能运行一个（再次请求返回 429）。
+
+| 工具 | 作用 | 权限 |
+| --- | --- | --- |
+| 日志级别 | 列出 Logger 的配置级别和生效级别（通过 Spring Boot 的 `LoggingSystem`，Logback 和 Log4j2 都支持），临时修改级别 1–60 分钟，到期自动恢复为之前的配置级别，也可以点“立即恢复”。同时最多 50 个临时级别；修改会以 WARN 级别记录操作人 | 查看：`canView()`；修改：`canOperate()` |
+| CPU 火焰图 | 每 10–100 毫秒（默认 20 毫秒）采样 RUNNABLE 线程的调用栈，最长 60 秒（默认 10 秒），生成可交互的火焰图（点击放大，悬停显示样本数和占比）和按自身耗时排序的热点方法。调用树最多 20,000 个节点、每个栈 128 帧；可以跳过空闲的原生等待（socket accept、epoll 等），也可以包含阻塞/等待中的线程。可下载 collapsed 格式，供 flamegraph.pl 和 speedscope 使用 | `canView()` |
+| 堆直方图 | 执行 `GC.class_histogram`（只统计存活对象，**会触发一次 Full GC 停顿**），按占用字节显示前 N 个类；再次执行会显示与上一次相比的增长，便于排查内存泄漏。只保留上一次结果（最多 500 行），两次间隔至少 10 秒 | `canOperate()` |
+| 堆转储 | 检查磁盘剩余空间后，把存活对象的堆转储（`HotSpotDiagnosticMXBean.dumpHeap`）写到临时目录，以下载方式返回并删除文件。**会暂停应用**，文件大小可能接近堆大小 | `canOperate()` |
+| 配置来源 | 输入属性名（或按名称搜索，最多 200 条），显示解析占位符后的生效值，以及按优先级排列的所有定义了该属性的配置来源，并标出生效的那个。值**不做脱敏** | `canOperate()` |
+| 类来源 | 输入类名，显示应用类加载器能看到的所有副本、实际加载的类来自哪里以及类加载器链。“扫描重复类”会读取类路径上的 jar 和目录（类加载器暴露时也包括 Spring Boot 可执行 jar 中的嵌套 jar），列出出现在多个位置的类，并按 jar 对汇总；发现 500 个重复类或运行 20 秒后停止 | `canView()` |
+
+```yaml
+meerkat:
+  tools:
+    enabled: true                  # false 时关闭整个工具箱 API（返回 404）
+    log-level-max-duration: 1h     # 临时日志级别的最长时间，最多 1 小时
+    heap-histogram-interval: 10s   # 两次堆直方图的最短间隔
+```
+
+> [!WARNING]
+> `canOperate()` 默认拒绝，内置策略也不开放：堆转储和配置值会暴露密钥，堆直方图和堆转储会暂停应用，修改日志级别会改变运行时行为。只授予可信的运维人员。
+
+注意事项：
+
+- CPU 采样只能看到 `ThreadMXBean` 返回的调用栈，因此存在安全点偏差，也看不到原生帧，适合定位热点而不是精确计算耗时。采样本身也消耗 CPU，结果中会显示采样耗时。
+- 下载堆转储时文件会先保存在浏览器内存中；堆很大时建议在主机上执行 `jcmd <pid> GC.heap_dump`。
+- 扫描重复类只读取类路径条目，不加载类；无法打开的条目会列为“无法读取”，不会导致扫描失败。
+
+API（前缀 `/api/meerkat/tools`）：`GET /status`；`GET /loggers?q=&limit=`、`POST /loggers/overrides`（JSON `{"logger","level","durationSeconds"}`）、`POST /loggers/overrides/revert?logger=`；`POST /profiler`（JSON `{"durationSeconds","intervalMs","includeBlocked","excludeIdle","groupByThread"}`）、`GET /profiler`、`GET /profiler/{id}`、`POST /profiler/{id}/stop`、`GET /profiler/{id}/collapsed`；`POST /heap/histogram?limit=`、`POST /heap/dump`；`GET /config?name=`、`GET /config/search?q=`；`GET /classes?name=`、`POST /classes/duplicates`。
 
 ## 页面和 API 访问
 
-页面路径为 `/meerkat/`，调用排行页面为 `/meerkat/stats/`，指标趋势页面为 `/meerkat/metrics/`，实时诊断页面为 `/meerkat/live/`，查询 API 位于 `/api/meerkat/`。页面按浏览器语言显示中文或英文，可在顶部栏切换，选择保存在浏览器中。组件不提供用户名、密码或登录系统，认证由应用现有的 Spring Security、Servlet 容器或网关负责。
+页面路径为 `/meerkat/`，调用排行页面为 `/meerkat/stats/`，指标趋势页面为 `/meerkat/metrics/`，实时诊断页面为 `/meerkat/live/`，流量抓取页面为 `/meerkat/capture/`，工具箱页面为 `/meerkat/tools/`，查询 API 位于 `/api/meerkat/`。页面按浏览器语言显示中文或英文，可在顶部栏切换，选择保存在浏览器中。组件不提供用户名、密码或登录系统，认证由应用现有的 Spring Security、Servlet 容器或网关负责。
 
 API 授权由 `ObservabilityAccessPolicy` 决定，应用定义该类型的 Bean 即可替换默认实现：
 
@@ -182,6 +254,8 @@ API 授权由 `ObservabilityAccessPolicy` 决定，应用定义该类型的 Bean
 | --- | --- | --- |
 | `canView()` | 查询 Trace、Metrics、存储状态和当前权限 | `true`，允许所有请求 |
 | `canClear()` | 清空 Trace 历史（`POST /api/meerkat/traces/clear`）和重置调用统计（`POST /api/meerkat/metrics/operations/reset`），并且需要同时通过 `canView()` | `false`，拒绝所有请求；页面隐藏“清空历史”和“重置统计”按钮 |
+| `canCapture()` | 流量抓取：开始、停止抓取和读取抓取记录（`/api/meerkat/capture/**`），并且需要同时通过 `canView()` | 默认拒绝（内置策略同样拒绝），覆盖 `canCapture()` 后允许；这是流量抓取唯一的开关 |
+| `canOperate()` | 工具箱中的敏感操作：修改日志级别、堆直方图（Full GC）、下载堆转储和读取配置值（`/api/meerkat/tools/**`），并且需要同时通过 `canView()` | `false`，拒绝所有请求，内置策略也不开放；工具箱页面禁用这些操作 |
 
 `canClear()` 是默认方法，只需要限制查看时可以直接用 lambda，清空历史仍保持关闭：
 
@@ -240,6 +314,14 @@ MDC 键名与 Micrometer Tracing 的 `traceId`、`spanId` 不同，但取值会�
 
 出站只写 `X-Trace-Id`。`traceparent`、B3 等标准头由 Micrometer Tracing 负责写入，Meerkat 不重复写，以免改动下游服务的采样决策。SkyWalking 的 `sw8` 头目前不识别。
 
+## Trace 里的应用日志
+
+Trace 详情和流量抓取记录会附上请求执行期间应用自己打印的日志——级别、Logger、线程、当时所在的步骤（Span）以及距请求开始的时间——排查慢调用或失败请求时不用再去日志系统里另外搜。随日志一起打印的异常会以 `| 异常类: 消息` 追加在行尾，完整堆栈仍在你的日志文件里。
+
+Meerkat 在 Logback 或 Log4j2（取应用实际使用的那个）的 root logger 上挂一个 appender，Spring Boot 或应用重新配置日志后会自动重新挂上。只收集通过了你的日志级别的行；设置了 `additivity=false` 的 logger 不会传到 root，因此不会被收集。子线程里打印的日志在 Trace 上下文传递到该线程时也会收集（见 [Kafka 与线程池](#kafka-与线程池)）。
+
+请求是否慢或失败要到结束时才知道，所以每个进行中的 Trace 都会先缓存日志，快速成功的请求结束时直接丢弃。缓存受 `max-per-trace`、`max-message-chars` 和全局共享的 `max-buffered-size` 约束，Trace 结束即释放。不在 Trace 内时 appender 只做一次 ThreadLocal 读取。可用 `meerkat.trace.logs.enabled=false` 关闭。
+
 ## Kafka 与线程池
 
 Starter 会为 Spring 容器中的 `KafkaTemplate` 和 Listener Factory 打开 Observation，无需配置 `spring.kafka.template/listener.observation-enabled`；显式设为 `false` 时尊重应用配置。默认 Listener Factory 会自动接入 Trace ID 拦截器；应用使用自定义 `RecordInterceptor` 时，需要按应用现有配置组合 `TraceIdRecordInterceptor`。批量 Listener、自定义消费者、Kafka Streams 不在自动覆盖范围内。
@@ -270,6 +352,9 @@ executorService.submit(decorator.decorate(task));
 | `TraceBlock`，不在 Trace 中 | — | 18 ns | 直接执行业务代码，不记录 |
 | 一个入口 Trace 内 10 个 `TraceBlock` | — | 1.0 µs | 每个 Span 约 0.1 µs |
 | `TraceContextTaskDecorator` 装饰并执行一个任务 | — | 0.27 µs（无 Trace）/ 0.37 µs（Trace 内） | 无父 Trace 时会为任务生成新的 Trace ID |
+| 开启 Trace 日志后，Trace 外打印一行日志 | — | 1 ns | 无内存分配 |
+| 开启 Trace 日志后，Trace 内打印一行日志 | — | 20 ns | 每行分配约 50–75 B；日志预算按 8 KB 分块预留 |
+| 开启连接追踪后，从连接池取一次 JDBC 连接 | — | +0.12 µs | 为实时连接视图记录持有者 |
 
 对于耗时 1 ms 以上的请求，这部分开销低于 1%；10 ms 的请求低于 0.1%。慢请求、错误和资源超阈值的入口还会被写入内存列表并在后台线程异步归档，归档 I/O 不在业务线程上执行。
 

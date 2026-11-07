@@ -1,4 +1,5 @@
 import { $, initializeEmbeddedAuth, kindName, node, request as apiRequest } from './common.js?v=20261106.11'
+import { renderTraceLogs } from './trace-logs.js?v=20261106.12'
 
 const PAGE_SIZE = 50
 let traces = { items: [], nextCursor: null, scanLimited: false, total: 0 }
@@ -352,6 +353,7 @@ async function openTrace(summary) {
   $('error-stack-details').open = false
   $('tree').replaceChildren(node('p', 'tree-empty', t('正在读取调用树…')))
   $('span-detail').replaceChildren()
+  $('trace-logs').replaceChildren()
   $('error-section').hidden = true
   $('detail-dialog').showModal()
   $('detail-title').focus()
@@ -378,6 +380,8 @@ async function openTrace(summary) {
       $('error-stack').textContent = detail.errorStackTrace || t('当前异常没有可用的堆栈。')
     }
     renderTraceTree($('tree'), $('span-detail'), detail.treeNodes, Number(detail.durationMs || 0))
+    const logs = renderTraceLogs(detail.logs)
+    if (logs) $('trace-logs').replaceChildren(logs)
   } catch (error) {
     if (requestId !== detailRequest || !$('detail-dialog').open) return
     $('tree').replaceChildren(node('p', 'tree-empty', error.message))
@@ -477,6 +481,96 @@ function bind() {
   })
 }
 
+// ---- Error groups: failed traces grouped by error type and message ----
+let errorWindow = '24h'
+let errorRequest = 0
+
+async function loadErrorGroups() {
+  if (!$('error-groups').open) return
+  const requestId = ++errorRequest
+  const params = new URLSearchParams({ window: errorWindow, limit: '50' })
+  if ($('source-filter').value) params.set('source', $('source-filter').value)
+  try {
+    const report = await request(`/errors?${params}`)
+    if (requestId !== errorRequest) return
+    renderErrorGroups(report)
+  } catch (error) {
+    if (requestId !== errorRequest) return
+    $('error-group-rows').replaceChildren()
+    $('error-groups-count').textContent = error.message
+  }
+}
+
+function renderErrorGroups(report) {
+  const rows = $('error-group-rows')
+  rows.replaceChildren()
+  $('error-groups-empty').hidden = report.groups.length > 0
+  $('error-groups-count').textContent = report.failures
+    ? t('{failures} 次失败，{groups} 类', { failures: report.failures, groups: report.total }) : ''
+  for (const group of report.groups) {
+    const row = node('tr')
+    const what = node('td', 'error-group-what')
+    const type = node('strong', '', group.errorType)
+    what.append(type)
+    if (group.newInWindow) what.append(node('span', 'badge error', t('新出现')))
+    if (group.message) what.append(node('span', 'error-group-message', group.message))
+    what.title = group.sampleMessage || ''
+    const count = node('td', 'numeric', Number(group.count).toLocaleString())
+    const entries = node('td', 'error-group-entries')
+    for (const entry of group.entries) {
+      entries.append(node('span', '', `${entry.name} ×${entry.count}`))
+    }
+    const last = node('td', '', relativeTime(group.lastSeen))
+    last.title = t('首次 {first}\n最近 {last}', { first: fullTime(group.firstSeen), last: fullTime(group.lastSeen) })
+    const actions = node('td', 'error-group-actions')
+    const open = node('button', 'quiet-button', t('最近一条'))
+    open.type = 'button'
+    open.addEventListener('click', () => openTrace({ traceId: group.latestTraceId, sourceType: group.latestSourceType,
+      name: group.errorType }))
+    const filter = node('button', 'quiet-button', t('筛选'))
+    filter.type = 'button'
+    filter.addEventListener('click', () => {
+      selectResultFilter('error')
+      $('search').value = group.errorType.startsWith('HTTP_') || group.errorType === '—'
+        ? (group.entries[0]?.name || '') : group.errorType
+      showPage(0)
+      $('search').scrollIntoView({ block: 'center' })
+    })
+    actions.append(open, filter)
+    const trend = node('td')
+    trend.append(sparkline(group.trend))
+    row.append(what, count, trend, entries, last, actions)
+    rows.append(row)
+  }
+}
+
+function sparkline(trend) {
+  const max = Math.max(1, ...trend)
+  const chart = node('span', 'sparkline')
+  chart.setAttribute('aria-hidden', 'true')
+  for (const value of trend) {
+    const bar = node('i')
+    bar.style.height = value ? `${Math.max(12, Math.round(value / max * 100))}%` : '0'
+    chart.append(bar)
+  }
+  return chart
+}
+
+function bindErrorGroups() {
+  $('error-groups').addEventListener('toggle', loadErrorGroups)
+  for (const button of $('error-window').querySelectorAll('button')) {
+    button.addEventListener('click', () => {
+      errorWindow = button.dataset.value
+      for (const other of $('error-window').querySelectorAll('button')) {
+        other.setAttribute('aria-pressed', String(other === button))
+      }
+      loadErrorGroups()
+    })
+  }
+  $('source-filter').addEventListener('change', loadErrorGroups)
+  $('refresh').addEventListener('click', loadErrorGroups)
+}
+
 async function loadPermissions() {
   try {
     const permissions = await request('/permissions')
@@ -488,6 +582,7 @@ async function loadPermissions() {
 
 applyLinkedFilters()
 bind()
+bindErrorGroups()
 initializeEmbeddedAuth().then(() => Promise.all([loadPermissions(), refresh()]))
 // Only the newest page is polled; older pages and text searches stay as loaded until the user acts.
 timer = window.setInterval(() => { if (page === 0 && !$('search').value.trim()) refresh() }, 10000)

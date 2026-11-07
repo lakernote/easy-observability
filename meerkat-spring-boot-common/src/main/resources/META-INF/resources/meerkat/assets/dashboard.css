@@ -363,3 +363,36 @@ body:has(dialog[open]) { overflow: hidden; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
 }
+
+/* Application log lines buffered during a trace */
+#trace-logs:empty { display: none; }
+#trace-logs .trace-logs { margin: 0 22px 18px; }
+.trace-logs h3 { margin: 12px 0 6px; font-size: 13px; }
+.trace-log-list { margin: 0; padding: 6px 0; max-height: 360px; overflow: auto; border: 1px solid var(--line); border-radius: 8px;
+  background: #fbfcfe; list-style: none; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.trace-log { display: grid; grid-template-columns: 64px 46px minmax(80px, 140px) minmax(90px, 200px) 1fr; gap: 8px; padding: 1px 10px; }
+.trace-log:hover { background: #f1f4f9; }
+.trace-log > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trace-log .trace-log-offset, .trace-log .trace-log-thread, .trace-log .trace-log-logger { color: var(--muted); }
+.trace-log .trace-log-message { white-space: pre-wrap; word-break: break-word; }
+.trace-log.warn .trace-log-level { color: var(--amber); font-weight: 600; }
+.trace-log.bad .trace-log-level, .trace-log.bad .trace-log-message { color: var(--red); }
+.trace-log.bad .trace-log-level { font-weight: 600; }
+
+/* Error groups */
+.error-groups { margin: 0 0 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.error-groups > summary { display: flex; align-items: baseline; gap: 10px; padding: 12px 16px; cursor: pointer; }
+.error-groups > summary strong { font-size: 14px; }
+.error-groups > summary span { color: var(--muted); font-size: 12px; }
+.error-groups[open] > summary { border-bottom: 1px solid var(--line); }
+.error-groups-bar { display: flex; align-items: center; gap: 12px; padding: 12px 16px 0; }
+.error-groups-bar .count { margin: 0; }
+.error-groups .table-scroll { padding: 8px 16px 12px; }
+.error-groups .empty { margin: 4px 16px 14px; }
+.error-group-what strong { margin-right: 6px; color: var(--red); font-size: 12px; word-break: break-all; }
+.error-group-message { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; word-break: break-word; }
+.error-group-entries span { display: block; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.error-group-actions { white-space: nowrap; }
+.error-group-actions button { padding: 4px 8px; font-size: 12px; }
+.sparkline { display: inline-flex; align-items: flex-end; gap: 1px; width: 96px; height: 22px; border-bottom: 1px solid var(--line); }
+.sparkline i { flex: 1; min-width: 2px; background: var(--red); opacity: .75; border-radius: 1px 1px 0 0; }

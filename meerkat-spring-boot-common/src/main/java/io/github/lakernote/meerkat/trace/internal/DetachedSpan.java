@@ -39,6 +39,11 @@ public final class DetachedSpan implements SpanHandle {
     }
 
     @Override
+    public CaptureTarget captureTarget() {
+        return CaptureTarget.of(trace, span);
+    }
+
+    @Override
     public void close() {
         if (span != null && stopped.compareAndSet(false, true)) trace.stopSpan(span);
     }

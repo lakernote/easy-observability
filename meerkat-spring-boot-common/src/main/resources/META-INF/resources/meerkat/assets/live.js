@@ -8,9 +8,11 @@ const expandedRequests = new Set()
 const expandedThreads = new Set()
 let requests = null
 let threadReport = null
+let connections = null
 let tab = 'requests'
 let timer = null
 let loading = false
+let refreshPending = false
 
 function connected(ok) {
   $('instance').classList.toggle('connected', ok)
@@ -119,6 +121,59 @@ function requestDetail(item) {
   return row
 }
 
+// ---- database connections ----
+
+async function loadConnections() {
+  connections = await request('live/connections', {}, DENIED)
+  renderConnections()
+}
+
+function renderConnections() {
+  const rows = $('connection-rows')
+  rows.replaceChildren()
+  if (!connections) return
+  const report = connections
+  const cards = [[t('占用中'), report.total], [t('疑似泄漏'), report.suspectedLeaks, true],
+    ...Object.entries(report.byDataSource).map(([name, count]) => [name, count])]
+  $('connection-cards').replaceChildren(...cards.map(([label, value, alert]) => {
+    const card = node('div', `live-card ${alert && value > 0 ? 'bad' : ''}`)
+    card.append(node('small', '', label), node('strong', '', value.toLocaleString()))
+    return card
+  }))
+  const hidden = report.total - report.items.length
+  $('connections-summary').textContent = t('{n} 个连接占用中', { n: report.total })
+    + (hidden > 0 ? t('，显示最久的 {n} 个', { n: report.items.length }) : '')
+    + (report.untracked > 0 ? t('，{n} 个超出跟踪上限未列出', { n: report.untracked }) : '')
+    + ` · ${new Date(report.capturedAt).toLocaleTimeString(MeerkatI18n.locale)}`
+  const min = Number($('min-held').value)
+  const leaksOnly = $('leaks-only').checked
+  const items = report.items.filter(item => item.heldMs >= min && (!leaksOnly || item.suspectedLeak))
+  $('connections-empty').hidden = items.length > 0
+  for (const item of items) {
+    const key = `c${item.dataSource}|${item.connectionId}|${item.openedAt}`
+    const row = node('tr')
+    const held = node('td', `numeric ${item.suspectedLeak || item.heldMs >= 60000 ? 'bad' : item.heldMs >= 10000 ? 'warn' : ''}`,
+      formatMs(item.heldMs))
+    const thread = node('td')
+    thread.append(stateBadge(item.threadState), ' ', item.threadName)
+    const status = node('td', item.suspectedLeak ? 'bad' : '', item.suspectedLeak ? t('疑似泄漏')
+      : item.traceId ? t('请求进行中') : t('非请求线程'))
+    row.append(node('td', 'mono', item.dataSource), held, thread, node('td', 'mono', item.traceId || '—'), status)
+    expandable(rows, row, key, 5, () => {
+      const facts = node('div', 'live-facts')
+      facts.append(fact(t('取出时间'), new Date(item.openedAt).toLocaleTimeString(MeerkatI18n.locale)),
+        fact(t('连接编号'), item.connectionId))
+      const links = []
+      if (item.traceId) {
+        const link = node('a', 'live-link', t('查看取连接的 Trace'))
+        link.href = `../?q=${encodeURIComponent(item.traceId)}`
+        links.push(link)
+      }
+      return [facts, ...links, stackBlock(item.stack)]
+    }, renderConnections)
+  }
+}
+
 // ---- threads ----
 
 async function loadThreads() {
@@ -189,7 +244,7 @@ function renderThreads() {
   else for (const thread of threads) appendThread(rows, thread)
 }
 
-function expandable(rows, row, key, columns, detail) {
+function expandable(rows, row, key, columns, detail, rerender = renderThreads) {
   const expanded = expandedThreads.has(key)
   row.tabIndex = 0
   row.classList.toggle('is-expanded', expanded)
@@ -197,7 +252,7 @@ function expandable(rows, row, key, columns, detail) {
   const toggle = () => {
     if (expandedThreads.has(key)) expandedThreads.delete(key)
     else expandedThreads.add(key)
-    renderThreads()
+    rerender()
   }
   row.addEventListener('click', toggle)
   row.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggle() } })
@@ -279,11 +334,17 @@ async function downloadDump(event) {
 // ---- page ----
 
 async function refresh() {
-  if (loading) return
+  if (loading) {
+    // A tab switch or manual refresh during a load must not be dropped; run once more afterwards.
+    refreshPending = true
+    return
+  }
   loading = true
+  refreshPending = false
   $('refresh').disabled = true
   try {
     if (tab === 'requests') await loadRequests()
+    else if (tab === 'connections') await loadConnections()
     else await loadThreads()
     connected(true)
     showNotice('')
@@ -294,19 +355,20 @@ async function refresh() {
     loading = false
     $('refresh').disabled = false
   }
+  if (refreshPending) refresh()
 }
 
 function schedule() {
   clearInterval(timer)
   timer = null
-  if (tab === 'requests' && $('auto-refresh').checked) {
+  if (tab !== 'threads' && $('auto-refresh').checked) {
     timer = setInterval(() => { if (!document.hidden) refresh() }, REFRESH_MS)
   }
 }
 
 function selectTab(next) {
-  tab = next === 'threads' ? 'threads' : 'requests'
-  for (const name of ['requests', 'threads']) {
+  tab = ['threads', 'connections'].includes(next) ? next : 'requests'
+  for (const name of ['requests', 'threads', 'connections']) {
     const active = name === tab
     $(`tab-${name}`).classList.toggle('active', active)
     if (active) $(`tab-${name}`).setAttribute('aria-current', 'page')
@@ -315,13 +377,20 @@ function selectTab(next) {
   }
   $('refresh').textContent = t(tab === 'threads' ? '重新采样' : '刷新')
   schedule()
-  if (tab === 'requests' || !threadReport) refresh()
+  if (tab !== 'threads' || !threadReport) refresh()
 }
 
 let searchTimer = null
 $('refresh').addEventListener('click', refresh)
 $('min-elapsed').addEventListener('change', renderRequests)
-$('auto-refresh').addEventListener('change', schedule)
+for (const id of ['auto-refresh', 'auto-refresh-connections']) {
+  $(id).addEventListener('change', event => {
+    $('auto-refresh').checked = $('auto-refresh-connections').checked = event.target.checked
+    schedule()
+  })
+}
+$('min-held').addEventListener('change', renderConnections)
+$('leaks-only').addEventListener('change', renderConnections)
 $('thread-state').addEventListener('change', renderThreads)
 $('group-stacks').addEventListener('change', renderThreads)
 $('thread-search').addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(renderThreads, 200) })

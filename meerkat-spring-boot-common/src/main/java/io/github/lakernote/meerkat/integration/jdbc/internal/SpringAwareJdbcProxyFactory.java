@@ -1,5 +1,7 @@
 package io.github.lakernote.meerkat.integration.jdbc.internal;
 
+import io.github.lakernote.meerkat.trace.internal.CaptureTarget;
+import io.github.lakernote.meerkat.trace.internal.CaptureThreadState;
 import net.ttddyy.dsproxy.ConnectionInfo;
 import net.ttddyy.dsproxy.proxy.JdbcProxyFactory;
 import net.ttddyy.dsproxy.proxy.ProxyConfig;
@@ -59,6 +61,7 @@ public final class SpringAwareJdbcProxyFactory implements JdbcProxyFactory {
 
     @Override
     public Connection createConnection(Connection connection, ConnectionInfo connectionInfo, ProxyConfig proxyConfig) {
+        JdbcConnectionListener.opened(connectionInfo);
         return delegate.createConnection(connection, connectionInfo, proxyConfig);
     }
 
@@ -85,7 +88,14 @@ public final class SpringAwareJdbcProxyFactory implements JdbcProxyFactory {
 
     @Override
     public ResultSet createResultSet(ResultSet resultSet, ConnectionInfo connectionInfo, ProxyConfig proxyConfig) {
-        return delegate.createResultSet(resultSet, connectionInfo, proxyConfig);
+        // 结果集代理只为流量抓取开启；未抓取的语句原样返回驱动结果集。
+        if (!CaptureThreadState.hasPendingStatement()) return resultSet;
+        try {
+            CaptureTarget target = CaptureThreadState.statementTarget(resultSet.getStatement());
+            return target == null ? resultSet : CapturingResultSet.wrap(resultSet, target);
+        } catch (java.sql.SQLException | RuntimeException unavailable) {
+            return resultSet;
+        }
     }
 
     @Override

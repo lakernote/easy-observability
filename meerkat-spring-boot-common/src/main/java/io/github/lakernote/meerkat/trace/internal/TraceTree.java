@@ -1,6 +1,7 @@
 package io.github.lakernote.meerkat.trace.internal;
 
 import io.github.lakernote.meerkat.trace.SpanKind;
+import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -36,6 +37,14 @@ final class TraceTree {
     private String liveSource = "";
     private ThreadResourceSnapshot resourcesAtStart;
     private boolean detached;
+    /** Set while traffic capture records this trace; cleared when the root completes. */
+    private volatile CaptureSink captureSink;
+    private volatile CaptureLimits captureLimits;
+    /** Log lines written during this trace; allocated on the first line and released when the root completes. */
+    private List<TraceLog> logs;
+    private long omittedLogs;
+    private long reservedLogBytes;
+    private long usedLogBytes;
 
     TraceTree(String rootName, SpanKind rootKind, String rootTag) {
         this(rootName, rootKind, rootTag, DEFAULT_MAX_DEPTH, DEFAULT_MAX_NODES);
@@ -66,6 +75,98 @@ final class TraceTree {
         parent.addChild(child);
         recordedNodes++;
         return child;
+    }
+
+    /** Starts recording request data on this trace's spans until the root completes. */
+    synchronized void beginCapture(CaptureSink sink, CaptureLimits limits) {
+        if (completed || sink == null || limits == null) return;
+        captureLimits = limits;
+        captureSink = sink;
+    }
+
+    CaptureLimits captureLimits() {
+        return captureLimits;
+    }
+
+    /** Lock-free so integrations can check it on every call without contention. */
+    boolean capturing() {
+        return captureSink != null;
+    }
+
+    synchronized void captureSpan(Span span, String key, Object value) {
+        if (completed || captureSink == null || span == null) return;
+        span.capture(key, value);
+    }
+
+    /**
+     * Returns the capture sink and a snapshot including captured data, then stops capturing. Called once under the
+     * tree lock as the root completes; {@code null} when the trace was not captured.
+     */
+    synchronized CapturedSnapshot takeCapture() {
+        CaptureSink sink = captureSink;
+        if (sink == null) return null;
+        captureSink = null;
+        CaptureBudget budget = new CaptureBudget(captureLimits.maxValueChars(), captureLimits.maxTraceChars());
+        return new CapturedSnapshot(sink, List.of(root.snapshotNode(root.startNanos(), budget)));
+    }
+
+    record CapturedSnapshot(CaptureSink sink, List<TraceNode> nodes) { }
+
+    synchronized void recordLog(Span span, String level, String logger, String message) {
+        if (completed) return;
+        TraceLogs.Limits limits = TraceLogs.limits();
+        if (logs != null && logs.size() >= limits.maxPerTrace()) {
+            omittedLogs++;
+            return;
+        }
+        String text = message == null ? "" : message;
+        if (text.length() > limits.maxMessageChars()) text = text.substring(0, limits.maxMessageChars()) + "…";
+        Span step = span == null ? root : span;
+        TraceLog line = new TraceLog((System.nanoTime() - root.startNanos()) / 1_000_000, level, logger,
+                Thread.currentThread().getName(), step.name(), text);
+        long bytes = line.estimatedBytes();
+        if (usedLogBytes + bytes > reservedLogBytes && !reserveLogBytes(bytes, limits.maxBufferedBytes())) {
+            omittedLogs++;
+            return;
+        }
+        usedLogBytes += bytes;
+        if (logs == null) logs = new ArrayList<>();
+        logs.add(line);
+    }
+
+    /** Buffered log lines plus a final marker line when some were omitted by the limits. */
+    synchronized List<TraceLog> logs() {
+        if (logs == null && omittedLogs == 0) return List.of();
+        List<TraceLog> result = new ArrayList<>(logs == null ? List.of() : logs);
+        if (omittedLogs > 0) {
+            result.add(new TraceLog(root.costMs(), "OMITTED", "meerkat", "", "",
+                    omittedLogs + " more log lines omitted by meerkat.trace.logs limits"));
+        }
+        return result;
+    }
+
+    /**
+     * Takes budget from the shared pool in blocks so concurrent traces do not contend on it for every line; near the
+     * limit it falls back to taking exactly what the line needs.
+     */
+    private boolean reserveLogBytes(long bytes, long maxBufferedBytes) {
+        long missing = usedLogBytes + bytes - reservedLogBytes;
+        long block = Math.max(missing, TraceLogs.RESERVE_BLOCK_BYTES);
+        if (TraceLogs.tryReserve(block, maxBufferedBytes)) {
+            reservedLogBytes += block;
+            return true;
+        }
+        if (block > missing && TraceLogs.tryReserve(missing, maxBufferedBytes)) {
+            reservedLogBytes += missing;
+            return true;
+        }
+        return false;
+    }
+
+    private void releaseLogs() {
+        TraceLogs.release(reservedLogBytes);
+        reservedLogBytes = 0;
+        usedLogBytes = 0;
     }
 
     synchronized void requireExplicitTree() {
@@ -107,11 +208,16 @@ final class TraceTree {
         }
         if (throwable != null && !error) markError("ROOT_ERROR", throwable);
         completed = true;
+        // The lines stay readable for the completion snapshot; only the shared budget is returned.
+        releaseLogs();
         return costMs;
     }
 
     synchronized void discard() {
         if (completed) return;
+        captureSink = null;
+        releaseLogs();
+        logs = null;
         untrack();
         stopRoot();
         completed = true;

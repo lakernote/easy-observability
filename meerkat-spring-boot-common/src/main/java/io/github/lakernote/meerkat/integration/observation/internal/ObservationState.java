@@ -1,6 +1,7 @@
 package io.github.lakernote.meerkat.integration.observation.internal;
 
 import io.github.lakernote.meerkat.trace.internal.BoundedThrowableFormatter;
+import io.github.lakernote.meerkat.trace.internal.CaptureTarget;
 import io.github.lakernote.meerkat.trace.internal.RootTraceHandle;
 import io.github.lakernote.meerkat.trace.internal.SpanHandle;
 import io.github.lakernote.meerkat.trace.internal.ThreadResourceSnapshot;
@@ -22,6 +23,9 @@ final class ObservationState {
     final SpanHandle span;
     final RootTraceHandle traceHandle;
     volatile BoundedThrowableFormatter.FailureEvidence failure;
+    /** Thread that installed this remote call's capture target, or 0; only that thread may restore it. */
+    volatile long remoteCaptureThread;
+    CaptureTarget previousRemoteCapture;
 
     ObservationState(ObservationType type, String operationName, String startDetail, String traceId, boolean root,
                      boolean installedTraceId, long startThreadId, String startThreadName,

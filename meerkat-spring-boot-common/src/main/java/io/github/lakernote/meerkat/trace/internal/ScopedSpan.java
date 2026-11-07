@@ -50,6 +50,11 @@ public final class ScopedSpan implements SpanHandle {
     }
 
     @Override
+    public CaptureTarget captureTarget() {
+        return CaptureTarget.of(trace, span);
+    }
+
+    @Override
     public void close() {
         if (!stopped.compareAndSet(false, true) || trace == null) return;
         if (span != null) trace.stopSpan(span);

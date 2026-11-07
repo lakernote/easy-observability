@@ -31,6 +31,23 @@ class ObservabilityControllerTest {
     }
 
     @Test
+    void groupsRecentFailuresAndValidatesTheWindow() {
+        TraceStore store = TraceStore.inMemory(1024 * 1024);
+        store.add(trace().traceId("e1").sourceType("HTTP").name("GET /a").status(500).error(true)
+                .errorType("Boom").errorMessage("id 7").build());
+        ObservabilityController controller = new ObservabilityController(store, allowAll());
+
+        var report = controller.errors("24h", "", 50);
+
+        assertThat(report.failures()).isEqualTo(1);
+        assertThat(report.groups()).singleElement().satisfies(group -> assertThat(group.message()).isEqualTo("id {n}"));
+        assertThatThrownBy(() -> controller.errors("2y", "", 50))
+                .isInstanceOf(ResponseStatusException.class).hasMessageContaining("400 BAD_REQUEST");
+        assertThatThrownBy(() -> new ObservabilityController(store, denyView()).errors("1h", "", 50))
+                .isInstanceOf(ResponseStatusException.class).hasMessageContaining("403 FORBIDDEN");
+    }
+
+    @Test
     void rejectsInvalidQueriesWithBadRequest() {
         ObservabilityController controller = new ObservabilityController(TraceStore.inMemory(1024 * 1024), allowAll());
 

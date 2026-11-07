@@ -10,6 +10,11 @@ public interface SpanHandle extends AutoCloseable {
 
     default void markSlow() { }
 
+    /** Returns where to record request data for this span, or {@code null} when the trace is not being captured. */
+    default CaptureTarget captureTarget() {
+        return null;
+    }
+
     @Override
     void close();
 }

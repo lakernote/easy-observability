@@ -241,6 +241,11 @@ public final class TraceStore implements AutoCloseable {
         return count;
     }
 
+    /** Visits every indexed trace row, newest first, without loading call trees; the index is bounded. */
+    public void forEachSummary(java.util.function.Consumer<TraceSummary> visitor) {
+        for (Entry entry : index.values()) visitor.accept(entry.summary);
+    }
+
     /** Finds the newest stored trace with the ID; without a source an HTTP entry is preferred. */
     public TraceRecord find(String traceId, String sourceType) {
         if (traceId == null || traceId.isBlank()) return null;

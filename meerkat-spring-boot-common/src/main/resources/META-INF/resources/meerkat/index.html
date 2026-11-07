@@ -6,8 +6,8 @@
   <meta name="color-scheme" content="light">
   <title>Meerkat · Trace</title>
   <link rel="icon" type="image/png" href="assets/meerkat-icon.png?v=20261106.12">
-  <script defer src="assets/i18n.js?v=20261106.14"></script>
-  <link rel="stylesheet" href="assets/dashboard.css?v=20261106.11">
+  <script defer src="assets/i18n.js?v=20261106.19"></script>
+  <link rel="stylesheet" href="assets/dashboard.css?v=20261106.13">
 </head>
 <body>
   <a class="skip-link" href="#main-content">跳到主要内容</a>
@@ -20,6 +20,8 @@
       <a class="active" href="./">Trace 诊断</a>
       <a href="stats/">运行指标</a>
       <a href="live/">实时诊断</a>
+      <a href="capture/">流量抓取</a>
+      <a href="tools/">工具箱</a>
     </nav>
     <div class="toolbar">
       <span id="instance" class="instance-pill"><i></i>连接中</span>
@@ -40,6 +42,18 @@
       <label class="search"><span>搜索入口、Trace ID、SQL、调用节点或错误</span><input id="search" type="search" maxlength="200" placeholder="例如 /api/orders 或 SQLException"></label>
       <span id="result-count" class="count" role="status"></span>
     </section>
+    <details id="error-groups" class="error-groups">
+      <summary><strong>异常聚合</strong><span>把失败的 Trace 按异常类型和消息归并，先看哪类问题最多</span></summary>
+      <div class="error-groups-bar">
+        <div id="error-window" class="segmented" role="group" aria-label="时间范围"><button type="button" data-value="1h" aria-pressed="false">1 小时</button><button type="button" data-value="24h" aria-pressed="true">24 小时</button><button type="button" data-value="7d" aria-pressed="false">7 天</button></div>
+        <span id="error-groups-count" class="count" role="status"></span>
+      </div>
+      <div class="table-scroll"><table class="error-groups-table">
+        <thead><tr><th scope="col">异常</th><th scope="col" class="numeric">次数</th><th scope="col">分布</th><th scope="col">涉及入口</th><th scope="col">最近发生</th><th scope="col"><span class="sr-only">操作</span></th></tr></thead>
+        <tbody id="error-group-rows"></tbody>
+      </table></div>
+      <p id="error-groups-empty" class="empty" hidden>时间范围内没有失败的 Trace</p>
+    </details>
     <section class="trace-list" aria-label="慢调用、资源告警和错误 Trace 列表">
       <p class="scroll-hint">表格可横向滚动查看全部字段</p>
       <div class="table-scroll"><table>
@@ -72,12 +86,13 @@
     <div class="tree-heading"><h3>调用时间线</h3><span>按调用关系排列 · 连续重复的调用合并为一行 · 横条表示开始时间和持续时间</span></div>
     <div id="tree" class="tree-view" role="region" aria-label="端到端调用时间线"></div>
     <section id="span-detail" class="span-detail" aria-live="polite"></section>
+    <div id="trace-logs"></div>
   </dialog>
   <dialog id="clear-dialog" class="confirm-dialog">
     <h2>清空 Trace 历史？</h2>
     <p>将删除当前实例内存中的近期记录和诊断 Trace 归档文件。</p>
     <div class="dialog-actions"><button id="cancel-clear" type="button">取消</button><button id="confirm-clear" class="danger" type="button">清空</button></div>
   </dialog>
-  <script type="module" src="assets/dashboard.js?v=20261106.11"></script>
+  <script type="module" src="assets/dashboard.js?v=20261106.13"></script>
 </body>
 </html>

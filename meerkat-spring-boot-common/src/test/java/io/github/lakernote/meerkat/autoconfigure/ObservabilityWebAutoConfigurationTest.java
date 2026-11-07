@@ -3,6 +3,7 @@ package io.github.lakernote.meerkat.autoconfigure;
 import io.github.lakernote.meerkat.metrics.internal.OperationStats;
 import io.github.lakernote.meerkat.web.ObservabilityAccessPolicy;
 import io.github.lakernote.meerkat.web.internal.MetricsController;
+import io.github.lakernote.meerkat.web.internal.ToolsController;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
@@ -32,6 +33,8 @@ class ObservabilityWebAutoConfigurationTest {
             ObservabilityAccessPolicy policy = context.getBean(ObservabilityAccessPolicy.class);
             assertThat(policy.canView()).isTrue();
             assertThat(policy.canClear()).isFalse();
+            assertThat(policy.canOperate()).isFalse();
+            assertThat(context).hasSingleBean(ToolsController.class);
         });
     }
 
@@ -67,5 +70,6 @@ class ObservabilityWebAutoConfigurationTest {
         ObservabilityAccessPolicy viewOnly = () -> true;
 
         assertThat(viewOnly.canClear()).isFalse();
+        assertThat(viewOnly.canOperate()).isFalse();
     }
 }

@@ -7,6 +7,9 @@ import io.github.lakernote.meerkat.metrics.internal.OperationStats;
 import io.github.lakernote.meerkat.trace.TraceIdContext;
 import io.github.lakernote.meerkat.trace.internal.BoundedThrowableFormatter;
 import io.github.lakernote.meerkat.trace.internal.BoundedThrowableFormatter.FailureEvidence;
+import io.github.lakernote.meerkat.trace.internal.CaptureTarget;
+import io.github.lakernote.meerkat.trace.internal.CaptureThreadState;
+import io.github.lakernote.meerkat.integration.redis.internal.LettuceCommandCapture;
 import io.github.lakernote.meerkat.trace.internal.RootTraceHandle;
 import io.github.lakernote.meerkat.trace.internal.SpanHandle;
 import io.github.lakernote.meerkat.trace.internal.ThreadResourceSnapshot;
@@ -161,8 +164,34 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
     }
 
     @Override
+    public void onScopeOpened(Observation.Context context) {
+        ObservationState state = context.get(STATE_KEY);
+        if (state == null || state.type != ObservationType.REMOTE || state.span == null) return;
+        try {
+            CaptureTarget target = state.span.captureTarget();
+            if (target == null || state.remoteCaptureThread != 0) return;
+            synchronized (state) {
+                if (state.remoteCaptureThread != 0) return;
+                // HTTP 客户端拦截器在 Observation 作用域内执行，通过线程状态拿到本次远程调用节点。
+                state.previousRemoteCapture = CaptureThreadState.openRemote(target);
+                state.remoteCaptureThread = Thread.currentThread().getId();
+            }
+        } catch (RuntimeException failure) {
+            logCallbackFailure("scope", failure);
+        }
+    }
+
+    @Override
     public void onScopeClosed(Observation.Context context) {
         ObservationState state = context.get(STATE_KEY);
+        if (state != null && state.remoteCaptureThread == Thread.currentThread().getId()) {
+            // A scope may also open on another thread (reactive clients); only the installing thread restores.
+            synchronized (state) {
+                CaptureThreadState.restoreRemote(state.previousRemoteCapture);
+                state.previousRemoteCapture = null;
+                state.remoteCaptureThread = 0;
+            }
+        }
         if (state == null || !state.startedOnCurrentThread()) return;
         if (state.root) {
             // Async server observations leave the request thread before their final stop callback. Detach the tree
@@ -207,6 +236,7 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
                 else if (state.span != null) state.span.markError(state.failure);
             }
             boolean redisFailed = markRedisCommandError(context, state);
+            if (state.type == ObservationType.REDIS && state.span != null) captureRedisCommand(context, state.span);
             int status = httpStatus(context);
             if (error == null && status >= 500) {
                 markTrace(state, "HTTP_" + status, new FailureEvidence("HTTP_" + status, "HTTP status " + status, ""));
@@ -268,6 +298,7 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
                 .errorType(completion.errorType())
                 .errorMessage(completion.errorMessage())
                 .errorStackTrace(completion.stackTrace())
+                .logs(completion.logs())
                 .build();
         try {
             traceStore.add(trace);
@@ -281,6 +312,17 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
         if (state.type == ObservationType.DATABASE) return state.startDetail;
         String detail = detail(context, state.type);
         return detail.isBlank() ? state.startDetail : detail;
+    }
+
+    private static void captureRedisCommand(Observation.Context context, SpanHandle span) {
+        CaptureTarget target = span.captureTarget();
+        if (target != null && LettuceSupport.PRESENT) LettuceCommandCapture.capture(context, target);
+    }
+
+    /** Keeps Lettuce types out of this class so it loads without Lettuce on the classpath. */
+    private static final class LettuceSupport {
+        static final boolean PRESENT = org.springframework.util.ClassUtils.isPresent(
+                "io.lettuce.core.tracing.LettuceObservationContext", ObservationTraceHandler.class.getClassLoader());
     }
 
     private static boolean markRedisCommandError(Observation.Context context, ObservationState state) {

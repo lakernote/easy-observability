@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Meerkat · 流量抓取</title>
+  <link rel="icon" type="image/png" href="../assets/meerkat-icon.png?v=20261106.12">
+  <script defer src="../assets/i18n.js?v=20261106.19"></script>
+  <link rel="stylesheet" href="../assets/dashboard.css?v=20261106.13">
+  <link rel="stylesheet" href="../assets/metrics.css?v=20261106.11">
+  <link rel="stylesheet" href="../assets/stats.css?v=20261106.11">
+  <link rel="stylesheet" href="../assets/live.css?v=20261106.11">
+  <link rel="stylesheet" href="../assets/capture.css?v=20261106.2">
+</head>
+<body>
+  <a class="skip-link" href="#main-content">跳到主要内容</a>
+  <header class="masthead">
+    <a class="brand" href="../">
+      <img class="brand-mark" src="../assets/meerkat-icon.png?v=20261106.12" alt="" width="36" height="36">
+      <span><strong>Meerkat</strong><small>流量抓取</small></span>
+    </a>
+    <nav class="view-nav" aria-label="可观测性视图">
+      <a href="../">Trace 诊断</a>
+      <a href="../stats/">运行指标</a>
+      <a href="../live/">实时诊断</a>
+      <a class="active" href="./">流量抓取</a>
+      <a href="../tools/">工具箱</a>
+    </nav>
+    <div class="toolbar">
+      <span id="instance" class="instance-pill"><i></i>连接中</span>
+      <button id="refresh" type="button">刷新</button>
+      <button id="lang-toggle" class="lang-toggle" type="button" translate="no"><span lang="zh">中文</span> / <span lang="en">EN</span></button>
+    </div>
+  </header>
+  <main id="main-content" class="report">
+    <section class="intro">
+      <p class="eyebrow">TRAFFIC CAPTURE</p>
+      <h1>流量抓取</h1>
+      <p>按规则抓取指定请求的完整现场：入参、出参、执行的 SQL 与参数和结果、Redis 命令与返回值、调用下游 HTTP 的请求与响应，用 Trace ID 串成一条记录。抓取到达次数或时长后自动停止，记录只保存在内存中。</p>
+    </section>
+    <div id="notice" class="notice" role="status" hidden></div>
+    <div class="notice warning capture-warning">抓取的数据不做脱敏，可能包含密码、令牌和个人信息。请只在排查问题时短时间开启，并限制访问权限。</div>
+
+    <section id="capture-form" class="metrics-controls capture-form" aria-label="新建抓取" hidden>
+      <label><span>方法</span><select id="rule-method"><option value="" selected>全部</option><option>GET</option><option>POST</option><option>PUT</option><option>PATCH</option><option>DELETE</option></select></label>
+      <label class="stats-search capture-path"><span>路径（支持 /** 通配）</span><input id="rule-path" type="text" maxlength="512" placeholder="例如 /api/orders/**" required></label>
+      <label class="stats-search"><span>请求头（可选）</span><input id="rule-header" type="text" maxlength="128" placeholder="例如 X-User-Id"></label>
+      <label class="stats-search"><span>请求头值（可选）</span><input id="rule-header-value" type="text" maxlength="512" placeholder="留空表示任意值"></label>
+      <label class="stats-search capture-number"><span>抓取次数</span><input id="rule-count" type="number" min="1" max="1000" value="10"></label>
+      <label><span>最长时间</span><select id="rule-duration"><option value="60">1 分钟</option><option value="300" selected>5 分钟</option><option value="900">15 分钟</option><option value="1800">30 分钟</option><option value="3600">1 小时</option></select></label>
+      <button id="start" class="capture-primary" type="button">开始抓取</button>
+    </section>
+
+    <section class="trace-list">
+      <h2 class="capture-heading">抓取任务</h2>
+      <div class="table-scroll"><table class="stats-table live-table">
+        <caption class="sr-only">抓取任务；选择一行只看该任务的记录</caption>
+        <thead><tr><th>#</th><th>规则</th><th class="numeric">已抓取</th><th>开始</th><th>状态</th><th>操作人</th><th></th></tr></thead>
+        <tbody id="session-rows"></tbody>
+      </table></div>
+      <p id="sessions-empty" class="empty" hidden>还没有抓取任务</p>
+    </section>
+
+    <section class="trace-list">
+      <div class="capture-records-head">
+        <h2 class="capture-heading">抓取记录 <small id="records-filter"></small></h2>
+        <button id="clear" class="quiet-button" type="button">清空记录</button>
+      </div>
+      <div class="table-scroll"><table class="stats-table live-table">
+        <caption class="sr-only">抓取到的请求，最新的在前；选择一行查看完整现场</caption>
+        <thead><tr><th>时间</th><th>请求</th><th class="numeric">状态</th><th class="numeric">耗时</th><th>Trace ID</th></tr></thead>
+        <tbody id="record-rows"></tbody>
+      </table></div>
+      <p id="records-empty" class="empty" hidden>还没有抓取记录</p>
+    </section>
+    <footer>抓取只记录入口为 HTTP 的请求；请求体和响应体只记录应用实际读写的内容，二进制内容不记录。SQL 结果只记录应用读取过的前几行和列。抓取的数据不进入 Trace 列表和磁盘存储。</footer>
+  </main>
+  <script type="module" src="../assets/capture.js?v=20261106.5"></script>
+</body>
+</html>

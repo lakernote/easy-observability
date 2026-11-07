@@ -107,12 +107,13 @@ class ObservabilityDashboardResourceTest {
     @Test
     void loadsTheLanguageSwitchBeforeEveryPageScript() throws IOException {
         var classLoader = getClass().getClassLoader();
-        for (var name : new String[] {"index.html", "stats.html", "live.html", "metrics.html"}) {
+        for (var name : new String[] {"index.html", "stats.html", "live.html", "metrics.html", "capture.html", "tools.html"}) {
             try (var page = classLoader.getResourceAsStream("META-INF/resources/meerkat/" + name)) {
                 assertThat(page).as(name).isNotNull();
                 String content = new String(page.readAllBytes(), StandardCharsets.UTF_8);
                 assertThat(content).as(name)
                         .contains("assets/i18n.js?v=", "<button id=\"lang-toggle\" class=\"lang-toggle\" type=\"button\"")
+                        .containsPattern("href=\"(\\.\\./tools/|tools/|\\./)\">工具箱</a>")
                         .doesNotContain("src=\"/meerkat");
                 assertThat(content.indexOf("assets/i18n.js")).as(name)
                         .isLessThan(content.indexOf("<script type=\"module\""));
@@ -128,6 +129,22 @@ class ObservabilityDashboardResourceTest {
                     .doesNotContain("innerHTML");
             assertThat(new String(stats.readAllBytes(), StandardCharsets.UTF_8))
                     .contains("const OVERFLOW_NAME = '" + OperationStats.OVERFLOW_NAME + "'", "displayName(row.name)");
+        }
+    }
+
+    @Test
+    void buildsTheToolboxWithoutInnerHtmlAndTranslatesIt() throws IOException {
+        var classLoader = getClass().getClassLoader();
+        try (var page = classLoader.getResourceAsStream("META-INF/resources/meerkat/tools.html");
+             var script = classLoader.getResourceAsStream("META-INF/resources/meerkat/assets/tools.js");
+             var i18n = classLoader.getResourceAsStream("META-INF/resources/meerkat/assets/i18n.js")) {
+            assertThat(page).isNotNull();
+            assertThat(new String(page.readAllBytes(), StandardCharsets.UTF_8))
+                    .contains("assets/tools.js?v=", "assets/tools.css?v=", "<a class=\"active\" href=\"./\">工具箱</a>");
+            assertThat(new String(script.readAllBytes(), StandardCharsets.UTF_8))
+                    .contains("'../../api/meerkat/tools/'", "canOperate")
+                    .doesNotContain("innerHTML", "const api = '/api/");
+            assertThat(new String(i18n.readAllBytes(), StandardCharsets.UTF_8)).contains("'工具箱': 'Toolbox'");
         }
     }
 

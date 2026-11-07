@@ -5,6 +5,8 @@ import io.github.lakernote.meerkat.web.internal.ObservabilityController;
 import io.github.lakernote.meerkat.web.internal.ObservabilityDashboardController;
 import io.github.lakernote.meerkat.web.internal.LiveDiagnosticsController;
 import io.github.lakernote.meerkat.web.internal.MetricsController;
+import io.github.lakernote.meerkat.web.internal.ToolsController;
+import io.github.lakernote.meerkat.web.internal.TrafficCaptureController;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -25,16 +27,24 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 @ConditionalOnProperty(prefix = "meerkat", name = "enabled", havingValue = "true", matchIfMissing = true)
 @ConditionalOnProperty(prefix = "meerkat.web", name = "enabled", havingValue = "true", matchIfMissing = true)
 @Import({ObservabilityController.class, ObservabilityDashboardController.class, MetricsController.class,
-        LiveDiagnosticsController.class})
+        LiveDiagnosticsController.class, TrafficCaptureController.class, ToolsController.class})
 public class ObservabilityWebAutoConfiguration implements WebMvcConfigurer {
     /**
-     * Allows every request to view data and keeps clearing disabled. The host application is expected to protect
-     * the dashboard paths with its own authentication.
+     * Allows every request to view data and keeps clearing, traffic capture and the sensitive toolbox operations
+     * disabled.
+     * The host application is expected to protect the dashboard paths with its own authentication.
      */
     @Bean
     @ConditionalOnMissingBean
     ObservabilityAccessPolicy observabilityAccessPolicy() {
-        return () -> true;
+        return new BuiltInAccessPolicy();
+    }
+
+    private static final class BuiltInAccessPolicy implements ObservabilityAccessPolicy {
+        @Override
+        public boolean canView() {
+            return true;
+        }
     }
 
     /** Prints where the dashboard is served once the application is ready to take requests. */

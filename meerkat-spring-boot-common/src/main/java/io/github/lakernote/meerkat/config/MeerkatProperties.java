@@ -17,6 +17,8 @@ public class MeerkatProperties {
     private final Web web = new Web();
     private final Metrics metrics = new Metrics();
     private final Storage storage = new Storage();
+    private final Capture capture = new Capture();
+    private final Tools tools = new Tools();
 
     public boolean isEnabled() {
         return enabled;
@@ -40,6 +42,73 @@ public class MeerkatProperties {
 
     public Storage getStorage() {
         return storage;
+    }
+
+    public Capture getCapture() {
+        return capture;
+    }
+
+    public Tools getTools() {
+        return tools;
+    }
+
+    /**
+     * The on-demand toolbox page: temporary log levels, CPU flame graphs, heap histograms and dumps, configuration
+     * sources and class locations. Nothing runs until an operator starts it from the dashboard. Changing log levels,
+     * downloading heap dumps and reading configuration values need {@code ObservabilityAccessPolicy#canOperate()}.
+     */
+    public static class Tools {
+        private boolean enabled = true;
+        /** Longest time a temporary log level stays before it is reverted; at most one hour. */
+        private Duration logLevelMaxDuration = Duration.ofHours(1);
+        /** Shortest time between two heap histograms, each of which runs a full garbage collection. */
+        private Duration heapHistogramInterval = Duration.ofSeconds(10);
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+        public Duration getLogLevelMaxDuration() { return logLevelMaxDuration; }
+        public void setLogLevelMaxDuration(Duration logLevelMaxDuration) { this.logLevelMaxDuration = logLevelMaxDuration; }
+        public Duration getHeapHistogramInterval() { return heapHistogramInterval; }
+        public void setHeapHistogramInterval(Duration heapHistogramInterval) { this.heapHistogramInterval = heapHistogramInterval; }
+    }
+
+    /**
+     * On-demand traffic capture for troubleshooting. While a capture rule started from the dashboard matches a
+     * request, the request and response, SQL with parameters and result rows, Redis commands with results and
+     * outbound HTTP calls of that request are recorded in full, without redaction, and kept in memory only.
+     * There is no on/off switch: starting a capture needs {@code ObservabilityAccessPolicy#canCapture()}, which is
+     * denied unless a custom policy grants it.
+     */
+    public static class Capture {
+        /** Bytes kept per request or response body; the rest of the body is passed through but not recorded. */
+        private DataSize maxBodySize = DataSize.ofKilobytes(64);
+        /** Result rows kept per SQL query; later rows are counted but not recorded. */
+        private int maxResultRows = 20;
+        /** Characters kept per captured value such as SQL parameters or a Redis result. */
+        private int maxValueChars = 16_384;
+        /** Characters kept across all captured values of one request. */
+        private int maxTraceChars = 1_000_000;
+        /** Captured requests kept in memory; the oldest are dropped first. */
+        private int maxRecords = 100;
+        /** How long captured requests are kept in memory. */
+        private Duration retention = Duration.ofHours(2);
+        /** Longest time a capture rule may stay active before it stops by itself. */
+        private Duration maxDuration = Duration.ofHours(1);
+
+        public DataSize getMaxBodySize() { return maxBodySize; }
+        public void setMaxBodySize(DataSize maxBodySize) { this.maxBodySize = maxBodySize; }
+        public int getMaxResultRows() { return maxResultRows; }
+        public void setMaxResultRows(int maxResultRows) { this.maxResultRows = maxResultRows; }
+        public int getMaxValueChars() { return maxValueChars; }
+        public void setMaxValueChars(int maxValueChars) { this.maxValueChars = maxValueChars; }
+        public int getMaxTraceChars() { return maxTraceChars; }
+        public void setMaxTraceChars(int maxTraceChars) { this.maxTraceChars = maxTraceChars; }
+        public int getMaxRecords() { return maxRecords; }
+        public void setMaxRecords(int maxRecords) { this.maxRecords = maxRecords; }
+        public Duration getRetention() { return retention; }
+        public void setRetention(Duration retention) { this.retention = retention; }
+        public Duration getMaxDuration() { return maxDuration; }
+        public void setMaxDuration(Duration maxDuration) { this.maxDuration = maxDuration; }
     }
 
     public static class Storage {
@@ -95,6 +164,36 @@ public class MeerkatProperties {
 
     }
 
+    /**
+     * Attaches the application's log lines to each kept trace (Logback or Log4j2). Running traces buffer their lines
+     * until they end; normal traces drop them.
+     */
+    public static class Logs {
+        private boolean enabled = true;
+        /** Lines kept per trace; later lines are counted as omitted. */
+        private int maxPerTrace = 100;
+        /** Longer messages are cut. */
+        private int maxMessageChars = 1_000;
+        /** Heap shared by all running traces for buffered lines; beyond it, new lines are omitted. */
+        private DataSize maxBufferedSize = DataSize.ofMegabytes(16);
+
+        public boolean isEnabled() { return enabled; }
+
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+
+        public int getMaxPerTrace() { return maxPerTrace; }
+
+        public void setMaxPerTrace(int maxPerTrace) { this.maxPerTrace = maxPerTrace; }
+
+        public int getMaxMessageChars() { return maxMessageChars; }
+
+        public void setMaxMessageChars(int maxMessageChars) { this.maxMessageChars = maxMessageChars; }
+
+        public DataSize getMaxBufferedSize() { return maxBufferedSize; }
+
+        public void setMaxBufferedSize(DataSize maxBufferedSize) { this.maxBufferedSize = maxBufferedSize; }
+    }
+
     public static class Trace {
         private boolean enabled = true;
         private String headerName = "X-Trace-Id";
@@ -114,6 +213,11 @@ public class MeerkatProperties {
          * from disk. Without usable storage, traces beyond it are dropped.
          */
         private DataSize maxMemorySize = DataSize.ofMegabytes(32);
+        private final Logs logs = new Logs();
+
+        public Logs getLogs() {
+            return logs;
+        }
 
         public boolean isEnabled() {
             return enabled;

@@ -23,7 +23,7 @@ mvn -pl examples/meerkat-example-spring-boot-4 -am package
 java -jar examples/meerkat-example-spring-boot-4/target/meerkat-example-spring-boot-4-0.1.0-alpha.4.jar
 ```
 
-页面入口：Trace 诊断 `/meerkat/`、调用排行 `/meerkat/stats/`、指标趋势 `/meerkat/metrics/`、实时诊断 `/meerkat/live/`。
+页面入口：Trace 诊断 `/meerkat/`、调用排行 `/meerkat/stats/`、指标趋势 `/meerkat/metrics/`、实时诊断 `/meerkat/live/`、流量抓取 `/meerkat/capture/`、工具箱 `/meerkat/tools/`。
 
 示例阈值：HTTP 和定时任务慢阈值 250 ms，入口线程 CPU 时间 100 ms，内存分配量 8 MB（见 `application.yaml`）。
 

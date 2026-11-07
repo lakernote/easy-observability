@@ -34,6 +34,19 @@ public final class RootTraceHandle {
         trace.requireExplicitTree();
     }
 
+    /**
+     * Records request data on every span of this trace until it completes, then hands the captured snapshot to
+     * {@code sink}. Retained traces are unaffected: they never include captured data.
+     */
+    public void beginCapture(CaptureSink sink, CaptureLimits limits) {
+        trace.beginCapture(sink, limits);
+    }
+
+    /** Where to record request data on the root span, or {@code null} when not capturing. */
+    public CaptureTarget captureTarget() {
+        return CaptureTarget.of(trace, trace.rootSpan());
+    }
+
     /** Shows this running entry on the live diagnostics page until it completes. */
     public void trackActive(String traceId, String source, ThreadResourceSnapshot resourcesAtStart) {
         trace.track(traceId, source, resourcesAtStart);

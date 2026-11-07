@@ -4,6 +4,8 @@ import io.github.lakernote.meerkat.metrics.internal.OperationStats;
 import io.github.lakernote.meerkat.trace.SpanKind;
 import io.github.lakernote.meerkat.trace.internal.TraceContext;
 import io.github.lakernote.meerkat.trace.internal.DetachedSpan;
+import io.github.lakernote.meerkat.trace.internal.CaptureTarget;
+import io.github.lakernote.meerkat.capture.internal.CaptureText;
 import org.aopalliance.intercept.MethodInterceptor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -164,14 +166,40 @@ public final class RedissonTraceConnectionFactoryPostProcessor implements BeanPo
         Throwable failure = null;
         boolean recordMetric = !isPipelined(connection);
         long startedAt = System.nanoTime();
+        CaptureTarget capture = span.captureTarget();
         try {
-            return invokeTarget(method, target, args);
+            Object result = invokeTarget(method, target, args);
+            if (capture != null) captureCommand(capture, name, args, result, null);
+            return result;
         } catch (Throwable error) {
             failure = error;
+            if (capture != null) captureCommand(capture, name, args, null, error);
             throw error;
         } finally {
             finish(span, failure);
             if (recordMetric) recordMetric(method, startedAt, failure);
+        }
+    }
+
+    private static void captureCommand(CaptureTarget capture, String name, Object[] args, Object result,
+                                       Throwable failure) {
+        try {
+            int maxChars = capture.limits().maxValueChars();
+            StringBuilder command = new StringBuilder(name.toUpperCase(java.util.Locale.ROOT));
+            if (args != null) {
+                for (int index = 0; index < args.length; index++) {
+                    if (command.length() > maxChars) {
+                        command.append(" …(+").append(args.length - index).append(" args)");
+                        break;
+                    }
+                    command.append(' ').append(CaptureText.of(args[index], maxChars - command.length() + 16));
+                }
+            }
+            capture.capture("command", command.toString());
+            if (failure != null) capture.capture("error", failure.toString());
+            else capture.capture("result", CaptureText.of(result, maxChars));
+        } catch (RuntimeException ignored) {
+            // 抓取失败不能影响 Redis 调用。
         }
     }
 

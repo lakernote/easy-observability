@@ -27,6 +27,7 @@ class LiveDiagnosticsControllerTest {
     @Test
     void returnsRequestsThreadsAndADownloadableDump() throws Exception {
         assertThat(controller.requests().items()).isNotNull();
+        assertThat(controller.connections().items()).isNotNull();
         assertThat(controller.threads(0).threads()).isNotEmpty();
         ResponseEntity<String> dump = controller.threadDump();
         assertThat(dump.getHeaders().getContentType()).isEqualTo(MediaType.parseMediaType("text/plain;charset=UTF-8"));
@@ -68,6 +69,7 @@ class LiveDiagnosticsControllerTest {
                 failure -> assertThat(failure.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN));
         assertThatThrownBy(() -> forbidden.threads(0)).isInstanceOf(ResponseStatusException.class);
         assertThatThrownBy(forbidden::threadDump).isInstanceOf(ResponseStatusException.class);
+        assertThatThrownBy(forbidden::connections).isInstanceOf(ResponseStatusException.class);
         assertThat(forbidden.livePage().getStatusCode()).isEqualTo(HttpStatus.OK);
     }
 }

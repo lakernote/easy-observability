@@ -63,6 +63,10 @@ Common settings are listed below; anything not listed keeps the starter default.
 | `meerkat.trace.retention` | `7d` | Days to keep diagnostic traces, whole days from `1d` to `365d` |
 | `meerkat.trace.max-storage-size` | `128MB` | Disk limit for diagnostic traces; the oldest segment files are deleted beyond it |
 | `meerkat.trace.max-memory-size` | `32MB` | Heap limit for caching full call trees of the newest traces (oldest evicted by estimated size). Older records are read from disk when opened, or dropped when storage is unavailable |
+| `meerkat.trace.logs.enabled` | `true` | Attach the application's own log lines to slow and failed traces, see [Application logs in traces](#application-logs-in-traces) |
+| `meerkat.trace.logs.max-per-trace` | `100` | Log lines kept per trace; extra lines are counted and reported as omitted |
+| `meerkat.trace.logs.max-message-chars` | `1000` | Characters kept per log message (minimum 80) |
+| `meerkat.trace.logs.max-buffered-size` | `16MB` | Heap shared by the log lines of all running traces; lines beyond it are omitted until traces finish |
 | `meerkat.metrics.enabled` | `true` | Master switch for runtime metrics (operation statistics and resource metrics) |
 | `meerkat.metrics.max-operations` | `1000` | Maximum operations tracked across all categories. Beyond it, new operations go to an "other" row per category; operations without calls for 2 hours release their slot |
 | `meerkat.metrics.retention` | `30d` | Metric history retention, whole days from `1d` to `365d` |
@@ -97,6 +101,9 @@ Trace query API (all `GET`, prefix `/api/meerkat`):
 - `/traces?kind=all|slow|error|resource&source=HTTP|JOB|KAFKA_CONSUMER&q=&before=&limit=50`: paged by completion time, newest first. Returns `items` (without call trees), `nextCursor` (pass as `before` for the next page), `total` and `scanLimited`. `q` matches entry names, trace IDs, error messages, thread names and SQL, remote addresses and other nodes in the call tree. Text search scans disk and reads at most 32MB per request; when the limit is hit `scanLimited` is `true`, `total` is `-1`, and `nextCursor` continues the search. `limit` is at most 200.
 - `/traces/{traceId}?source=`: full call tree, or 404.
 - `/traces/storage`: `persistent`, `storageBytes`, `maxStorageBytes`, `retentionDays`, `traceCount`, `indexing`.
+- `/errors?window=1h|24h|7d&source=&limit=50`: failed traces in the window grouped by error type and message, largest first (at most 200 groups). Each group has `errorType`, `message` (numbers, IDs and quoted values masked), `sampleMessage`, `count`, `firstSeen`, `lastSeen`, `newInWindow` (no failure of this group was kept before the window), the top `entries`, `latestTraceId` and a 24-bucket `trend`.
+
+The **Error groups** panel on the Trace page shows the same data: one row per kind of failure instead of a page of identical ones, with a "New" mark for failures that only started in the window (for example after a release). Failures without an exception, such as a bare 5xx status, are grouped per entry. Groups are computed on request from the trace index, so they cost nothing per request and survive restarts; they cover the failures still kept by `retention` and `max-storage-size`.
 
 Invalid settings such as `retention` or `max-storage-size` stop the application from starting so configuration mistakes surface early. If writing metric history fails at runtime because of directory permissions, a read-only file system or disk I/O, Meerkat logs a warning and keeps the data in memory without interrupting the host application; the dashboard shows "Storage degraded". Restart the application after fixing storage to resume saving history.
 
@@ -167,14 +174,79 @@ The `/meerkat/live/` page answers "what is happening right now", useful when an 
 
 - **In-flight requests:** HTTP, scheduled-job and Kafka-consumer entries currently running, ordered by elapsed time, with entry-thread CPU time so far, the innermost step currently executing (for example a SQL statement or remote call and how long it has been running) and the thread state. Expand a row for the thread's current stack and the lock it is waiting on. Refreshes every 5 seconds by default. Once a request switches to async processing and its entry thread has returned, only elapsed time and the current step are shown, without a stack. Shows up to 200; the dashboard's own requests are excluded.
 - **Threads:** all platform threads are sampled for 1 second and sorted by CPU usage (100% means one full core), with state, cumulative CPU, the lock waited on and its owner; expand for the stack. Deadlocked threads are listed at the top when detected. "Merge identical stacks" collapses threads with the same state and stack into one row, making it easy to spot many threads stuck in the same place. A jstack-format thread dump can be downloaded. Virtual threads are not listed.
+- **DB connections:** JDBC connections taken from a traced data source and not yet closed (returned to the pool), longest held first, with the data source, the thread that took the connection, its trace ID and that thread's state and stack *right now*. A connection whose trace has already finished is flagged as a **suspected leak**: the request that took it returned without closing it. Use this when the pool is exhausted ("Connection is not available, request timed out") to see who is holding it. Summary cards show the total, suspected leaks and the count per data source. Covers data sources wrapped by Meerkat's JDBC tracing; a `ProxyDataSource` bean you build yourself is not tracked.
 
-Each entry adds and removes itself from a concurrent collection once at start and once at end, which does not affect request latency. Only one thread sample runs at a time; a request while sampling returns 429.
+Each entry adds and removes itself from a concurrent collection once at start and once at end, which does not affect request latency. Connection tracking is the same: one map insert per `getConnection` and one remove per `close`, no stack capture, at most 10,000 open connections tracked (more are counted but not listed); stacks are read only when the page asks. Only one thread sample runs at a time; a request while sampling returns 429.
 
-Query API (all `GET`, prefix `/api/meerkat/live`): `/requests`, `/threads?sampleMs=0..5000` (default 1000), `/threads/dump` (`text/plain` attachment; only one dump at a time and at least 5 seconds apart, otherwise 429).
+Query API (all `GET`, prefix `/api/meerkat/live`): `/requests`, `/connections`, `/threads?sampleMs=0..5000` (default 1000), `/threads/dump` (`text/plain` attachment; only one dump at a time and at least 5 seconds apart, otherwise 429).
+
+## Traffic capture
+
+When a request misbehaves and the trace tree alone does not explain why, traffic capture records everything the request did: the incoming request and response (headers and bodies), every SQL statement with its bound parameters and result rows or update count, Redis commands with their replies, and outbound HTTP calls (RestTemplate, RestClient, Feign) with their requests and responses. All of it is tied together by the trace ID in one record.
+
+There is no on/off switch: who may capture is decided by `ObservabilityAccessPolicy#canCapture()`, which the built-in policy denies, so capture is unavailable until your policy grants it (see [Dashboard and API access](#dashboard-and-api-access)). Nothing is recorded until a capture is started from the page. Optional limits:
+
+```yaml
+meerkat:
+  capture:
+    max-body-size: 64KB    # per request/response body
+    max-result-rows: 20    # SQL result rows kept per query
+    max-value-chars: 16384 # per recorded value
+    max-trace-chars: 1000000 # per captured request
+    max-records: 100       # captured requests kept in memory
+    retention: 2h
+    max-duration: 1h       # longest a capture may run
+```
+
+Open `/meerkat/capture/`, enter a rule — HTTP method, an Ant-style path such as `/api/orders/**`, and optionally a header and value (for example the ID of the user reporting the problem) — and how many requests to capture and for how long. The capture stops by itself after that many requests or that time, whichever comes first. Up to 10 captures can be active at once; starting and stopping one is logged at WARN with the operator.
+
+> [!WARNING]
+> Captured data is **not redacted**: it can contain passwords, tokens and personal data. Grant `canCapture()` only to people allowed to see that data, and keep captures short.
+
+What to know:
+
+- Only HTTP entry requests are captured. Bodies contain only what the application actually read and wrote, up to `max-body-size`; nothing is read ahead. File uploads and downloads (binary content types such as images or octet-stream, `multipart/*`, or `Content-Disposition: attachment`) are not copied; they are recorded as a label such as `[file upload, multipart/form-data, 10485760 bytes; content not recorded]`. This applies to inbound requests and to outbound `RestTemplate`/`RestClient`/OpenFeign calls. Form posts read through `getParameter` are recorded as parameters.
+- SQL results show the first `max-result-rows` rows and only the columns the application read; LOB and stream columns are not recorded. `·` marks a column the application did not read.
+- Captured records are kept in memory only, never on disk, and never appear in the trace list or trace API. A captured request still appears in the trace list on its own merits (slow, failed, ...) like any other.
+- When no capture is active, the cost is one volatile read per request. While capturing, only matching requests pay for copying their data. Meerkat turns on datasource-proxy's result-set proxy, which returns the driver's result set unchanged for queries that are not captured, and wraps the request factory of `RestTemplate`/`RestClient` beans rather than adding an interceptor, so request bodies keep streaming and uploads are never buffered in memory. Calls outside a captured request get the original request. A `RestClient.Builder` whose request factory is replaced after startup is not captured.
+
+API (prefix `/api/meerkat/capture`): `GET /status`, `POST /sessions` (JSON body `{"method","pathPattern","headerName","headerValue","maxCount","durationSeconds"}`), `POST /sessions/{id}/stop`, `GET /records?sessionId=`, `GET /records/{id}`, `POST /records/clear`. Everything except `/status` requires both `canView()` and `canCapture()`.
+
+## Toolbox
+
+The toolbox at `/meerkat/tools/` runs a few classic diagnostics on demand, without a Java agent or bytecode instrumentation. Nothing runs in the background until someone starts a tool, every tool is bounded in time and memory, and each heavy tool runs once at a time (a second request gets 429).
+
+| Tool | What it does | Permission |
+| --- | --- | --- |
+| Log levels | Lists loggers with their configured and effective levels (through Spring Boot's `LoggingSystem`, so Logback and Log4j2 both work) and sets a level for 1–60 minutes; it reverts to the previous configured level by itself, or at once with "Revert". At most 50 temporary levels at a time; changes are logged at WARN with the operator | listing: `canView()`; changing: `canOperate()` |
+| CPU flame graph | Samples the stacks of RUNNABLE threads every 10–100 ms (default 20 ms) for up to 60 s (default 10 s) and draws an interactive flame graph (click to zoom, hover for samples and %) with the hottest methods by self time. The call tree is capped at 20,000 nodes and 128 frames per stack; idle native waits (socket accept, epoll, ...) can be skipped and blocked/waiting threads included. The collapsed-stack download works with flamegraph.pl and speedscope | `canView()` |
+| Heap histogram | Runs `GC.class_histogram` (live objects, so it **triggers a full GC pause**) and shows the top classes by bytes; the next histogram shows the growth since the previous one, which helps find leaks. Only the previous histogram (up to 500 rows) is kept, and histograms are at least 10 s apart | `canOperate()` |
+| Heap dump | Writes a dump of live objects (`HotSpotDiagnosticMXBean.dumpHeap`) to the temp directory after checking free space, streams it as a download and deletes it. It **pauses the application** and can be as large as the heap | `canOperate()` |
+| Configuration sources | For a property name (or a name search, at most 200 results), shows the effective value with placeholders resolved and every property source that defines it, in precedence order, marking the one that wins. Values are **not redacted** | `canOperate()` |
+| Class sources | For a class name, shows every copy visible to the application class loader, where the loaded one came from and the class loader chain. "Scan duplicate classes" reads the jars and directories on the class path (including the nested jars of a Spring Boot executable jar when its class loader exposes them) and lists classes found in more than one place, grouped by jar pair; it stops after 500 duplicates or 20 s | `canView()` |
+
+```yaml
+meerkat:
+  tools:
+    enabled: true                  # false turns the whole toolbox API off (404)
+    log-level-max-duration: 1h     # longest temporary log level, at most 1h
+    heap-histogram-interval: 10s   # shortest time between two heap histograms
+```
+
+> [!WARNING]
+> `canOperate()` is denied by default, including by the built-in policy: heap dumps and configuration values expose secrets, heap histograms and dumps pause the application, and log levels change runtime behaviour. Grant it only to trusted operators.
+
+What to know:
+
+- The CPU profiler only sees what `ThreadMXBean` reports, so stacks are taken at safepoints (safepoint bias) and native frames are not shown. It is meant to find hot spots, not to measure exact costs. Sampling itself costs CPU; the result shows the time spent taking stacks.
+- The heap dump download is held in browser memory before saving; for very large heaps use `jcmd <pid> GC.heap_dump` on the host instead.
+- Duplicate scanning reads class path entries without loading classes. Entries that cannot be opened are listed as unreadable rather than failing the scan.
+
+API (prefix `/api/meerkat/tools`): `GET /status`; `GET /loggers?q=&limit=`, `POST /loggers/overrides` (JSON `{"logger","level","durationSeconds"}`), `POST /loggers/overrides/revert?logger=`; `POST /profiler` (JSON `{"durationSeconds","intervalMs","includeBlocked","excludeIdle","groupByThread"}`), `GET /profiler`, `GET /profiler/{id}`, `POST /profiler/{id}/stop`, `GET /profiler/{id}/collapsed`; `POST /heap/histogram?limit=`, `POST /heap/dump`; `GET /config?name=`, `GET /config/search?q=`; `GET /classes?name=`, `POST /classes/duplicates`.
 
 ## Dashboard and API access
 
-The dashboard is at `/meerkat/`, operations at `/meerkat/stats/`, metrics at `/meerkat/metrics/`, live diagnostics at `/meerkat/live/`, and the query API under `/api/meerkat/`. The dashboard follows the browser language (Chinese or English) and can be switched in the top bar; the choice is stored in the browser. Meerkat provides no usernames, passwords or login; authentication is left to your Spring Security setup, Servlet container or gateway.
+The dashboard is at `/meerkat/`, operations at `/meerkat/stats/`, metrics at `/meerkat/metrics/`, live diagnostics at `/meerkat/live/`, traffic capture at `/meerkat/capture/`, the toolbox at `/meerkat/tools/`, and the query API under `/api/meerkat/`. The dashboard follows the browser language (Chinese or English) and can be switched in the top bar; the choice is stored in the browser. Meerkat provides no usernames, passwords or login; authentication is left to your Spring Security setup, Servlet container or gateway.
 
 API authorization is decided by `ObservabilityAccessPolicy`; define a bean of that type to replace the default:
 
@@ -182,6 +254,8 @@ API authorization is decided by `ObservabilityAccessPolicy`; define a bean of th
 | --- | --- | --- |
 | `canView()` | Querying traces, metrics, storage status and current permissions | `true`, allows every request |
 | `canClear()` | Clearing trace history (`POST /api/meerkat/traces/clear`) and resetting operation statistics (`POST /api/meerkat/metrics/operations/reset`); `canView()` must also pass | `false`, denies every request; the dashboard hides "Clear history" and "Reset stats" |
+| `canCapture()` | Traffic capture: starting and stopping captures and reading captured records (`/api/meerkat/capture/**`); `canView()` must also pass | Denied, including by the built-in policy; override `canCapture()` to allow it. This is the only switch for traffic capture |
+| `canOperate()` | Sensitive toolbox operations: changing log levels, heap histograms (full GC), downloading heap dumps and reading configuration values (`/api/meerkat/tools/**`); `canView()` must also pass | `false`, denies every request, including the built-in policy; the toolbox disables those controls |
 
 `canClear()` is a default method, so a lambda is enough to restrict viewing while clearing stays off:
 
@@ -240,6 +314,14 @@ Inbound trace ID priority:
 
 Outbound calls only write `X-Trace-Id`. Standard headers such as `traceparent` and B3 are written by Micrometer Tracing; Meerkat does not write them again, so it never changes the sampling decision of downstream services. SkyWalking's `sw8` header is not recognized yet.
 
+## Application logs in traces
+
+The trace detail and traffic-capture records show the log lines the application itself wrote while the request ran — level, logger, thread, the step (span) that was current, and the offset from the start of the request — so the log of a slow or failed request no longer has to be searched for separately. Exceptions logged with a line are appended as `| ExceptionClass: message`; stack traces stay in your log files.
+
+Meerkat adds an appender to the root logger of Logback or Log4j2 (whichever the application uses) and re-adds it when Spring Boot or the application reconfigures logging. Only lines that pass your logger levels are seen. Lines from loggers with `additivity=false` never reach the root logger and are not collected. Lines written on child threads are included when the trace context is propagated to them (see [Kafka and executors](#kafka-and-executors)).
+
+Whether a request will turn out slow or failed is known only when it ends, so lines are buffered for every running trace and dropped for fast, successful ones. The buffer is bounded by `max-per-trace`, `max-message-chars` and the shared `max-buffered-size`, and released when the trace ends. Outside a trace the appender costs one thread-local read. Turn it off with `meerkat.trace.logs.enabled=false`.
+
 ## Kafka and executors
 
 The starter enables observation on `KafkaTemplate` and listener factories in the Spring context, so `spring.kafka.template/listener.observation-enabled` is not needed; an explicit `false` is respected. The default listener factory gets the trace ID interceptor automatically. If the application uses its own `RecordInterceptor`, compose `TraceIdRecordInterceptor` with it in your configuration. Batch listeners, custom consumers and Kafka Streams are not covered automatically.
@@ -270,6 +352,9 @@ These numbers come from the JMH benchmarks in the `benchmarks` module (Apple M4 
 | `TraceBlock` outside a trace | — | 18 ns | Runs the business code directly without recording |
 | 10 `TraceBlock`s inside one entry trace | — | 1.0 µs | About 0.1 µs per span |
 | `TraceContextTaskDecorator` decorating and running one task | — | 0.27 µs (no trace) / 0.37 µs (in a trace) | Generates a new trace ID for the task when there is no parent trace |
+| One log line with trace logs on, outside a trace | — | 1 ns | No allocation |
+| One log line with trace logs on, inside a trace | — | 20 ns | Allocates about 50–75 B per line; the trace reserves its log budget in 8 KB blocks |
+| Borrowing a pooled JDBC connection, with connection tracking | — | +0.12 µs | Records the holder for the live connections view |
 
 For requests taking 1 ms or more this is under 1%; for 10 ms requests, under 0.1%. Slow, failed and resource-heavy entries are also added to an in-memory list and archived asynchronously on a background thread; archive I/O never runs on business threads.
 

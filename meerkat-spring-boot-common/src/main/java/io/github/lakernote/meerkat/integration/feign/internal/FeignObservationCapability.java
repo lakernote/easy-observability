@@ -7,6 +7,8 @@ import feign.Request;
 import feign.RequestTemplate;
 import feign.Response;
 import feign.Target;
+import io.github.lakernote.meerkat.trace.internal.CaptureTarget;
+import io.github.lakernote.meerkat.trace.internal.CaptureThreadState;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
 
@@ -39,11 +41,15 @@ public final class FeignObservationCapability implements Capability {
                     .lowCardinalityKeyValue("uri", uriTemplate(request))
                     .lowCardinalityKeyValue("client.name", clientName(request))
                     .start();
+            CaptureTarget capture = null;
             try (Observation.Scope ignored = observation.openScope()) {
+                capture = CaptureThreadState.claimRemote();
+                if (capture != null) FeignCapture.request(capture, request);
                 Response response = delegate.execute(request, options);
                 observation.lowCardinalityKeyValue("status", String.valueOf(response.status()));
-                return response;
+                return capture == null ? response : FeignCapture.response(capture, response);
             } catch (IOException | RuntimeException | Error failure) {
+                if (capture != null) capture.capture("error", failure.toString());
                 observation.error(failure);
                 throw failure;
             } finally {

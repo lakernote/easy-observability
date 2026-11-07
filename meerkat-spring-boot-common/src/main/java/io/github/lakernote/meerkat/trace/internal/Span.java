@@ -2,7 +2,9 @@ package io.github.lakernote.meerkat.trace.internal;
 
 import io.github.lakernote.meerkat.trace.SpanKind;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 final class Span {
     private final String spanId;
@@ -20,6 +22,9 @@ final class Span {
     private String errorType = "";
     private boolean error;
     private boolean slow;
+    /** Request data recorded while traffic capture is on; values are strings or lazily rendered {@link CaptureValue}s. */
+    private Map<String, Object> captures;
+    static final int MAX_CAPTURES_PER_SPAN = 32;
 
     Span(String spanId, String name, SpanKind kind, String tag, Span parent) {
         this.spanId = spanId == null ? "" : spanId;
@@ -36,6 +41,13 @@ final class Span {
     void addChild(Span child) {
         if (children == null) children = new ArrayList<>();
         children.add(child);
+    }
+
+    /** Callers hold the owning tree's lock. Later values for the same key replace earlier ones. */
+    void capture(String key, Object value) {
+        if (captures == null) captures = new LinkedHashMap<>();
+        if (captures.size() >= MAX_CAPTURES_PER_SPAN && !captures.containsKey(key)) return;
+        captures.put(key, value);
     }
 
     void updateIdentity(String name, String tag) {
@@ -144,13 +156,26 @@ final class Span {
     }
 
     TraceNode snapshotNode(long traceStartNanos) {
+        return snapshotNode(traceStartNanos, null);
+    }
+
+    /** @param captureBudget includes captured request data when not {@code null} */
+    TraceNode snapshotNode(long traceStartNanos, CaptureBudget captureBudget) {
+        Map<String, String> capturedValues = Map.of();
+        if (captureBudget != null && captures != null && !captures.isEmpty()) {
+            capturedValues = new LinkedHashMap<>();
+            for (Map.Entry<String, Object> entry : captures.entrySet()) {
+                capturedValues.put(entry.getKey(), captureBudget.render(entry.getValue()));
+            }
+        }
         List<TraceNode> childNodes = new ArrayList<>();
         if (children != null) {
-            for (Span child : children) childNodes.add(child.snapshotNode(traceStartNanos));
+            for (Span child : children) childNodes.add(child.snapshotNode(traceStartNanos, captureBudget));
         }
         long offsetMs = Math.max(0, (startNanos - traceStartNanos) / 1_000_000);
         return new TraceNode(kind.displayName(), bounded(name, 512), bounded(tag, 2048), costMs(), offsetMs, slow, error,
-                unfinishedAtTraceEnd, bounded(errorType, 256), bounded(threadName, 256), threadId, childNodes);
+                unfinishedAtTraceEnd, bounded(errorType, 256), bounded(threadName, 256), threadId, childNodes,
+                capturedValues);
     }
 
     private static String bounded(String value, int maxLength) {

@@ -76,6 +76,8 @@ class DashboardContextPathE2ETest {
                 APPLICATION_PATH + "/meerkat/",
                 APPLICATION_PATH + "/meerkat/stats/",
                 APPLICATION_PATH + "/meerkat/live/",
+                APPLICATION_PATH + "/meerkat/capture/",
+                APPLICATION_PATH + "/meerkat/tools/",
                 APPLICATION_PATH + "/meerkat/assets/dashboard.css",
                 APPLICATION_PATH + "/meerkat/assets/i18n.js",
                 APPLICATION_PATH + "/meerkat/assets/meerkat-icon.png",
@@ -90,6 +92,8 @@ class DashboardContextPathE2ETest {
                 APPLICATION_PATH + "/meerkat/stats/",
                 APPLICATION_PATH + "/meerkat/metrics/",
                 APPLICATION_PATH + "/meerkat/live/",
+                APPLICATION_PATH + "/meerkat/capture/",
+                APPLICATION_PATH + "/meerkat/tools/",
                 APPLICATION_PATH + "/meerkat/assets/dashboard.css",
                 APPLICATION_PATH + "/meerkat/assets/i18n.js",
                 APPLICATION_PATH + "/meerkat/assets/meerkat-icon.png",
@@ -105,6 +109,26 @@ class DashboardContextPathE2ETest {
         assertThat(paths(liveReferences)).contains(
                 APPLICATION_PATH + "/meerkat/assets/live.css",
                 APPLICATION_PATH + "/meerkat/assets/live.js");
+        URI capturePage = assertCanonicalRedirect("/meerkat/capture", "/meerkat/capture/");
+        HttpResponse<String> capturePageResponse = get(capturePage);
+        assertThat(capturePageResponse.statusCode()).isEqualTo(200);
+        assertThat(paths(assertPageReferencesAvailable(capturePage, capturePageResponse.body()))).contains(
+                APPLICATION_PATH + "/meerkat/assets/capture.css",
+                APPLICATION_PATH + "/meerkat/assets/capture.js");
+        HttpResponse<String> captureStatus = get(capturePage.resolve("../../api/meerkat/capture/status"));
+        assertThat(captureStatus.statusCode()).isEqualTo(200);
+        assertThat(captureStatus.body()).contains("\"enabled\":false");
+        URI toolsPage = assertCanonicalRedirect("/meerkat/tools", "/meerkat/tools/");
+        HttpResponse<String> toolsPageResponse = get(toolsPage);
+        assertThat(toolsPageResponse.statusCode()).isEqualTo(200);
+        assertThat(paths(assertPageReferencesAvailable(toolsPage, toolsPageResponse.body()))).contains(
+                APPLICATION_PATH + "/meerkat/capture/",
+                APPLICATION_PATH + "/meerkat/assets/tools.css",
+                APPLICATION_PATH + "/meerkat/assets/tools.js");
+        HttpResponse<String> toolsStatus = get(toolsPage.resolve("../../api/meerkat/tools/status"));
+        assertThat(toolsStatus.statusCode()).isEqualTo(200);
+        assertThat(toolsStatus.body()).contains("\"enabled\":true", "\"canOperate\":false");
+
         HttpResponse<String> liveRequests = get(URI.create(livePage.toString()).resolve("../../api/meerkat/live/requests"));
         assertThat(liveRequests.statusCode()).isEqualTo(200);
         assertThat(liveRequests.body()).contains("\"items\":");

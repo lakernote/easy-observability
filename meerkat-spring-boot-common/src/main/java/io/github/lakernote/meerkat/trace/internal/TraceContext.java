@@ -85,8 +85,12 @@ public final class TraceContext {
             if (ownerThreadId != Thread.currentThread().getId()) {
                 throw new IllegalStateException("Trace context scope must close on its owner thread");
             }
-            if (previous == null) CURRENT_FRAME.remove();
-            else CURRENT_FRAME.set(previous);
+            if (previous == null) {
+                CURRENT_FRAME.remove();
+                CaptureThreadState.forgetStatement();
+            } else {
+                CURRENT_FRAME.set(previous);
+            }
             MdcContext.putOrRemove(TraceIdContext.MDC_KEY, previousTraceId);
             closed = true;
         }
@@ -151,6 +155,23 @@ public final class TraceContext {
         return new ScopedSpan(current.trace, Thread.currentThread().getId(), span, current, installed);
     }
 
+    /** Lock-free check used by log appenders before they format a message. */
+    static boolean hasFrame() {
+        return CURRENT_FRAME.get() != null;
+    }
+
+    /** Adds a log line to the trace running on this thread, attributed to the current span; no-op otherwise. */
+    static void recordLog(String level, String logger, String message) {
+        ExecutionFrame current = CURRENT_FRAME.get();
+        if (current != null) current.trace.recordLog(current.span, level, logger, message);
+    }
+
+    /** Where to record request data on the current span, or {@code null} when the current trace is not captured. */
+    public static CaptureTarget currentCaptureTarget() {
+        ExecutionFrame current = CURRENT_FRAME.get();
+        return current == null ? null : CaptureTarget.of(current.trace, current.span);
+    }
+
     /** Starts an exact, user-declared span and retains successful traces that contain it. */
     public static ScopedSpan startExplicitScopedSpan(String name, SpanKind kind, String tag) {
         TraceTree trace = currentTrace();
@@ -183,20 +204,33 @@ public final class TraceContext {
                              Consumer<TraceCompletion> completion) {
         try {
             TraceCompletion result;
+            TraceTree.CapturedSnapshot captured;
             synchronized (trace) {
                 if (trace.completed()) return;
                 long costMs = trace.completeRoot(slowThresholdMs, throwable);
                 boolean captureTree = trace.explicitTreeRequired() || trace.slow() || trace.error();
                 result = new TraceCompletion(captureTree ? trace.renderTree() : "",
                         captureTree ? trace.snapshotNodes() : List.of(), costMs, trace.slow(), trace.error(),
-                        trace.diagnosticReasons(), trace.errorType(), trace.errorMessage(), trace.errorStackTrace());
+                        trace.diagnosticReasons(), trace.errorType(), trace.errorMessage(), trace.errorStackTrace(),
+                        captureTree || trace.capturing() ? trace.logs() : List.of());
+                captured = trace.takeCapture();
             }
             String traceId = TraceIdContext.currentTraceId();
             completion.accept(result);
+            if (captured != null) deliverCapture(captured, result);
             TraceDiagnosticLog.summarize(result, description, slowThresholdMs, throwable, traceId);
         } finally {
             ExecutionFrame current = CURRENT_FRAME.get();
             if (current != null && current.trace == trace) CURRENT_FRAME.remove();
+            CaptureThreadState.forgetStatement();
+        }
+    }
+
+    private static void deliverCapture(TraceTree.CapturedSnapshot captured, TraceCompletion result) {
+        try {
+            captured.sink().completed(result, captured.nodes());
+        } catch (RuntimeException | LinkageError ignored) {
+            // 抓取结果保存失败不能影响请求完成。
         }
     }
 

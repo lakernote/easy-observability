@@ -1,5 +1,6 @@
 package io.github.lakernote.meerkat.web.internal;
 
+import io.github.lakernote.meerkat.trace.internal.store.ErrorGroups;
 import io.github.lakernote.meerkat.trace.internal.store.TraceRecord;
 import io.github.lakernote.meerkat.trace.internal.store.TraceStore;
 import io.github.lakernote.meerkat.web.ObservabilityAccessPolicy;
@@ -11,6 +12,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
+
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Map;
 
 /** Trace API used by the bundled Trace page. */
 @RestController
@@ -46,6 +51,20 @@ public class ObservabilityController {
     public TraceStore.StorageStatus traceStorage() {
         requireAccess();
         return traceStore.storageStatus();
+    }
+
+    private static final Map<String, Duration> ERROR_WINDOWS = Map.of(
+            "1h", Duration.ofHours(1), "24h", Duration.ofHours(24), "7d", Duration.ofDays(7));
+
+    /** Failed traces in the window grouped by error type and message, largest groups first. */
+    @GetMapping("/errors")
+    public ErrorGroups.Report errors(@RequestParam(defaultValue = "24h") String window,
+                                     @RequestParam(defaultValue = "") String source,
+                                     @RequestParam(defaultValue = "50") int limit) {
+        requireAccess();
+        Duration duration = ERROR_WINDOWS.get(window);
+        if (duration == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "window must be 1h, 24h or 7d");
+        return ErrorGroups.compute(traceStore, Instant.now(), duration, source, limit);
     }
 
     @GetMapping("/traces/{traceId}")

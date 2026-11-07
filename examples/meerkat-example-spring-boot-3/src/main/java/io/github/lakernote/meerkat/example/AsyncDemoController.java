@@ -1,6 +1,8 @@
 package io.github.lakernote.meerkat.example;
 
 import io.github.lakernote.meerkat.trace.TraceIdContext;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -14,6 +16,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/demo/async")
 public class AsyncDemoController {
+    private static final Logger log = LoggerFactory.getLogger(AsyncDemoController.class);
     private final DemoAsyncTaskService tasks;
     private final RestClient httpBingo;
 
@@ -49,12 +52,15 @@ public class AsyncDemoController {
             throw new IllegalArgumentException("propagation must be wrapped or unwrapped");
         }
         String traceId = TraceIdContext.currentTraceId();
+        // Log lines written while a recorded trace runs appear in its detail under "日志".
+        log.info("Submitting {} task ({})", mode, propagation);
         Map<String, Object> worker = DemoSupport.await("wrapped".equals(propagation)
                 ? tasks.runWrapped(mode) : tasks.runUnwrapped(mode));
         Map<String, Object> result = new LinkedHashMap<>(worker);
         result.put("propagation", propagation);
         result.put("requestTraceId", traceId);
         result.put("propagated", traceId.equals(worker.get("workerTraceId")));
+        log.info("Task finished on {}", worker.get("workerThread"));
         return result;
     }
 }
