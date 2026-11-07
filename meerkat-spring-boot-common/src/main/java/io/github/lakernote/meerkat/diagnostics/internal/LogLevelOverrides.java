@@ -170,6 +170,9 @@ public final class LogLevelOverrides implements AutoCloseable {
                 return thread;
             });
             executor.setRemoveOnCancelPolicy(true);
+            // No idle thread stays behind once every override has been restored.
+            executor.setKeepAliveTime(1, TimeUnit.MINUTES);
+            executor.allowCoreThreadTimeOut(true);
             scheduler = executor;
         }
         return scheduler;

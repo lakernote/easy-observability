@@ -33,6 +33,34 @@ class CaptureStoreTest {
         assertThat(store.find("1-1")).isNull();
     }
 
+    private CaptureRecord large(String id, int chars) {
+        TraceNode child = new TraceNode("Sql", "select", "", 1, 0, false, false, false, "", "main", 1, List.of(),
+                java.util.Map.of("result", "r".repeat(chars)));
+        TraceNode root = new TraceNode("Http", "GET /a", "", 2, 0, false, false, false, "", "main", 1,
+                List.of(child), java.util.Map.of("request.body", "b".repeat(chars)));
+        return new CaptureRecord(id, "1", "t", "GET", "/a", 200, 2, false, clock.instant(), null, null, null,
+                List.of(root), List.of(new io.github.lakernote.meerkat.trace.internal.TraceLog(0, "INFO", "l", "main",
+                        "", "m")));
+    }
+
+    @Test
+    void keepsNewestRecordsWithinTheHeapBudget() {
+        long one = large("x", 10_000).estimatedBytes();
+        assertThat(one).isGreaterThan(40_000);
+        CaptureStore store = new CaptureStore(100, one * 2 + one / 2, Duration.ofHours(1), clock);
+        store.add(large("1", 10_000));
+        store.add(large("2", 10_000));
+        store.add(large("3", 10_000));
+
+        assertThat(store.list(null)).extracting(CaptureRecord.Summary::id).containsExactly("3", "2");
+        assertThat(store.estimatedBytes()).isEqualTo(one * 2);
+
+        store.add(large("huge", 100_000));
+        assertThat(store.list(null)).extracting(CaptureRecord.Summary::id).containsExactly("huge");
+        store.clear();
+        assertThat(store.estimatedBytes()).isZero();
+    }
+
     @Test
     void dropsRecordsOlderThanRetention() {
         CaptureStore store = new CaptureStore(10, Duration.ofMinutes(10), clock);

@@ -90,6 +90,8 @@ public class MeerkatProperties {
         private int maxTraceChars = 1_000_000;
         /** Captured requests kept in memory; the oldest are dropped first. */
         private int maxRecords = 100;
+        /** Estimated heap for all kept captured requests; the oldest are dropped first, the newest is always kept. */
+        private DataSize maxStoredSize = DataSize.ofMegabytes(32);
         /** How long captured requests are kept in memory. */
         private Duration retention = Duration.ofHours(2);
         /** Longest time a capture rule may stay active before it stops by itself. */
@@ -105,6 +107,8 @@ public class MeerkatProperties {
         public void setMaxTraceChars(int maxTraceChars) { this.maxTraceChars = maxTraceChars; }
         public int getMaxRecords() { return maxRecords; }
         public void setMaxRecords(int maxRecords) { this.maxRecords = maxRecords; }
+        public DataSize getMaxStoredSize() { return maxStoredSize; }
+        public void setMaxStoredSize(DataSize maxStoredSize) { this.maxStoredSize = maxStoredSize; }
         public Duration getRetention() { return retention; }
         public void setRetention(Duration retention) { this.retention = retention; }
         public Duration getMaxDuration() { return maxDuration; }

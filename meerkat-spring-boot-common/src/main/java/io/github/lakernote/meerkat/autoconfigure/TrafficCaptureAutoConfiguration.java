@@ -48,7 +48,8 @@ public class TrafficCaptureAutoConfiguration {
     @Bean
     CaptureStore meerkatCaptureStore(MeerkatProperties properties) {
         MeerkatProperties.Capture capture = properties.getCapture();
-        return new CaptureStore(capture.getMaxRecords(), capture.getRetention());
+        long maxBytes = capture.getMaxStoredSize() == null ? Long.MAX_VALUE : capture.getMaxStoredSize().toBytes();
+        return new CaptureStore(capture.getMaxRecords(), maxBytes, capture.getRetention());
     }
 
     @Bean

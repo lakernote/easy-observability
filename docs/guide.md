@@ -194,6 +194,7 @@ meerkat:
     max-value-chars: 16384 # per recorded value
     max-trace-chars: 1000000 # per captured request
     max-records: 100       # captured requests kept in memory
+    max-stored-size: 32MB  # heap for all kept records; oldest dropped first
     retention: 2h
     max-duration: 1h       # longest a capture may run
 ```

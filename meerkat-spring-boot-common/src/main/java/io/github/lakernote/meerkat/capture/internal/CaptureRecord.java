@@ -5,6 +5,7 @@ import io.github.lakernote.meerkat.trace.internal.TraceNode;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 /** One captured request with the full call tree and the data recorded on each node. */
 public record CaptureRecord(String id, String sessionId, String traceId, String method, String path, int status,
@@ -23,6 +24,31 @@ public record CaptureRecord(String id, String sessionId, String traceId, String 
         errorMessage = errorMessage == null ? "" : errorMessage;
         errorStackTrace = errorStackTrace == null ? "" : errorStackTrace;
         nodes = nodes == null ? List.of() : List.copyOf(nodes);
+    }
+
+    /** Rough heap footprint: object overhead plus two bytes per char, like the trace store's estimate. */
+    public long estimatedBytes() {
+        long bytes = 256 + chars(id) + chars(sessionId) + chars(traceId) + chars(method) + chars(path)
+                + chars(errorType) + chars(errorMessage) + chars(errorStackTrace);
+        for (TraceNode node : nodes) bytes += estimatedBytes(node);
+        for (TraceLog log : logs) {
+            bytes += 96 + chars(log.level()) + chars(log.logger()) + chars(log.thread()) + chars(log.step())
+                    + chars(log.message());
+        }
+        return bytes;
+    }
+
+    private static long estimatedBytes(TraceNode node) {
+        long bytes = 160 + chars(node.name()) + chars(node.tag()) + chars(node.errorType()) + chars(node.threadName());
+        for (Map.Entry<String, String> capture : node.captures().entrySet()) {
+            bytes += 64 + chars(capture.getKey()) + chars(capture.getValue());
+        }
+        for (TraceNode child : node.children()) bytes += estimatedBytes(child);
+        return bytes;
+    }
+
+    private static long chars(String value) {
+        return value == null ? 0 : 2L * value.length();
     }
 
     public Summary summary() {

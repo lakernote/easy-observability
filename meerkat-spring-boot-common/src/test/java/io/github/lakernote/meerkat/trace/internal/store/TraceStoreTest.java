@@ -136,8 +136,17 @@ class TraceStoreTest {
         assertThat(restarted.find("t3", "").treeNodes()).singleElement().extracting(TraceNode::tag)
                 .isEqualTo("select * from orders_3");
         restarted.add(trace("t5").build());
-        assertThat(segments()).hasSize(2);
-        assertThat(restarted.search(query("all", "", "", "")).items().get(0).traceId()).isEqualTo("t5");
+        assertThat(segments()).singleElement().extracting(path -> path.getFileName().toString())
+                .isEqualTo("traces-20261105-1.jsonl");
+        assertThat(restarted.search(query("all", "", "", "")).items()).extracting(TraceSummary::traceId)
+                .containsExactly("t5", "t4", "t3", "t2", "t1", "t0");
+        assertThat(restarted.find("t5", "")).isNotNull();
+        restarted.close();
+
+        TraceStore again = store(2, 128 * MB);
+        again.start();
+        awaitIndexed(again);
+        assertThat(again.size()).isEqualTo(6);
     }
 
     @Test
@@ -267,6 +276,10 @@ class TraceStoreTest {
 
         assertThat(store.recent(10)).extracting(TraceRecord::traceId).containsExactly("good");
         assertThat(directory.resolve("unrelated.jsonl")).exists();
+
+        store.add(trace("after").build());
+        assertThat(segments()).extracting(path -> path.getFileName().toString())
+                .containsExactlyInAnyOrder("traces-20261105-1.jsonl", "traces-20261105-2.jsonl");
     }
 
     @Test

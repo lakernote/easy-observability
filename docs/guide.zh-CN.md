@@ -194,6 +194,7 @@ meerkat:
     max-value-chars: 16384 # 每个记录值
     max-trace-chars: 1000000 # 每个被抓取的请求
     max-records: 100       # 内存中保留的抓取记录数
+    max-stored-size: 32MB  # 所有抓取记录占用的堆上限，超出先丢最旧的
     retention: 2h
     max-duration: 1h       # 单次抓取最长时间
 ```

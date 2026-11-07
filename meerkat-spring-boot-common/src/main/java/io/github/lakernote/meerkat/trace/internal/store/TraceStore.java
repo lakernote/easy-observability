@@ -138,6 +138,7 @@ public final class TraceStore implements AutoCloseable {
                 Files.createDirectories(directory);
                 loadSegments();
                 enforceLimits();
+                resumeLastSegment();
             } catch (Exception failure) {
                 disablePersistence("open trace storage", failure);
                 return;
@@ -448,6 +449,30 @@ public final class TraceStore implements AutoCloseable {
         return segment;
     }
 
+    /**
+     * Keeps appending to today's newest segment after a restart, so restarts do not leave many small files. A
+     * segment whose last line was cut short is left alone and the next write starts a new one.
+     */
+    private void resumeLastSegment() throws IOException {
+        var last = segments.lastEntry();
+        if (last == null) return;
+        Segment segment = last.getValue();
+        if (!segment.id.day().equals(LocalDate.now(clock)) || segment.size >= segmentBytes
+                || !endsWithNewline(segment)) {
+            return;
+        }
+        currentChannel = FileChannel.open(segment.path, StandardOpenOption.WRITE, StandardOpenOption.APPEND);
+        current = segment;
+    }
+
+    private static boolean endsWithNewline(Segment segment) throws IOException {
+        if (segment.size == 0) return true;
+        try (FileChannel channel = FileChannel.open(segment.path, StandardOpenOption.READ)) {
+            ByteBuffer last = ByteBuffer.allocate(1);
+            return channel.read(last, segment.size - 1) == 1 && last.get(0) == '\n';
+        }
+    }
+
     private void loadSegments() throws IOException {
         try (DirectoryStream<Path> files = Files.newDirectoryStream(directory, "traces-*.jsonl")) {
             for (Path file : files) {
@@ -458,6 +483,7 @@ public final class TraceStore implements AutoCloseable {
                             Integer.parseInt(matcher.group(2)));
                     Segment segment = new Segment(id, file);
                     segment.size = Files.size(file);
+                    segment.loadedSize = segment.size;
                     segments.put(id, segment);
                 } catch (RuntimeException ignored) {
                     // Not one of our segment names.
@@ -572,8 +598,10 @@ public final class TraceStore implements AutoCloseable {
             long position = 0;
             long lineStart = 0;
             boolean oversized = false;
+            long limit = segment.loadedSize;
             int read;
-            while ((read = input.read(buffer)) >= 0) {
+            while (position < limit
+                    && (read = input.read(buffer, 0, (int) Math.min(buffer.length, limit - position))) >= 0) {
                 int from = 0;
                 for (int i = 0; i < read; i++) {
                     if (buffer[i] != '\n') continue;
@@ -778,6 +806,8 @@ public final class TraceStore implements AutoCloseable {
         final SegmentId id;
         final Path path;
         long size;
+        /** Bytes present when the store started; the index rebuild reads no further. */
+        long loadedSize;
         volatile boolean deleted;
 
         Segment(SegmentId id, Path path) {
